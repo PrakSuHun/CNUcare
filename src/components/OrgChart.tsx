@@ -195,8 +195,8 @@ export default function OrgChart({ userRole, userId, basePath }: OrgChartProps) 
         )}
       </div>
 
-      {/* 전체 보기: 관리자별 컬럼, 대학생 균일 그리드 */}
-      {showAll ? (
+      {/* 레이아웃 결정: 관리자 여러명이면 관리자 가로 배치, 1명이면 대학생 가로 배치 */}
+      {showAll && !managerFilter ? (
         <div className="overflow-x-auto pb-2">
           <div className="flex flex-col lg:flex-row lg:items-start lg:gap-3 lg:min-w-max space-y-3 lg:space-y-0">
             {visibleTree.map((manager) => {
