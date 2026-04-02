@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
-function getApiKeys(): string[] {
-  return (process.env.GEMINI_API_KEY || "")
-    .split(",")
-    .map((k) => k.trim())
-    .filter(Boolean);
+function getFreeKeys(): string[] {
+  return (process.env.GEMINI_API_KEY || "").split(",").map((k) => k.trim()).filter(Boolean);
+}
+
+function getPaidKey(): string | null {
+  return process.env.GEMINI_PAID_KEY?.trim() || null;
 }
 
 let keyIndex = 0;
@@ -21,30 +22,35 @@ const PROMPT = `이 오디오는 선교 활동 중 생명(선교 대상자)과�
 
 한국어로 작성하고, 내용을 요약하지 말고 최대한 상세하게 전사하여 정리해주세요.`;
 
-async function callGemini(apiKey: string, base64: string, mimeType: string) {
+async function callGemini(apiKey: string, base64: string, mimeType: string, model = "gemini-2.5-flash") {
   const ai = new GoogleGenerativeAI(apiKey);
-  const model = ai.getGenerativeModel({ model: "gemini-2.5-flash" });
-
-  const response = await model.generateContent([
+  const m = ai.getGenerativeModel({ model });
+  const response = await m.generateContent([
     { text: PROMPT },
     { inlineData: { mimeType, data: base64 } },
   ]);
-
   return response.response.text();
 }
 
+function parseResult(text: string) {
+  try {
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (jsonMatch) return JSON.parse(jsonMatch[0]);
+  } catch {}
+  return { 날짜: "", 만남장소: "", 생명반응: text };
+}
+
 export async function POST(req: NextRequest) {
-  const keys = getApiKeys();
-  if (keys.length === 0) {
+  const freeKeys = getFreeKeys();
+  const paidKey = getPaidKey();
+
+  if (freeKeys.length === 0 && !paidKey) {
     return NextResponse.json({ error: "Gemini API key not configured" }, { status: 500 });
   }
 
   const formData = await req.formData();
   const file = formData.get("audio") as File | null;
-
-  if (!file) {
-    return NextResponse.json({ error: "No audio file" }, { status: 400 });
-  }
+  if (!file) return NextResponse.json({ error: "No audio file" }, { status: 400 });
 
   const arrayBuffer = await file.arrayBuffer();
   const base64 = Buffer.from(arrayBuffer).toString("base64");
@@ -53,47 +59,29 @@ export async function POST(req: NextRequest) {
   if (mimeType.includes("codecs=")) mimeType = mimeType.split(";")[0];
   if (mimeType === "video/webm") mimeType = "audio/webm";
 
-  // 모든 키를 순회하며 시도 (429 시 다음 키로)
-  let lastError = "";
-  for (let attempt = 0; attempt < keys.length; attempt++) {
-    const currentKey = keys[keyIndex % keys.length];
+  // 1차: 무료 키들로 시도
+  for (let i = 0; i < freeKeys.length; i++) {
+    const key = freeKeys[keyIndex % freeKeys.length];
     keyIndex++;
-
     try {
-      const text = await callGemini(currentKey, base64, mimeType);
-
-      try {
-        const jsonMatch = text.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          const parsed = JSON.parse(jsonMatch[0]);
-          return NextResponse.json({ result: parsed });
-        }
-      } catch {
-        // JSON 파싱 실패
-      }
-
-      return NextResponse.json({ result: { 날짜: "", 만남장소: "", 생명반응: text } });
+      const text = await callGemini(key, base64, mimeType);
+      return NextResponse.json({ result: parseResult(text) });
     } catch (err: any) {
-      lastError = err?.message || "알 수 없는 오류";
-      const is429 = lastError.includes("429") || lastError.includes("quota") || lastError.includes("Too Many Requests");
-
-      if (is429 && attempt < keys.length - 1) {
-        // 다음 키로 재시도
-        continue;
-      }
-
-      // 429인데 모든 키 소진 → 잠시 후 재시도 안내
-      if (is429) {
-        return NextResponse.json(
-          { error: "모든 API 키의 할당량이 소진되었습니다. 1~2분 후 다시 시도해주세요." },
-          { status: 429 }
-        );
-      }
-
-      // 기타 에러
-      break;
+      const is429 = err?.message?.includes("429") || err?.message?.includes("quota");
+      if (is429 && i < freeKeys.length - 1) continue;
+      if (!is429) break; // 429가 아닌 에러면 바로 폴백
     }
   }
 
-  return NextResponse.json({ error: lastError || "변환 중 오류가 발생했습니다." }, { status: 500 });
+  // 2차: 유료 키로 폴백
+  if (paidKey) {
+    try {
+      const text = await callGemini(paidKey, base64, mimeType);
+      return NextResponse.json({ result: parseResult(text) });
+    } catch (err: any) {
+      return NextResponse.json({ error: err?.message || "변환 실패" }, { status: 500 });
+    }
+  }
+
+  return NextResponse.json({ error: "모든 API 키가 실패했습니다. 잠시 후 다시 시도해주세요." }, { status: 429 });
 }

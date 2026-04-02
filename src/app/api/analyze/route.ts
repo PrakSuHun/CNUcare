@@ -7,14 +7,32 @@ const sb = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
-function getApiKeys(): string[] {
+function getPaidKey(): string | null {
+  return process.env.GEMINI_PAID_KEY?.trim() || null;
+}
+
+function getFreeKeys(): string[] {
   return (process.env.GEMINI_API_KEY || "").split(",").map((k) => k.trim()).filter(Boolean);
 }
 
 let keyIdx = 0;
 
 async function callGemini(prompt: string): Promise<string> {
-  const keys = getApiKeys();
+  // 분석은 유료 키 + Pro 모델 우선
+  const paidKey = getPaidKey();
+  if (paidKey) {
+    try {
+      const ai = new GoogleGenerativeAI(paidKey);
+      const model = ai.getGenerativeModel({ model: "gemini-2.5-pro" });
+      const res = await model.generateContent([{ text: prompt }]);
+      return res.response.text();
+    } catch (err: any) {
+      console.error("Paid key failed, falling back to free keys:", err?.message);
+    }
+  }
+
+  // 폴백: 무료 키 + Flash 모델
+  const keys = getFreeKeys();
   for (let i = 0; i < keys.length; i++) {
     const key = keys[keyIdx % keys.length];
     keyIdx++;
