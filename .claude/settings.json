@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx create-next-app@latest:*)",
+      "Read(//Volumes/D Drive/**)",
+      "Bash(cp -r \"/Volumes/D Drive/cnucare-app/\"* \"/Volumes/D Drive/CNUcare/\")",
+      "Bash(cp \"/Volumes/D Drive/cnucare-app/\".* \"/Volumes/D Drive/CNUcare/\")"
+    ]
+  }
+}
