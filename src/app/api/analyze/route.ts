@@ -2,10 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { createClient } from "@supabase/supabase-js";
 
-const sb = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+function getSb() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL || "",
+    process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ""
+  );
+}
 
 function getPaidKey(): string | null {
   return process.env.GEMINI_PAID_KEY?.trim() || null;
@@ -52,9 +54,9 @@ async function callGemini(prompt: string): Promise<string> {
 // 생명별 분석 데이터 수집
 async function getLifeContext(lifeId: string) {
   const [life, journals, checks] = await Promise.all([
-    sb.from("lives").select("*").eq("id", lifeId).single(),
-    sb.from("journals").select("*, author:users(display_name)").eq("life_id", lifeId).order("met_date", { ascending: false }),
-    sb.from("lesson_checks").select("*, lesson:lessons(number, name)").eq("life_id", lifeId),
+    getSb().from("lives").select("*").eq("id", lifeId).single(),
+    getSb().from("journals").select("*, author:users(display_name)").eq("life_id", lifeId).order("met_date", { ascending: false }),
+    getSb().from("lesson_checks").select("*, lesson:lessons(number, name)").eq("life_id", lifeId),
   ]);
   return { life: life.data, journals: journals.data || [], checks: checks.data || [] };
 }
@@ -62,13 +64,13 @@ async function getLifeContext(lifeId: string) {
 // 대학생별 분석 데이터 수집
 async function getStudentContext(studentId: string) {
   const [student, userLives] = await Promise.all([
-    sb.from("users").select("*").eq("id", studentId).single(),
-    sb.from("user_lives").select("life_id").eq("user_id", studentId).eq("role_in_life", "evangelist"),
+    getSb().from("users").select("*").eq("id", studentId).single(),
+    getSb().from("user_lives").select("life_id").eq("user_id", studentId).eq("role_in_life", "evangelist"),
   ]);
   const lifeIds = (userLives.data || []).map((ul: any) => ul.life_id);
   const [lives, journals] = await Promise.all([
-    sb.from("lives").select("*").in("id", lifeIds),
-    sb.from("journals").select("*").in("life_id", lifeIds).order("met_date", { ascending: false }),
+    getSb().from("lives").select("*").in("id", lifeIds),
+    getSb().from("journals").select("*").in("life_id", lifeIds).order("met_date", { ascending: false }),
   ]);
   return { student: student.data, lives: lives.data || [], journals: journals.data || [] };
 }
@@ -76,17 +78,17 @@ async function getStudentContext(studentId: string) {
 // 관리자 팀 분석 데이터 수집
 async function getManagerContext(managerId: string) {
   const [manager, students] = await Promise.all([
-    sb.from("users").select("*").eq("id", managerId).single(),
-    sb.from("users").select("id, display_name").eq("manager_id", managerId).eq("role", "student"),
+    getSb().from("users").select("*").eq("id", managerId).single(),
+    getSb().from("users").select("id, display_name").eq("manager_id", managerId).eq("role", "student"),
   ]);
   const studentIds = (students.data || []).map((s: any) => s.id);
   const [userLives, allJournals] = await Promise.all([
-    sb.from("user_lives").select("user_id, life_id").in("user_id", studentIds).eq("role_in_life", "evangelist"),
-    sb.from("journals").select("life_id, met_date, response, author_id").order("met_date", { ascending: false }).limit(200),
+    getSb().from("user_lives").select("user_id, life_id").in("user_id", studentIds).eq("role_in_life", "evangelist"),
+    getSb().from("journals").select("life_id, met_date, response, author_id").order("met_date", { ascending: false }).limit(200),
   ]);
   const lifeIds = (userLives.data || []).map((ul: any) => ul.life_id);
   const [lives] = await Promise.all([
-    sb.from("lives").select("*").in("id", lifeIds),
+    getSb().from("lives").select("*").in("id", lifeIds),
   ]);
   return {
     manager: manager.data,
@@ -100,10 +102,10 @@ async function getManagerContext(managerId: string) {
 // 전체 분석 데이터 수집
 async function getOverallContext() {
   const [lives, users, journals, checks] = await Promise.all([
-    sb.from("lives").select("id, name, stage, is_failed, last_met_at, created_at"),
-    sb.from("users").select("id, display_name, role, manager_id"),
-    sb.from("journals").select("life_id, met_date, purpose").order("met_date", { ascending: false }).limit(500),
-    sb.from("lesson_checks").select("life_id, lesson_id, is_passed"),
+    getSb().from("lives").select("id, name, stage, is_failed, last_met_at, created_at"),
+    getSb().from("users").select("id, display_name, role, manager_id"),
+    getSb().from("journals").select("life_id, met_date, purpose").order("met_date", { ascending: false }).limit(500),
+    getSb().from("lesson_checks").select("life_id, lesson_id, is_passed"),
   ]);
   return { lives: lives.data || [], users: users.data || [], journals: journals.data || [], checks: checks.data || [] };
 }
@@ -250,7 +252,7 @@ ${failed.length}/${context.lives.length} (${context.lives.length ? Math.round(fa
     const content = await callGemini(prompt);
 
     // 보고서 저장
-    const { data: report } = await sb.from("reports").insert({
+    const { data: report } = await getSb().from("reports").insert({
       type,
       target_id: targetId || null,
       target_name: targetName,
