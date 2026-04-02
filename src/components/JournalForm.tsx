@@ -309,6 +309,7 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
   }
 
   const lectureOnlyLessons = lessons.filter((l) => l.category === "lecture");
+  const canRecord = form.purpose && form.met_date && form.location.trim();
 
   return (
     <div className="min-h-full bg-gray-50">
@@ -318,69 +319,6 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
       </header>
 
       <div className="p-4">
-        {/* 상태 표시 */}
-        {uploading && (
-          <div className="mb-4 bg-gray-50 border border-gray-200 rounded-lg p-4 text-center">
-            <div className="animate-pulse text-gray-600 font-medium text-sm">녹음 파일 저장 중...</div>
-          </div>
-        )}
-
-        {transcribing && (
-          <div className="mb-4 bg-blue-50 border border-blue-200 rounded-lg p-4 text-center">
-            <div className="animate-pulse text-blue-600 font-medium text-sm">텍스트로 변환 중...</div>
-            <p className="text-xs text-blue-400 mt-1">변환이 완료되면 자동으로 입력됩니다</p>
-          </div>
-        )}
-
-        {/* 녹음 저장 완료 */}
-        {audioUrl && !uploading && (
-          <div className="mb-4 bg-green-50 border border-green-200 rounded-lg p-3">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-green-700 text-sm font-medium">녹음 저장됨</span>
-            </div>
-            <audio src={audioUrl} controls className="w-full h-8" />
-          </div>
-        )}
-
-        {/* 녹음 옵션 */}
-        {!isEdit && !recording && !uploading && !transcribing && (
-          <div className="mb-4">
-            {showRecordOption ? (
-              <div className="bg-white border border-gray-200 rounded-lg p-3 space-y-2">
-                <button
-                  onClick={() => { setShowRecordOption(false); setShowRecordModal(true); startRecording(); }}
-                  className="w-full flex items-center gap-3 rounded-lg border border-gray-200 px-4 py-3 hover:bg-red-50 hover:border-red-300 transition-colors"
-                >
-                  <span className="w-8 h-8 bg-red-100 rounded-full flex items-center justify-center text-red-500 shrink-0">●</span>
-                  <div className="text-left">
-                    <p className="text-sm font-medium">실시간 녹음</p>
-                    <p className="text-xs text-gray-400">바로 녹음을 시작합니다</p>
-                  </div>
-                </button>
-                <button
-                  onClick={() => fileInputRef.current?.click()}
-                  className="w-full flex items-center gap-3 rounded-lg border border-gray-200 px-4 py-3 hover:bg-blue-50 hover:border-blue-300 transition-colors"
-                >
-                  <span className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center text-blue-500 text-xs shrink-0">▲</span>
-                  <div className="text-left">
-                    <p className="text-sm font-medium">녹음 파일 업로드</p>
-                    <p className="text-xs text-gray-400">기존 녹음 파일을 첨부합니다</p>
-                  </div>
-                </button>
-                <input ref={fileInputRef} type="file" accept="audio/*" onChange={handleFileUpload} className="hidden" />
-                <button onClick={() => setShowRecordOption(false)} className="w-full text-center text-xs text-gray-400 py-1">취소</button>
-              </div>
-            ) : (
-              <button
-                onClick={() => setShowRecordOption(true)}
-                className="w-full rounded-lg border-2 border-dashed border-gray-300 py-3 text-center text-sm text-gray-500 hover:border-red-300 hover:text-red-500 transition-colors"
-              >
-                녹음으로 작성하기
-              </button>
-            )}
-          </div>
-        )}
-
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">목적</label>
@@ -424,8 +362,76 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">만남 장소</label>
-            <input type="text" placeholder="예: 학교 카페, 도서관 앞" value={form.location} onChange={(e) => setForm((f) => ({ ...f, location: e.target.value }))} className="w-full rounded-lg border border-gray-300 px-4 py-3 text-base focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
+            <input type="text" placeholder="예: 학교 카페, 도서관 앞" value={form.location} onChange={(e) => setForm((f) => ({ ...f, location: e.target.value }))} required className="w-full rounded-lg border border-gray-300 px-4 py-3 text-base focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
           </div>
+
+          {/* 상태 표시 */}
+          {uploading && (
+            <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 text-center">
+              <div className="animate-pulse text-gray-600 font-medium text-sm">녹음 파일 저장 중...</div>
+            </div>
+          )}
+          {transcribing && (
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-center">
+              <div className="animate-pulse text-blue-600 font-medium text-sm">텍스트로 변환 중...</div>
+              <p className="text-xs text-blue-400 mt-1">변환이 완료되면 아래에 자동 입력됩니다</p>
+            </div>
+          )}
+
+          {/* 녹음 저장 완료 */}
+          {audioUrl && !uploading && (
+            <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+              <span className="text-green-700 text-sm font-medium">녹음 저장됨</span>
+              <audio src={audioUrl} controls className="w-full h-8 mt-2" />
+            </div>
+          )}
+
+          {/* 녹음 버튼 - 목적+날짜+장소 입력 후 활성화 */}
+          {!isEdit && !recording && !uploading && !transcribing && !audioUrl && (
+            <div>
+              {!canRecord ? (
+                <div className="w-full rounded-lg border-2 border-dashed border-gray-200 py-3 text-center text-sm text-gray-300">
+                  위 항목을 먼저 입력하면 녹음할 수 있습니다
+                </div>
+              ) : showRecordOption ? (
+                <div className="bg-white border border-gray-200 rounded-lg p-3 space-y-2">
+                  <button
+                    type="button"
+                    onClick={() => { setShowRecordOption(false); setShowRecordModal(true); startRecording(); }}
+                    className="w-full flex items-center gap-3 rounded-lg border border-gray-200 px-4 py-3 hover:bg-red-50 hover:border-red-300 transition-colors"
+                  >
+                    <span className="w-8 h-8 bg-red-100 rounded-full flex items-center justify-center text-red-500 shrink-0">●</span>
+                    <div className="text-left">
+                      <p className="text-sm font-medium">실시간 녹음</p>
+                      <p className="text-xs text-gray-400">바로 녹음을 시작합니다</p>
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="w-full flex items-center gap-3 rounded-lg border border-gray-200 px-4 py-3 hover:bg-blue-50 hover:border-blue-300 transition-colors"
+                  >
+                    <span className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center text-blue-500 text-xs shrink-0">▲</span>
+                    <div className="text-left">
+                      <p className="text-sm font-medium">녹음 파일 업로드</p>
+                      <p className="text-xs text-gray-400">기존 녹음 파일을 첨부합니다</p>
+                    </div>
+                  </button>
+                  <input ref={fileInputRef} type="file" accept="audio/*" onChange={handleFileUpload} className="hidden" />
+                  <button type="button" onClick={() => setShowRecordOption(false)} className="w-full text-center text-xs text-gray-400 py-1">취소</button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setShowRecordOption(true)}
+                  className="w-full rounded-lg border-2 border-dashed border-gray-300 py-3 text-center text-sm text-gray-500 hover:border-red-300 hover:text-red-500 transition-colors"
+                >
+                  녹음으로 작성하기
+                </button>
+              )}
+            </div>
+          )}
+
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">생명 반응</label>
             <textarea
