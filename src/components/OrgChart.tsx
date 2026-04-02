@@ -59,6 +59,7 @@ export default function OrgChart({ userRole, userId, basePath }: OrgChartProps) 
   const [searchQuery, setSearchQuery] = useState("");
   const [stageFilter, setStageFilter] = useState("");
   const [showAll, setShowAll] = useState(userRole === "instructor");
+  const [managerFilter, setManagerFilter] = useState("");
 
   useEffect(() => {
     fetchOrgData();
@@ -113,10 +114,19 @@ export default function OrgChart({ userRole, userId, basePath }: OrgChartProps) 
     setLoading(false);
   };
 
-  // 관리자인 경우 자기 소속만 / 전체 보기 토글
-  const visibleTree = showAll
-    ? tree
-    : tree.filter((m) => m.id === userId);
+  // 표시할 트리 필터링
+  const visibleTree = (() => {
+    let filtered = tree;
+    // 관리자: 내 소속만 / 전체
+    if (userRole === "manager" && !showAll) {
+      filtered = filtered.filter((m) => m.id === userId);
+    }
+    // 관리자별 필터
+    if (managerFilter) {
+      filtered = filtered.filter((m) => m.id === managerFilter);
+    }
+    return filtered;
+  })();
 
   const filterLife = (life: LifeItem) => {
     if (stageFilter && life.stage !== stageFilter) return false;
@@ -140,7 +150,7 @@ export default function OrgChart({ userRole, userId, basePath }: OrgChartProps) 
         {/* 관리자: 내 소속 / 전체 보기 토글 */}
         {userRole === "manager" && (
           <button
-            onClick={() => setShowAll(!showAll)}
+            onClick={() => { setShowAll(!showAll); setManagerFilter(""); }}
             className={`text-xs px-3 py-1.5 rounded-full border transition-colors ${
               showAll
                 ? "bg-blue-600 text-white border-blue-600"
@@ -151,27 +161,37 @@ export default function OrgChart({ userRole, userId, basePath }: OrgChartProps) 
           </button>
         )}
 
-        {/* 강사: 검색/필터 */}
-        {userRole === "instructor" && (
-          <>
-            <input
-              type="text"
-              placeholder="생명 이름 검색"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="flex-1 min-w-[120px] rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
-            />
-            <select
-              value={stageFilter}
-              onChange={(e) => setStageFilter(e.target.value)}
-              className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
-            >
-              <option value="">전체</option>
-              {Object.entries(STAGE_LABELS).map(([k, v]) => (
-                <option key={k} value={k}>{v}</option>
-              ))}
-            </select>
-          </>
+        {/* 검색 + 필터 (관리자, 강사 공통) */}
+        <input
+          type="text"
+          placeholder="생명 이름 검색"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="flex-1 min-w-[100px] rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+        />
+        <select
+          value={stageFilter}
+          onChange={(e) => setStageFilter(e.target.value)}
+          className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+        >
+          <option value="">전체 단계</option>
+          {Object.entries(STAGE_LABELS).map(([k, v]) => (
+            <option key={k} value={k}>{v}</option>
+          ))}
+        </select>
+
+        {/* 관리자별 필터 (전체 보기 시 또는 강사) */}
+        {(showAll || userRole === "instructor") && (
+          <select
+            value={managerFilter}
+            onChange={(e) => setManagerFilter(e.target.value)}
+            className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+          >
+            <option value="">전체 관리자</option>
+            {tree.map((m) => (
+              <option key={m.id} value={m.id}>{m.display_name}</option>
+            ))}
+          </select>
         )}
       </div>
 
