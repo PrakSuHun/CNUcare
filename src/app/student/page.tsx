@@ -24,12 +24,12 @@ const STAGE_LABELS: Record<string, string> = {
 };
 
 const STAGE_COLORS: Record<string, string> = {
-  first_meeting: "bg-gray-100 text-gray-700",
-  pre_visit: "bg-yellow-100 text-yellow-700",
-  intro: "bg-blue-100 text-blue-700",
-  beginner: "bg-indigo-100 text-indigo-700",
-  intermediate: "bg-purple-100 text-purple-700",
-  advanced: "bg-pink-100 text-pink-700",
+  first_meeting: "bg-red-100 text-red-700",
+  pre_visit: "bg-orange-100 text-orange-700",
+  intro: "bg-amber-100 text-amber-700",
+  beginner: "bg-yellow-100 text-yellow-700",
+  intermediate: "bg-blue-100 text-blue-700",
+  advanced: "bg-teal-100 text-teal-700",
   completed: "bg-green-100 text-green-700",
 };
 
