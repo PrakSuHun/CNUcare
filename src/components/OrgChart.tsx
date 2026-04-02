@@ -88,7 +88,14 @@ export default function OrgChart({ userRole, userId, basePath }: OrgChartProps) 
     students?.forEach((s) => {
       const mgrId = s.manager_id || "unassigned";
       const list = studentMap.get(mgrId) || [];
-      list.push({ id: s.id, display_name: s.display_name, lives: livesMap.get(s.id) || [] });
+      const lives = livesMap.get(s.id) || [];
+      // 수료→고급→중급→초급→입문→전초→1차 순 정렬
+      const stageOrder: Record<string, number> = {
+        completed: 0, advanced: 1, intermediate: 2, beginner: 3,
+        intro: 4, pre_visit: 5, first_meeting: 6,
+      };
+      lives.sort((a, b) => (stageOrder[a.stage] ?? 9) - (stageOrder[b.stage] ?? 9));
+      list.push({ id: s.id, display_name: s.display_name, lives });
       studentMap.set(mgrId, list);
     });
 
