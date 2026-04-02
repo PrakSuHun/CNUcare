@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
-// 쉼표로 구분된 여러 API 키를 라운드 로빈으로 사용
 let requestCount = 0;
 
 function getApiKey(): string | null {
@@ -18,25 +17,26 @@ function getApiKey(): string | null {
 }
 
 export async function POST(req: NextRequest) {
-  const apiKey = getApiKey();
-  if (!apiKey) {
-    return NextResponse.json({ error: "Gemini API key not configured" }, { status: 500 });
-  }
+  try {
+    const apiKey = getApiKey();
+    if (!apiKey) {
+      return NextResponse.json({ error: "Gemini API key not configured" }, { status: 500 });
+    }
 
-  const formData = await req.formData();
-  const file = formData.get("audio") as File | null;
+    const formData = await req.formData();
+    const file = formData.get("audio") as File | null;
 
-  if (!file) {
-    return NextResponse.json({ error: "No audio file" }, { status: 400 });
-  }
+    if (!file) {
+      return NextResponse.json({ error: "No audio file" }, { status: 400 });
+    }
 
-  const arrayBuffer = await file.arrayBuffer();
-  const base64 = Buffer.from(arrayBuffer).toString("base64");
+    const arrayBuffer = await file.arrayBuffer();
+    const base64 = Buffer.from(arrayBuffer).toString("base64");
 
-  const ai = new GoogleGenerativeAI(apiKey);
-  const model = ai.getGenerativeModel({ model: "gemini-2.0-flash" });
+    const ai = new GoogleGenerativeAI(apiKey);
+    const model = ai.getGenerativeModel({ model: "gemini-2.0-flash" });
 
-  const prompt = `이 오디오는 선교 활동 중 생명(선교 대상자)과의 만남을 녹음한 것입니다.
+    const prompt = `이 오디오는 선교 활동 중 생명(선교 대상자)과의 만남을 녹음한 것입니다.
 다음 JSON 형식으로 정확히 정리해주세요. 반드시 JSON만 출력하세요.
 
 {
@@ -47,29 +47,40 @@ export async function POST(req: NextRequest) {
 
 한국어로 작성하고, 내용을 요약하지 말고 최대한 상세하게 전사하여 정리해주세요.`;
 
-  const mimeType = file.type || "audio/webm";
+    // 브라우저 녹음은 보통 webm 또는 mp4
+    let mimeType = file.type || "audio/webm";
+    // Gemini가 지원하는 형식으로 보정
+    if (mimeType === "audio/webm;codecs=opus") mimeType = "audio/webm";
+    if (mimeType === "video/webm") mimeType = "audio/webm";
 
-  const response = await model.generateContent([
-    { text: prompt },
-    {
-      inlineData: {
-        mimeType,
-        data: base64,
+    const response = await model.generateContent([
+      { text: prompt },
+      {
+        inlineData: {
+          mimeType,
+          data: base64,
+        },
       },
-    },
-  ]);
+    ]);
 
-  const text = response.response.text();
+    const text = response.response.text();
 
-  try {
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      const parsed = JSON.parse(jsonMatch[0]);
-      return NextResponse.json({ result: parsed });
+    try {
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        return NextResponse.json({ result: parsed });
+      }
+    } catch {
+      // JSON 파싱 실패
     }
-  } catch {
-    // JSON 파싱 실패 시 원문 반환
-  }
 
-  return NextResponse.json({ result: { 날짜: "", 만남장소: "", 생명반응: text } });
+    return NextResponse.json({ result: { 날짜: "", 만남장소: "", 생명반응: text } });
+  } catch (err: any) {
+    console.error("Transcribe error:", err?.message || err);
+    return NextResponse.json(
+      { error: err?.message || "변환 중 오류가 발생했습니다." },
+      { status: 500 }
+    );
+  }
 }

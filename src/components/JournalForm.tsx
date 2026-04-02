@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { getUser } from "@/lib/auth";
@@ -26,10 +26,17 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
   const [recording, setRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
   const [transcribing, setTranscribing] = useState(false);
+  const [transcribeError, setTranscribeError] = useState("");
   const [showRecordOption, setShowRecordOption] = useState(false);
+  const [audioLevel, setAudioLevel] = useState(0);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const animFrameRef = useRef<number | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const waveHistoryRef = useRef<number[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -41,6 +48,7 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
   useEffect(() => {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
+      if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
     };
   }, []);
 
@@ -52,10 +60,70 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
     setLoading(false);
   };
 
+  // 파형 그리기
+  const drawWaveform = useCallback(() => {
+    if (!analyserRef.current || !canvasRef.current) return;
+
+    const analyser = analyserRef.current;
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const dataArray = new Uint8Array(analyser.frequencyBinCount);
+    analyser.getByteTimeDomainData(dataArray);
+
+    // 평균 볼륨 계산
+    let sum = 0;
+    for (let i = 0; i < dataArray.length; i++) {
+      sum += Math.abs(dataArray[i] - 128);
+    }
+    const avg = sum / dataArray.length;
+    const normalized = Math.min(avg / 50, 1);
+    setAudioLevel(normalized);
+
+    // 파형 히스토리에 추가
+    waveHistoryRef.current.push(normalized);
+    if (waveHistoryRef.current.length > 200) {
+      waveHistoryRef.current.shift();
+    }
+
+    // 캔버스 그리기
+    const width = canvas.width;
+    const height = canvas.height;
+    ctx.clearRect(0, 0, width, height);
+
+    const history = waveHistoryRef.current;
+    const barWidth = width / 100;
+    const startIdx = Math.max(0, history.length - 100);
+
+    for (let i = startIdx; i < history.length; i++) {
+      const x = (i - startIdx) * barWidth;
+      const barHeight = history[i] * height * 0.8;
+      const y = (height - barHeight) / 2;
+
+      ctx.fillStyle = `rgba(239, 68, 68, ${0.4 + history[i] * 0.6})`;
+      ctx.fillRect(x, y, barWidth - 1, barHeight || 1);
+    }
+
+    animFrameRef.current = requestAnimationFrame(drawWaveform);
+  }, []);
+
   // 녹음 시작
   const startRecording = async () => {
     try {
+      setTranscribeError("");
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+
+      // 오디오 분석기 설정 (파형용)
+      const audioCtx = new AudioContext();
+      const source = audioCtx.createMediaStreamSource(stream);
+      const analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 256;
+      source.connect(analyser);
+      analyserRef.current = analyser;
+      waveHistoryRef.current = [];
+
       const mediaRecorder = new MediaRecorder(stream);
       mediaRecorderRef.current = mediaRecorder;
       chunksRef.current = [];
@@ -66,17 +134,22 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
 
       mediaRecorder.onstop = () => {
         stream.getTracks().forEach((t) => t.stop());
+        if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
+        audioCtx.close();
         const blob = new Blob(chunksRef.current, { type: mediaRecorder.mimeType });
         transcribeAudio(blob);
       };
 
-      mediaRecorder.start();
+      mediaRecorder.start(100); // 100ms 간격으로 데이터 수집
       setRecording(true);
       setRecordingTime(0);
       setShowRecordOption(false);
       timerRef.current = setInterval(() => {
         setRecordingTime((t) => t + 1);
       }, 1000);
+
+      // 파형 그리기 시작
+      drawWaveform();
     } catch {
       alert("마이크 권한을 허용해주세요.");
     }
@@ -96,12 +169,14 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
     const file = e.target.files?.[0];
     if (!file) return;
     setShowRecordOption(false);
+    setTranscribeError("");
     transcribeAudio(file);
   };
 
   // Gemini 변환
   const transcribeAudio = async (audioData: Blob | File) => {
     setTranscribing(true);
+    setTranscribeError("");
 
     const formData = new FormData();
     formData.append("audio", audioData);
@@ -114,6 +189,12 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
 
       const data = await res.json();
 
+      if (!res.ok) {
+        setTranscribeError(data.error || "변환에 실패했습니다.");
+        setTranscribing(false);
+        return;
+      }
+
       if (data.result) {
         const r = data.result;
         setForm((f) => ({
@@ -123,7 +204,7 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
         }));
       }
     } catch {
-      alert("변환에 실패했습니다. 다시 시도해주세요.");
+      setTranscribeError("서버 연결에 실패했습니다. 다시 시도해주세요.");
     }
 
     setTranscribing(false);
@@ -173,7 +254,7 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
       </header>
 
       <div className="p-4">
-        {/* 녹음 변환 중 오버레이 */}
+        {/* 변환 중 */}
         {transcribing && (
           <div className="mb-4 bg-blue-50 border border-blue-200 rounded-lg p-4 text-center">
             <div className="animate-pulse text-blue-600 font-medium text-sm">녹음을 텍스트로 변환 중...</div>
@@ -181,18 +262,52 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
           </div>
         )}
 
-        {/* 녹음 중 UI */}
+        {/* 변환 에러 */}
+        {transcribeError && (
+          <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-4">
+            <p className="text-sm text-red-600 font-medium">변환 실패</p>
+            <p className="text-xs text-red-400 mt-1">{transcribeError}</p>
+            <button
+              onClick={() => setTranscribeError("")}
+              className="text-xs text-red-500 underline mt-2"
+            >
+              닫기
+            </button>
+          </div>
+        )}
+
+        {/* 녹음 중 UI + 파형 */}
         {recording && (
-          <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-4 text-center">
-            <div className="flex items-center justify-center gap-2 mb-2">
+          <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-4">
+            <div className="flex items-center justify-center gap-2 mb-3">
               <span className="w-3 h-3 bg-red-500 rounded-full animate-pulse" />
               <span className="text-red-600 font-medium text-sm">녹음 중 {formatTime(recordingTime)}</span>
             </div>
+
+            {/* 파형 캔버스 */}
+            <canvas
+              ref={canvasRef}
+              width={300}
+              height={60}
+              className="w-full h-[60px] rounded bg-red-100/50 mb-3"
+            />
+
+            {/* 볼륨 미터 */}
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-[10px] text-red-400">볼륨</span>
+              <div className="flex-1 bg-red-200 rounded-full h-2">
+                <div
+                  className="bg-red-500 h-2 rounded-full transition-all duration-100"
+                  style={{ width: `${audioLevel * 100}%` }}
+                />
+              </div>
+            </div>
+
             <button
               onClick={stopRecording}
-              className="bg-red-500 text-white px-6 py-2 rounded-full text-sm font-medium hover:bg-red-600"
+              className="w-full bg-red-500 text-white px-6 py-2.5 rounded-full text-sm font-medium hover:bg-red-600"
             >
-              녹음 중지
+              녹음 중지 → 변환하기
             </button>
           </div>
         )}
@@ -241,7 +356,7 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
                 onClick={() => setShowRecordOption(true)}
                 className="w-full rounded-lg border-2 border-dashed border-gray-300 py-3 text-center text-sm text-gray-500 hover:border-red-300 hover:text-red-500 transition-colors"
               >
-                🎙 녹음으로 작성하기
+                녹음으로 작성하기
               </button>
             )}
           </div>
