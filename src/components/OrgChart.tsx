@@ -175,10 +175,10 @@ export default function OrgChart({ userRole, userId, basePath }: OrgChartProps) 
         )}
       </div>
 
-      {/* 전체 보기 + PC: 관리자들이 가로로 병렬 배치 */}
+      {/* 전체 보기: 관리자별 컬럼, 대학생 균일 그리드 */}
       {showAll ? (
-        <div className="overflow-x-auto">
-          <div className="flex flex-col lg:flex-row lg:items-start lg:gap-4 lg:min-w-max space-y-3 lg:space-y-0">
+        <div className="overflow-x-auto pb-2">
+          <div className="flex flex-col lg:flex-row lg:items-start lg:gap-3 lg:min-w-max space-y-3 lg:space-y-0">
             {visibleTree.map((manager) => {
               const hasFilteredLives = manager.students.some((s) => s.lives.some(filterLife));
               if ((searchQuery || stageFilter) && !hasFilteredLives) return null;
@@ -188,15 +188,56 @@ export default function OrgChart({ userRole, userId, basePath }: OrgChartProps) 
               });
 
               return (
-                <div key={manager.id} className="bg-white rounded-lg border border-gray-200 overflow-hidden lg:min-w-[300px] lg:max-w-[400px] shrink-0">
-                  <div className="px-3 py-2 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
-                    <span className="text-xs font-bold text-gray-600">{manager.display_name}</span>
-                    <span className="text-xs text-gray-400">
+                <div key={manager.id} className="lg:w-[280px] shrink-0">
+                  {/* 관리자 헤더 */}
+                  <div className="px-3 py-2 bg-gray-700 text-white rounded-t-lg flex items-center justify-between">
+                    <span className="text-xs font-bold">{manager.display_name}</span>
+                    <span className="text-xs text-gray-300">
                       {manager.students.reduce((s, st) => s + st.lives.filter((l) => !l.is_failed).length, 0)}명
                     </span>
                   </div>
-                  <div className="divide-y divide-gray-100">
-                    {visibleStudents.map((student) => renderStudent(student, searchQuery, stageFilter, filterLife, basePath, router, formatDate))}
+                  {/* 대학생 카드들 - 균일 크기 */}
+                  <div className="space-y-2 mt-2">
+                    {visibleStudents.map((student) => {
+                      const livesToShow = searchQuery || stageFilter ? student.lives.filter(filterLife) : student.lives;
+                      const activeLives = livesToShow.filter((l) => !l.is_failed);
+                      const failedLives = livesToShow.filter((l) => l.is_failed);
+
+                      return (
+                        <div key={student.id} className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+                          <div className="px-3 py-1.5 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
+                            <span className="text-xs font-semibold text-gray-600">{student.display_name}</span>
+                            <span className="text-[10px] text-gray-400">{activeLives.length}명</span>
+                          </div>
+                          <div className="p-2 space-y-1">
+                            {activeLives.length === 0 && failedLives.length === 0 && (
+                              <p className="text-xs text-gray-300 text-center py-1">생명 없음</p>
+                            )}
+                            {activeLives.map((life) => (
+                              <button
+                                key={life.id}
+                                onClick={() => router.push(`${basePath}/life/${life.id}`)}
+                                className="w-full text-left rounded border border-gray-100 px-2 py-1.5 hover:bg-blue-50 hover:border-blue-300 transition-colors flex items-center justify-between gap-2"
+                              >
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <span className="text-sm font-medium truncate">{life.name}</span>
+                                  {life.age && <span className="text-[11px] text-gray-400 shrink-0">{life.age}세</span>}
+                                </div>
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  {life.last_met_at && (
+                                    <span className="text-[10px] text-gray-300">{formatDate(life.last_met_at)}</span>
+                                  )}
+                                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${STAGE_COLORS[life.stage]}`}>
+                                    {STAGE_LABELS[life.stage]}
+                                  </span>
+                                </div>
+                              </button>
+                            ))}
+                            {renderFailedLives(failedLives, basePath, router)}
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               );
