@@ -5,24 +5,52 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { getUser } from "@/lib/auth";
 
+interface Lesson {
+  id: string;
+  number: number;
+  name: string;
+  level: string;
+  category: string;
+}
+
 interface JournalFormProps {
   lifeId: string;
   journalId?: string;
   backPath: string;
 }
 
+const PURPOSE_OPTIONS = [
+  { value: "first_meeting", label: "1차 만남" },
+  { value: "pre_visit", label: "전초" },
+  { value: "management", label: "관리" },
+  { value: "lecture", label: "강의" },
+];
+
+const RECORD_GUIDE = [
+  "생명의 현재 상태는 어떤가요?",
+  "생명의 반응은 어땠나요?",
+  "대화 중 인상 깊었던 점은?",
+  "좋았던 점은 무엇인가요?",
+  "아쉬웠던 점이나 어려운 점은?",
+  "앞으로의 계획은?",
+];
+
 export default function JournalForm({ lifeId, journalId, backPath }: JournalFormProps) {
   const router = useRouter();
   const [form, setForm] = useState({
     met_date: new Date().toISOString().split("T")[0],
     location: "",
+    purpose: "",
+    lesson_id: "",
     response: "",
   });
+  const [lessons, setLessons] = useState<Lesson[]>([]);
   const [loading, setLoading] = useState(!!journalId);
   const [saving, setSaving] = useState(false);
   const isEdit = !!journalId;
 
-  // 녹음 관련
+  // 녹음
+  const [showRecordModal, setShowRecordModal] = useState(false);
   const [recording, setRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
   const [transcribing, setTranscribing] = useState(false);
@@ -34,7 +62,7 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animFrameRef = useRef<number | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
+  const audioCtxRef = useRef<AudioContext | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const waveHistoryRef = useRef<number[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -43,6 +71,7 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
     const u = getUser();
     if (!u) { router.push("/"); return; }
     if (journalId) fetchJournal();
+    fetchLessons();
   }, [router, journalId]);
 
   useEffect(() => {
@@ -55,9 +84,20 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
   const fetchJournal = async () => {
     const { data } = await supabase.from("journals").select("*").eq("id", journalId).single();
     if (data) {
-      setForm({ met_date: data.met_date, location: data.location, response: data.response });
+      setForm({
+        met_date: data.met_date,
+        location: data.location,
+        purpose: data.purpose || "",
+        lesson_id: data.lesson_id || "",
+        response: data.response,
+      });
     }
     setLoading(false);
+  };
+
+  const fetchLessons = async () => {
+    const { data } = await supabase.from("lessons").select("id, number, name, level, category").order("sort_order");
+    if (data) setLessons(data);
   };
 
   // 파형 그리기
@@ -72,7 +112,6 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
     const dataArray = new Uint8Array(analyser.frequencyBinCount);
     analyser.getByteTimeDomainData(dataArray);
 
-    // 평균 볼륨 계산
     let sum = 0;
     for (let i = 0; i < dataArray.length; i++) {
       sum += Math.abs(dataArray[i] - 128);
@@ -81,13 +120,9 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
     const normalized = Math.min(avg / 50, 1);
     setAudioLevel(normalized);
 
-    // 파형 히스토리에 추가
     waveHistoryRef.current.push(normalized);
-    if (waveHistoryRef.current.length > 200) {
-      waveHistoryRef.current.shift();
-    }
+    if (waveHistoryRef.current.length > 200) waveHistoryRef.current.shift();
 
-    // 캔버스 그리기
     const width = canvas.width;
     const height = canvas.height;
     ctx.clearRect(0, 0, width, height);
@@ -100,7 +135,6 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
       const x = (i - startIdx) * barWidth;
       const barHeight = history[i] * height * 0.8;
       const y = (height - barHeight) / 2;
-
       ctx.fillStyle = `rgba(239, 68, 68, ${0.4 + history[i] * 0.6})`;
       ctx.fillRect(x, y, barWidth - 1, barHeight || 1);
     }
@@ -113,10 +147,9 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
     try {
       setTranscribeError("");
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      streamRef.current = stream;
 
-      // 오디오 분석기 설정 (파형용)
       const audioCtx = new AudioContext();
+      audioCtxRef.current = audioCtx;
       const source = audioCtx.createMediaStreamSource(stream);
       const analyser = audioCtx.createAnalyser();
       analyser.fftSize = 256;
@@ -137,25 +170,23 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
         if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
         audioCtx.close();
         const blob = new Blob(chunksRef.current, { type: mediaRecorder.mimeType });
+        setShowRecordModal(false);
         transcribeAudio(blob);
       };
 
-      mediaRecorder.start(100); // 100ms 간격으로 데이터 수집
+      mediaRecorder.start(100);
       setRecording(true);
       setRecordingTime(0);
-      setShowRecordOption(false);
       timerRef.current = setInterval(() => {
         setRecordingTime((t) => t + 1);
       }, 1000);
 
-      // 파형 그리기 시작
       drawWaveform();
     } catch {
       alert("마이크 권한을 허용해주세요.");
     }
   };
 
-  // 녹음 중지
   const stopRecording = () => {
     if (mediaRecorderRef.current && recording) {
       mediaRecorderRef.current.stop();
@@ -164,7 +195,6 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
     }
   };
 
-  // 파일 업로드
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -173,20 +203,15 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
     transcribeAudio(file);
   };
 
-  // Gemini 변환
   const transcribeAudio = async (audioData: Blob | File) => {
     setTranscribing(true);
     setTranscribeError("");
 
-    const formData = new FormData();
-    formData.append("audio", audioData);
+    const fd = new FormData();
+    fd.append("audio", audioData);
 
     try {
-      const res = await fetch("/api/transcribe", {
-        method: "POST",
-        body: formData,
-      });
-
+      const res = await fetch("/api/transcribe", { method: "POST", body: fd });
       const data = await res.json();
 
       if (!res.ok) {
@@ -198,6 +223,7 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
       if (data.result) {
         const r = data.result;
         setForm((f) => ({
+          ...f,
           met_date: r.날짜 || f.met_date,
           location: r.만남장소 || f.location,
           response: r.생명반응 || f.response,
@@ -220,23 +246,34 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
     e.preventDefault();
     setSaving(true);
 
+    const journalData: any = {
+      met_date: form.met_date,
+      location: form.location,
+      response: form.response,
+      purpose: form.purpose || null,
+      lesson_id: form.lesson_id || null,
+    };
+
     if (isEdit) {
-      await supabase.from("journals").update({
-        met_date: form.met_date,
-        location: form.location,
-        response: form.response,
-      }).eq("id", journalId);
+      await supabase.from("journals").update(journalData).eq("id", journalId);
     } else {
       const user = getUser();
       if (!user) return;
       await supabase.from("journals").insert({
         life_id: lifeId,
         author_id: user.id,
-        met_date: form.met_date,
-        location: form.location,
-        response: form.response,
+        ...journalData,
       });
       await supabase.from("lives").update({ last_met_at: form.met_date }).eq("id", lifeId);
+
+      // 강의 선택 시 자동으로 강의 체크
+      if (form.purpose === "lecture" && form.lesson_id) {
+        await supabase.from("lesson_checks").upsert({
+          life_id: lifeId,
+          lesson_id: form.lesson_id,
+          attended_date: form.met_date,
+        }, { onConflict: "life_id,lesson_id" });
+      }
     }
 
     router.push(backPath);
@@ -245,6 +282,8 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
   if (loading) {
     return <div className="flex min-h-full items-center justify-center"><p className="text-gray-500">로딩 중...</p></div>;
   }
+
+  const lectureOnlyLessons = lessons.filter((l) => l.category === "lecture");
 
   return (
     <div className="min-h-full bg-gray-50">
@@ -267,58 +306,17 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
           <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-4">
             <p className="text-sm text-red-600 font-medium">변환 실패</p>
             <p className="text-xs text-red-400 mt-1">{transcribeError}</p>
-            <button
-              onClick={() => setTranscribeError("")}
-              className="text-xs text-red-500 underline mt-2"
-            >
-              닫기
-            </button>
-          </div>
-        )}
-
-        {/* 녹음 중 UI + 파형 */}
-        {recording && (
-          <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-4">
-            <div className="flex items-center justify-center gap-2 mb-3">
-              <span className="w-3 h-3 bg-red-500 rounded-full animate-pulse" />
-              <span className="text-red-600 font-medium text-sm">녹음 중 {formatTime(recordingTime)}</span>
-            </div>
-
-            {/* 파형 캔버스 */}
-            <canvas
-              ref={canvasRef}
-              width={300}
-              height={60}
-              className="w-full h-[60px] rounded bg-red-100/50 mb-3"
-            />
-
-            {/* 볼륨 미터 */}
-            <div className="flex items-center gap-2 mb-3">
-              <span className="text-[10px] text-red-400">볼륨</span>
-              <div className="flex-1 bg-red-200 rounded-full h-2">
-                <div
-                  className="bg-red-500 h-2 rounded-full transition-all duration-100"
-                  style={{ width: `${audioLevel * 100}%` }}
-                />
-              </div>
-            </div>
-
-            <button
-              onClick={stopRecording}
-              className="w-full bg-red-500 text-white px-6 py-2.5 rounded-full text-sm font-medium hover:bg-red-600"
-            >
-              녹음 중지 → 변환하기
-            </button>
+            <button onClick={() => setTranscribeError("")} className="text-xs text-red-500 underline mt-2">닫기</button>
           </div>
         )}
 
         {/* 녹음 옵션 (새 일지만) */}
-        {!isEdit && !recording && !transcribing && (
+        {!isEdit && !transcribing && (
           <div className="mb-4">
             {showRecordOption ? (
               <div className="bg-white border border-gray-200 rounded-lg p-3 space-y-2">
                 <button
-                  onClick={startRecording}
+                  onClick={() => { setShowRecordOption(false); setShowRecordModal(true); startRecording(); }}
                   className="w-full flex items-center gap-3 rounded-lg border border-gray-200 px-4 py-3 hover:bg-red-50 hover:border-red-300 transition-colors"
                 >
                   <span className="w-8 h-8 bg-red-100 rounded-full flex items-center justify-center text-red-500 shrink-0">●</span>
@@ -337,19 +335,8 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
                     <p className="text-xs text-gray-400">기존 녹음 파일을 첨부합니다</p>
                   </div>
                 </button>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="audio/*"
-                  onChange={handleFileUpload}
-                  className="hidden"
-                />
-                <button
-                  onClick={() => setShowRecordOption(false)}
-                  className="w-full text-center text-xs text-gray-400 py-1"
-                >
-                  취소
-                </button>
+                <input ref={fileInputRef} type="file" accept="audio/*" onChange={handleFileUpload} className="hidden" />
+                <button onClick={() => setShowRecordOption(false)} className="w-full text-center text-xs text-gray-400 py-1">취소</button>
               </div>
             ) : (
               <button
@@ -363,6 +350,46 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
+          {/* 목적 */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">목적</label>
+            <div className="grid grid-cols-4 gap-2">
+              {PURPOSE_OPTIONS.map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => setForm((f) => ({ ...f, purpose: opt.value, lesson_id: opt.value !== "lecture" ? "" : f.lesson_id }))}
+                  className={`py-2 rounded-lg border text-sm font-medium transition-colors ${
+                    form.purpose === opt.value
+                      ? "bg-blue-600 text-white border-blue-600"
+                      : "bg-white text-gray-600 border-gray-300 hover:border-blue-400"
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* 강의 선택 (목적이 강의일 때) */}
+          {form.purpose === "lecture" && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">수강 강의</label>
+              <select
+                value={form.lesson_id}
+                onChange={(e) => setForm((f) => ({ ...f, lesson_id: e.target.value }))}
+                className="w-full rounded-lg border border-gray-300 px-4 py-3 text-base focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              >
+                <option value="">강의를 선택하세요</option>
+                {lectureOnlyLessons.map((l) => (
+                  <option key={l.id} value={l.id}>
+                    {l.number}. {l.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">날짜</label>
             <input type="date" value={form.met_date} onChange={(e) => setForm((f) => ({ ...f, met_date: e.target.value }))} required className="w-full rounded-lg border border-gray-300 px-4 py-3 text-base focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
@@ -380,6 +407,59 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
           </button>
         </form>
       </div>
+
+      {/* 녹음 팝업 모달 */}
+      {showRecordModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-white w-full max-w-md rounded-2xl p-5 space-y-4">
+            <div className="text-center">
+              <div className="flex items-center justify-center gap-2 mb-1">
+                <span className="w-3 h-3 bg-red-500 rounded-full animate-pulse" />
+                <span className="text-red-600 font-bold text-lg">녹음 중 {formatTime(recordingTime)}</span>
+              </div>
+            </div>
+
+            {/* 파형 */}
+            <canvas
+              ref={canvasRef}
+              width={350}
+              height={70}
+              className="w-full h-[70px] rounded-lg bg-red-50"
+            />
+
+            {/* 볼륨 */}
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] text-red-400 shrink-0">볼륨</span>
+              <div className="flex-1 bg-red-100 rounded-full h-2">
+                <div
+                  className="bg-red-500 h-2 rounded-full transition-all duration-100"
+                  style={{ width: `${audioLevel * 100}%` }}
+                />
+              </div>
+            </div>
+
+            {/* 가이드 */}
+            <div className="bg-gray-50 rounded-lg p-3">
+              <p className="text-xs font-bold text-gray-600 mb-2">이런 내용을 말해보세요</p>
+              <ul className="space-y-1.5">
+                {RECORD_GUIDE.map((g, i) => (
+                  <li key={i} className="text-xs text-gray-500 flex items-start gap-2">
+                    <span className="text-blue-400 shrink-0 mt-0.5">•</span>
+                    {g}
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <button
+              onClick={stopRecording}
+              className="w-full bg-red-500 text-white py-3 rounded-xl text-sm font-bold hover:bg-red-600 transition-colors"
+            >
+              녹음 중지 → 변환하기
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
