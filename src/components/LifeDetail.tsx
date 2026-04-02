@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { getUser, User } from "@/lib/auth";
+import LessonProgress from "@/components/LessonProgress";
 
 interface Life {
   id: string;
@@ -66,6 +67,7 @@ export default function LifeDetail({ lifeId, basePath, backPath }: LifeDetailPro
   const [loading, setLoading] = useState(true);
   const [editingInfo, setEditingInfo] = useState(false);
   const [editForm, setEditForm] = useState<Partial<Life>>({});
+  const [activeTab, setActiveTab] = useState<"info" | "lessons">("info");
 
   useEffect(() => {
     const u = getUser();
@@ -160,6 +162,35 @@ export default function LifeDetail({ lifeId, basePath, backPath }: LifeDetailPro
         )}
       </header>
 
+      {/* 탭 */}
+      <div className="flex border-b border-gray-200 bg-white">
+        <button
+          onClick={() => setActiveTab("info")}
+          className={`flex-1 py-2.5 text-sm font-medium text-center border-b-2 transition-colors ${
+            activeTab === "info" ? "border-blue-600 text-blue-600" : "border-transparent text-gray-500"
+          }`}
+        >
+          정보 · 일지
+        </button>
+        <button
+          onClick={() => setActiveTab("lessons")}
+          className={`flex-1 py-2.5 text-sm font-medium text-center border-b-2 transition-colors ${
+            activeTab === "lessons" ? "border-blue-600 text-blue-600" : "border-transparent text-gray-500"
+          }`}
+        >
+          강의 진도표
+        </button>
+      </div>
+
+      {/* 강의 진도표 탭 */}
+      {activeTab === "lessons" && (
+        <div className="p-4">
+          <LessonProgress lifeId={lifeId} />
+        </div>
+      )}
+
+      {/* 정보 · 일지 탭 */}
+      {activeTab === "info" && (
       <div className="p-4 space-y-4">
         {!life.is_failed && (
           <div className="bg-white rounded-lg border border-gray-200 p-4">
@@ -253,6 +284,7 @@ export default function LifeDetail({ lifeId, basePath, backPath }: LifeDetailPro
           )}
         </div>
       </div>
+      )}
     </div>
   );
 }
