@@ -52,6 +52,7 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
   // 녹음
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [transcribing, setTranscribing] = useState(false);
   const [showRecordModal, setShowRecordModal] = useState(false);
   const [recording, setRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
@@ -85,10 +86,10 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
     if (data) {
       setForm({
         met_date: data.met_date,
-        location: data.location,
+        location: data.location || "",
         purpose: data.purpose || "",
         lesson_id: data.lesson_id || "",
-        response: data.response,
+        response: data.response || "",
       });
       if (data.audio_url) setAudioUrl(data.audio_url);
     }
@@ -110,6 +111,20 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
     if (error) return null;
     const { data: urlData } = supabase.storage.from("recordings").getPublicUrl(fileName);
     return urlData.publicUrl;
+  };
+
+  // Gemini 변환
+  const transcribeAudio = async (audioData: Blob | File): Promise<{ 날짜?: string; 만남장소?: string; 생명반응?: string } | null> => {
+    const fd = new FormData();
+    fd.append("audio", audioData);
+    try {
+      const res = await fetch("/api/transcribe", { method: "POST", body: fd });
+      const data = await res.json();
+      if (!res.ok) return null;
+      return data.result || null;
+    } catch {
+      return null;
+    }
   };
 
   // 파형
@@ -169,12 +184,26 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
         audioCtx.close();
         const blob = new Blob(chunksRef.current, { type: mediaRecorder.mimeType });
         setShowRecordModal(false);
+        
 
-        // Supabase Storage에 저장만
+        // 1. Supabase Storage에 저장
         setUploading(true);
         const url = await uploadAudio(blob);
         if (url) setAudioUrl(url);
         setUploading(false);
+
+        // 2. 바로 Gemini 변환 시도
+        setTranscribing(true);
+        const result = await transcribeAudio(blob);
+        if (result) {
+          setForm((f) => ({
+            ...f,
+            met_date: result.날짜 || f.met_date,
+            location: result.만남장소 || f.location,
+            response: result.생명반응 || f.response,
+          }));
+        }
+        setTranscribing(false);
       };
 
       mediaRecorder.start(100);
@@ -199,10 +228,24 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
     const file = e.target.files?.[0];
     if (!file) return;
     setShowRecordOption(false);
+    setAudioBlob(file);
+
     setUploading(true);
     const url = await uploadAudio(file);
     if (url) setAudioUrl(url);
     setUploading(false);
+
+    setTranscribing(true);
+    const result = await transcribeAudio(file);
+    if (result) {
+      setForm((f) => ({
+        ...f,
+        met_date: result.날짜 || f.met_date,
+        location: result.만남장소 || f.location,
+        response: result.생명반응 || f.response,
+      }));
+    }
+    setTranscribing(false);
   };
 
   const formatTime = (s: number) => {
@@ -217,10 +260,13 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
     const user = getUser();
     if (!user) return;
 
+    // 녹음만 있고 변환 실패한 경우 → "텍스트 변환 중입니다" 메시지로 저장
+    const responseText = form.response || (audioUrl ? "(텍스트 변환 중입니다)" : "");
+
     const journalData: any = {
       met_date: form.met_date,
-      location: form.location,
-      response: form.response || null,
+      location: form.location || "(녹음 참조)",
+      response: responseText,
       purpose: form.purpose || null,
       lesson_id: form.lesson_id || null,
       audio_url: audioUrl,
@@ -229,7 +275,6 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
     if (isEdit) {
       await supabase.from("journals").update(journalData).eq("id", journalId);
     } else {
-      // 일지 저장
       const { data: newJournal } = await supabase.from("journals").insert({
         life_id: lifeId,
         author_id: user.id,
@@ -238,7 +283,6 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
 
       await supabase.from("lives").update({ last_met_at: form.met_date }).eq("id", lifeId);
 
-      // 강의 선택 시 자동 체크
       if (form.purpose === "lecture" && form.lesson_id) {
         await supabase.from("lesson_checks").upsert({
           life_id: lifeId,
@@ -247,7 +291,7 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
         }, { onConflict: "life_id,lesson_id" });
       }
 
-      // 녹음이 있고 내용이 비어있으면 → 작업 큐에 등록 (백엔드에서 나중에 변환)
+      // 변환 안 된 녹음 → 큐에 등록
       if (audioUrl && !form.response && newJournal) {
         await supabase.from("audio_queue").insert({
           audio_url: audioUrl,
@@ -266,8 +310,6 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
   }
 
   const lectureOnlyLessons = lessons.filter((l) => l.category === "lecture");
-  // 녹음만 있고 내용 없으면 response를 필수에서 해제
-  const responseRequired = !audioUrl;
 
   return (
     <div className="min-h-full bg-gray-50">
@@ -277,28 +319,32 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
       </header>
 
       <div className="p-4">
-        {/* 업로드 중 */}
+        {/* 상태 표시 */}
         {uploading && (
           <div className="mb-4 bg-gray-50 border border-gray-200 rounded-lg p-4 text-center">
             <div className="animate-pulse text-gray-600 font-medium text-sm">녹음 파일 저장 중...</div>
           </div>
         )}
 
-        {/* 녹음 저장 완료 표시 */}
+        {transcribing && (
+          <div className="mb-4 bg-blue-50 border border-blue-200 rounded-lg p-4 text-center">
+            <div className="animate-pulse text-blue-600 font-medium text-sm">텍스트로 변환 중...</div>
+            <p className="text-xs text-blue-400 mt-1">변환이 완료되면 자동으로 입력됩니다</p>
+          </div>
+        )}
+
+        {/* 녹음 저장 완료 */}
         {audioUrl && !uploading && (
           <div className="mb-4 bg-green-50 border border-green-200 rounded-lg p-3">
             <div className="flex items-center justify-between mb-2">
-              <span className="text-green-700 text-sm font-medium">녹음 저장 완료</span>
+              <span className="text-green-700 text-sm font-medium">녹음 저장됨</span>
             </div>
             <audio src={audioUrl} controls className="w-full h-8" />
-            <p className="text-xs text-green-600 mt-2">
-              내용을 직접 작성하거나, 비워두고 저장하면 자동으로 텍스트 변환됩니다.
-            </p>
           </div>
         )}
 
         {/* 녹음 옵션 */}
-        {!isEdit && !recording && !uploading && (
+        {!isEdit && !recording && !uploading && !transcribing && (
           <div className="mb-4">
             {showRecordOption ? (
               <div className="bg-white border border-gray-200 rounded-lg p-3 space-y-2">
@@ -379,23 +425,20 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">만남 장소</label>
-            <input type="text" placeholder="예: 학교 카페, 도서관 앞" value={form.location} onChange={(e) => setForm((f) => ({ ...f, location: e.target.value }))} required className="w-full rounded-lg border border-gray-300 px-4 py-3 text-base focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
+            <input type="text" placeholder="예: 학교 카페, 도서관 앞" value={form.location} onChange={(e) => setForm((f) => ({ ...f, location: e.target.value }))} className="w-full rounded-lg border border-gray-300 px-4 py-3 text-base focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              생명 반응 {audioUrl && <span className="text-xs text-gray-400 font-normal">(비워두면 자동 변환)</span>}
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">생명 반응</label>
             <textarea
-              placeholder={audioUrl ? "비워두면 녹음에서 자동으로 텍스트가 채워집니다." : "어떤 대화를 했는지, 생명의 반응은 어떠했는지, 다음 계획은 무엇인지 자유롭게 작성해주세요."}
+              placeholder={audioUrl && !form.response ? "녹음 변환 결과가 여기에 표시됩니다. 직접 수정도 가능합니다." : "어떤 대화를 했는지, 생명의 반응은 어떠했는지, 다음 계획은 무엇인지 자유롭게 작성해주세요."}
               value={form.response}
               onChange={(e) => setForm((f) => ({ ...f, response: e.target.value }))}
-              required={responseRequired}
               rows={8}
               className="w-full rounded-lg border border-gray-300 px-4 py-3 text-base focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"
             />
           </div>
-          <button type="submit" disabled={saving || uploading} className="w-full rounded-lg bg-blue-600 py-3 text-base font-semibold text-white hover:bg-blue-700 disabled:opacity-50 transition-colors">
-            {saving ? "저장 중..." : isEdit ? "수정 완료" : audioUrl && !form.response ? "녹음 저장 (자동 변환 예약)" : "일지 저장"}
+          <button type="submit" disabled={saving || uploading || transcribing} className="w-full rounded-lg bg-blue-600 py-3 text-base font-semibold text-white hover:bg-blue-700 disabled:opacity-50 transition-colors">
+            {saving ? "저장 중..." : "일지 저장"}
           </button>
         </form>
       </div>
