@@ -60,6 +60,9 @@ export default function OrgChart({ userRole, userId, basePath }: OrgChartProps) 
   const [stageFilter, setStageFilter] = useState("");
   const [showAll, setShowAll] = useState(userRole === "instructor");
   const [managerFilter, setManagerFilter] = useState("");
+  const [editMode, setEditMode] = useState(false);
+  const [movingStudent, setMovingStudent] = useState<{ id: string; name: string } | null>(null);
+  const [movingLife, setMovingLife] = useState<{ id: string; name: string; fromStudentId: string } | null>(null);
 
   useEffect(() => {
     fetchOrgData();
@@ -128,6 +131,30 @@ export default function OrgChart({ userRole, userId, basePath }: OrgChartProps) 
     return filtered;
   })();
 
+  // 대학생을 다른 관리자로 이동
+  const moveStudentToManager = async (studentId: string, newManagerId: string) => {
+    await supabase.from("users").update({ manager_id: newManagerId }).eq("id", studentId);
+    setMovingStudent(null);
+    fetchOrgData();
+  };
+
+  // 생명을 다른 대학생으로 이동
+  const moveLifeToStudent = async (lifeId: string, fromStudentId: string, toStudentId: string) => {
+    // 기존 연결 삭제
+    await supabase.from("user_lives").delete().eq("life_id", lifeId).eq("user_id", fromStudentId);
+    // 새 연결 생성
+    await supabase.from("user_lives").upsert({
+      user_id: toStudentId,
+      life_id: lifeId,
+      role_in_life: "evangelist",
+    });
+    setMovingLife(null);
+    fetchOrgData();
+  };
+
+  // 전체 대학생 목록 (이동 대상)
+  const allStudents = tree.flatMap((m) => m.students.map((s) => ({ ...s, managerName: m.display_name })));
+
   const filterLife = (life: LifeItem) => {
     if (stageFilter && life.stage !== stageFilter) return false;
     if (searchQuery && !life.name.includes(searchQuery)) return false;
@@ -180,6 +207,18 @@ export default function OrgChart({ userRole, userId, basePath }: OrgChartProps) 
           ))}
         </select>
 
+        {/* 편집 모드 토글 */}
+        <button
+          onClick={() => { setEditMode(!editMode); setMovingStudent(null); setMovingLife(null); }}
+          className={`text-xs px-3 py-1.5 rounded-full border transition-colors shrink-0 ${
+            editMode
+              ? "bg-orange-500 text-white border-orange-500"
+              : "bg-white text-gray-600 border-gray-300"
+          }`}
+        >
+          {editMode ? "편집 완료" : "편집"}
+        </button>
+
         {/* 관리자별 필터 (전체 보기 시 또는 강사) */}
         {(showAll || userRole === "instructor") && (
           <select
@@ -229,13 +268,15 @@ export default function OrgChart({ userRole, userId, basePath }: OrgChartProps) 
                   basePath={basePath}
                   router={router}
                   formatDate={formatDate}
+                  editMode={editMode}
+                  onMoveStudent={(id, name) => setMovingStudent({ id, name })}
+                  onMoveLife={(id, name, fromId) => setMovingLife({ id, name, fromStudentId: fromId })}
                 />
               );
             })}
           </div>
         </div>
       ) : (
-        /* 단일 관리자 보기: 대학생이 가로로 */
         visibleTree.map((manager) => {
           const hasFilteredLives = manager.students.some((s) => s.lives.some(filterLife));
           if ((searchQuery || stageFilter) && !hasFilteredLives) return null;
@@ -255,9 +296,58 @@ export default function OrgChart({ userRole, userId, basePath }: OrgChartProps) 
               basePath={basePath}
               router={router}
               formatDate={formatDate}
+              editMode={editMode}
+              onMoveStudent={(id, name) => setMovingStudent({ id, name })}
+              onMoveLife={(id, name, fromId) => setMovingLife({ id, name, fromStudentId: fromId })}
             />
           );
         })
+      )}
+
+      {/* 대학생 이동 모달 */}
+      {movingStudent && (
+        <div className="fixed inset-0 bg-black/50 flex items-end justify-center z-50" onClick={() => setMovingStudent(null)}>
+          <div className="bg-white w-full max-w-lg rounded-t-2xl p-4 space-y-3" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-sm font-bold">대학생 이동: {movingStudent.name}</h3>
+            <p className="text-xs text-gray-500">어느 관리자 밑으로 이동할까요?</p>
+            <div className="space-y-2 max-h-60 overflow-y-auto">
+              {tree.filter((m) => m.id !== "unassigned").map((m) => (
+                <button
+                  key={m.id}
+                  onClick={() => moveStudentToManager(movingStudent.id, m.id)}
+                  className="w-full text-left rounded-lg border border-gray-200 px-4 py-3 hover:bg-blue-50 hover:border-blue-300 transition-colors"
+                >
+                  <span className="text-sm font-medium">{m.display_name}</span>
+                  <span className="text-xs text-gray-400 ml-2">대학생 {m.students.length}명</span>
+                </button>
+              ))}
+            </div>
+            <button onClick={() => setMovingStudent(null)} className="w-full text-center text-sm text-gray-500 py-2">취소</button>
+          </div>
+        </div>
+      )}
+
+      {/* 생명 이동 모달 */}
+      {movingLife && (
+        <div className="fixed inset-0 bg-black/50 flex items-end justify-center z-50" onClick={() => setMovingLife(null)}>
+          <div className="bg-white w-full max-w-lg rounded-t-2xl p-4 space-y-3" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-sm font-bold">생명 이동: {movingLife.name}</h3>
+            <p className="text-xs text-gray-500">어느 대학생에게 이동할까요?</p>
+            <div className="space-y-2 max-h-60 overflow-y-auto">
+              {allStudents.filter((s) => s.id !== movingLife.fromStudentId).map((s) => (
+                <button
+                  key={s.id}
+                  onClick={() => moveLifeToStudent(movingLife.id, movingLife.fromStudentId, s.id)}
+                  className="w-full text-left rounded-lg border border-gray-200 px-4 py-3 hover:bg-blue-50 hover:border-blue-300 transition-colors"
+                >
+                  <span className="text-sm font-medium">{s.display_name}</span>
+                  <span className="text-xs text-gray-400 ml-2">{s.managerName} 소속</span>
+                </button>
+              ))}
+            </div>
+            <button onClick={() => setMovingLife(null)} className="w-full text-center text-sm text-gray-500 py-2">취소</button>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -266,16 +356,20 @@ export default function OrgChart({ userRole, userId, basePath }: OrgChartProps) 
 /* 통일된 관리자 컬럼 컴포넌트 */
 function ManagerColumn({
   manager, visibleStudents, horizontal, searchQuery, stageFilter, filterLife, basePath, router, formatDate,
+  editMode, onMoveStudent, onMoveLife,
 }: {
   manager: ManagerNode;
   visibleStudents: StudentNode[];
-  horizontal: boolean; // true면 대학생이 가로 배치
+  horizontal: boolean;
   searchQuery: string;
   stageFilter: string;
   filterLife: (life: LifeItem) => boolean;
   basePath: string;
   router: any;
   formatDate: (d: string | null) => string;
+  editMode: boolean;
+  onMoveStudent: (id: string, name: string) => void;
+  onMoveLife: (id: string, name: string, fromStudentId: string) => void;
 }) {
   const totalLives = manager.students.reduce((s, st) => s + st.lives.filter((l) => !l.is_failed).length, 0);
 
@@ -315,7 +409,17 @@ function ManagerColumn({
                 {/* 대학생 헤더 */}
                 <div className="px-3 py-1.5 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
                   <span className="text-xs font-semibold text-gray-600">{student.display_name}</span>
-                  <span className="text-[10px] text-gray-400">{activeLives.length}명</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] text-gray-400">{activeLives.length}명</span>
+                    {editMode && (
+                      <button
+                        onClick={() => onMoveStudent(student.id, student.display_name)}
+                        className="text-[10px] bg-orange-100 text-orange-600 px-1.5 py-0.5 rounded hover:bg-orange-200"
+                      >
+                        이동
+                      </button>
+                    )}
+                  </div>
                 </div>
                 {/* 생명 리스트 */}
                 <div className="p-2 space-y-1">
@@ -323,24 +427,35 @@ function ManagerColumn({
                     <p className="text-xs text-gray-300 text-center py-1">생명 없음</p>
                   )}
                   {activeLives.map((life) => (
-                    <button
-                      key={life.id}
-                      onClick={() => router.push(`${basePath}/life/${life.id}`)}
-                      className="w-full text-left rounded border border-gray-100 px-2 py-1.5 hover:bg-blue-50 hover:border-blue-300 transition-colors flex items-center justify-between gap-2"
-                    >
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span className="text-sm font-medium truncate">{life.name}</span>
-                        {life.age && <span className="text-[11px] text-gray-400 shrink-0">{life.age}세</span>}
-                      </div>
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        {life.last_met_at && (
-                          <span className="text-[10px] text-gray-300">{formatDate(life.last_met_at)}</span>
-                        )}
-                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${STAGE_COLORS[life.stage]}`}>
-                          {STAGE_LABELS[life.stage]}
-                        </span>
-                      </div>
-                    </button>
+                    <div key={life.id} className="flex items-center gap-1">
+                      <button
+                        onClick={() => !editMode && router.push(`${basePath}/life/${life.id}`)}
+                        className={`flex-1 text-left rounded border border-gray-100 px-2 py-1.5 transition-colors flex items-center justify-between gap-2 ${
+                          editMode ? "cursor-default" : "hover:bg-blue-50 hover:border-blue-300"
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="text-sm font-medium truncate">{life.name}</span>
+                          {life.age && <span className="text-[11px] text-gray-400 shrink-0">{life.age}세</span>}
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {life.last_met_at && (
+                            <span className="text-[10px] text-gray-300">{formatDate(life.last_met_at)}</span>
+                          )}
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${STAGE_COLORS[life.stage]}`}>
+                            {STAGE_LABELS[life.stage]}
+                          </span>
+                        </div>
+                      </button>
+                      {editMode && (
+                        <button
+                          onClick={() => onMoveLife(life.id, life.name, student.id)}
+                          className="text-[10px] bg-orange-100 text-orange-600 px-1.5 py-1 rounded hover:bg-orange-200 shrink-0"
+                        >
+                          이동
+                        </button>
+                      )}
+                    </div>
                   ))}
                   {failedLives.length > 0 && (
                     <div className="flex flex-wrap gap-1 mt-1">
