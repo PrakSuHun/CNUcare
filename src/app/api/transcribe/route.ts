@@ -23,7 +23,7 @@ const PROMPT = `이 오디오는 선교 활동 중 생명(선교 대상자)과�
 
 async function callGemini(apiKey: string, base64: string, mimeType: string) {
   const ai = new GoogleGenerativeAI(apiKey);
-  const model = ai.getGenerativeModel({ model: "gemini-2.0-flash" });
+  const model = ai.getGenerativeModel({ model: "gemini-2.5-flash" });
 
   const response = await model.generateContent([
     { text: PROMPT },
