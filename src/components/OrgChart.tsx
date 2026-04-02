@@ -50,9 +50,10 @@ interface OrgChartProps {
   userRole: "manager" | "instructor";
   userId: string;
   basePath: string;
+  editMode?: boolean;
 }
 
-export default function OrgChart({ userRole, userId, basePath }: OrgChartProps) {
+export default function OrgChart({ userRole, userId, basePath, editMode: externalEditMode }: OrgChartProps) {
   const router = useRouter();
   const [tree, setTree] = useState<ManagerNode[]>([]);
   const [loading, setLoading] = useState(true);
@@ -61,6 +62,7 @@ export default function OrgChart({ userRole, userId, basePath }: OrgChartProps) 
   const [showAll, setShowAll] = useState(userRole === "instructor");
   const [managerFilter, setManagerFilter] = useState("");
   const [editMode, setEditMode] = useState(false);
+  const isEditing = externalEditMode !== undefined ? externalEditMode : editMode;
   const [movingStudent, setMovingStudent] = useState<{ id: string; name: string } | null>(null);
   const [movingLife, setMovingLife] = useState<{ id: string; name: string; fromStudentId: string } | null>(null);
 
@@ -207,18 +209,6 @@ export default function OrgChart({ userRole, userId, basePath }: OrgChartProps) 
           ))}
         </select>
 
-        {/* 편집 모드 토글 */}
-        <button
-          onClick={() => { setEditMode(!editMode); setMovingStudent(null); setMovingLife(null); }}
-          className={`text-xs px-3 py-1.5 rounded-full border transition-colors shrink-0 ${
-            editMode
-              ? "bg-orange-500 text-white border-orange-500"
-              : "bg-white text-gray-600 border-gray-300"
-          }`}
-        >
-          {editMode ? "편집 완료" : "편집"}
-        </button>
-
         {/* 관리자별 필터 (전체 보기 시 또는 강사) */}
         {(showAll || userRole === "instructor") && (
           <select
@@ -268,7 +258,7 @@ export default function OrgChart({ userRole, userId, basePath }: OrgChartProps) 
                   basePath={basePath}
                   router={router}
                   formatDate={formatDate}
-                  editMode={editMode}
+                  editMode={isEditing}
                   onMoveStudent={(id, name) => setMovingStudent({ id, name })}
                   onMoveLife={(id, name, fromId) => setMovingLife({ id, name, fromStudentId: fromId })}
                 />

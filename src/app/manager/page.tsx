@@ -8,6 +8,7 @@ import OrgChart from "@/components/OrgChart";
 export default function ManagerPage() {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
+  const [editMode, setEditMode] = useState(false);
 
   useEffect(() => {
     const u = getUser();
@@ -27,16 +28,28 @@ export default function ManagerPage() {
           <h1 className="text-lg font-bold">조직도</h1>
           <p className="text-xs text-gray-500">{user.display_name} (관리자)</p>
         </div>
-        <button
-          onClick={logout}
-          className="text-sm text-gray-400 hover:text-gray-600"
-        >
-          로그아웃
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setEditMode(!editMode)}
+            className={`text-sm px-3 py-1 rounded-full border transition-colors ${
+              editMode
+                ? "bg-orange-500 text-white border-orange-500"
+                : "text-gray-500 border-gray-300 hover:border-orange-400"
+            }`}
+          >
+            {editMode ? "편집 완료" : "편집"}
+          </button>
+          <button
+            onClick={logout}
+            className="text-sm text-gray-400 hover:text-gray-600"
+          >
+            로그아웃
+          </button>
+        </div>
       </header>
 
       <div className="p-4">
-        <OrgChart userRole="manager" userId={user.id} basePath="/manager" />
+        <OrgChart userRole="manager" userId={user.id} basePath="/manager" editMode={editMode} />
       </div>
     </div>
   );
