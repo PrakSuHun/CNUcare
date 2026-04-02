@@ -5,12 +5,13 @@ import { useRouter } from "next/navigation";
 import { getUser, logout, User } from "@/lib/auth";
 import OrgChart from "@/components/OrgChart";
 import Dashboard from "@/components/Dashboard";
+import AnalysisPage from "@/components/AnalysisPage";
 
 export default function ManagerPage() {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
   const [editMode, setEditMode] = useState(false);
-  const [tab, setTab] = useState<"org" | "dashboard">("org");
+  const [tab, setTab] = useState<"org" | "dashboard" | "analysis">("org");
 
   useEffect(() => {
     const u = getUser();
@@ -65,7 +66,15 @@ export default function ManagerPage() {
             tab === "dashboard" ? "border-blue-600 text-blue-600" : "border-transparent text-gray-500"
           }`}
         >
-          분석
+          현황
+        </button>
+        <button
+          onClick={() => setTab("analysis")}
+          className={`flex-1 py-2.5 text-sm font-medium text-center border-b-2 transition-colors ${
+            tab === "analysis" ? "border-blue-600 text-blue-600" : "border-transparent text-gray-500"
+          }`}
+        >
+          AI 분석
         </button>
       </div>
 
@@ -74,6 +83,7 @@ export default function ManagerPage() {
           <OrgChart userRole="manager" userId={user.id} basePath="/manager" editMode={editMode} />
         )}
         {tab === "dashboard" && <Dashboard />}
+        {tab === "analysis" && <AnalysisPage />}
       </div>
     </div>
   );
