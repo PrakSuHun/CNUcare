@@ -1,0 +1,267 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { supabase } from "@/lib/supabase";
+import { getUser, User } from "@/lib/auth";
+
+interface Life {
+  id: string;
+  name: string;
+  student_id_number: string | null;
+  age: number | null;
+  grade: string | null;
+  department: string | null;
+  mbti: string | null;
+  meeting_reason: string | null;
+  meeting_count: number;
+  has_partner: boolean | null;
+  characteristics: string | null;
+  birth_year: string | null;
+  stage: string;
+  is_failed: boolean;
+}
+
+interface Journal {
+  id: string;
+  met_date: string;
+  location: string;
+  response: string;
+  author_id: string;
+  created_at: string;
+  author?: { display_name: string };
+}
+
+const STAGE_LABELS: Record<string, string> = {
+  first_meeting: "1차 만남",
+  pre_visit: "전초",
+  intro: "입문",
+  beginner: "초급",
+  intermediate: "중급",
+  advanced: "고급",
+  completed: "수료",
+};
+
+const STAGE_OPTIONS = [
+  { value: "first_meeting", label: "1차 만남" },
+  { value: "pre_visit", label: "전초" },
+  { value: "intro", label: "입문" },
+  { value: "beginner", label: "초급" },
+  { value: "intermediate", label: "중급" },
+  { value: "advanced", label: "고급" },
+  { value: "completed", label: "수료" },
+];
+
+interface LifeDetailProps {
+  lifeId: string;
+  basePath: string;
+  backPath: string;
+}
+
+export default function LifeDetail({ lifeId, basePath, backPath }: LifeDetailProps) {
+  const router = useRouter();
+  const [user, setUser] = useState<User | null>(null);
+  const [life, setLife] = useState<Life | null>(null);
+  const [journals, setJournals] = useState<Journal[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [editingInfo, setEditingInfo] = useState(false);
+  const [editForm, setEditForm] = useState<Partial<Life>>({});
+
+  useEffect(() => {
+    const u = getUser();
+    if (!u) {
+      router.push("/");
+      return;
+    }
+    setUser(u);
+    fetchData();
+  }, [router, lifeId]);
+
+  const fetchData = async () => {
+    const [lifeRes, journalRes] = await Promise.all([
+      supabase.from("lives").select("*").eq("id", lifeId).single(),
+      supabase
+        .from("journals")
+        .select("*, author:users(display_name)")
+        .eq("life_id", lifeId)
+        .order("met_date", { ascending: false }),
+    ]);
+
+    if (lifeRes.data) {
+      setLife(lifeRes.data);
+      setEditForm(lifeRes.data);
+    }
+    if (journalRes.data) {
+      setJournals(journalRes.data as any);
+    }
+    setLoading(false);
+  };
+
+  const handleSaveInfo = async () => {
+    await supabase
+      .from("lives")
+      .update({
+        student_id_number: editForm.student_id_number || null,
+        age: editForm.age || null,
+        grade: editForm.grade || null,
+        department: editForm.department || null,
+        mbti: editForm.mbti || null,
+        meeting_reason: editForm.meeting_reason || null,
+        has_partner: editForm.has_partner,
+        characteristics: editForm.characteristics || null,
+        birth_year: editForm.birth_year || null,
+      })
+      .eq("id", lifeId);
+    setEditingInfo(false);
+    fetchData();
+  };
+
+  const handleStageChange = async (newStage: string) => {
+    await supabase.from("lives").update({ stage: newStage }).eq("id", lifeId);
+    fetchData();
+  };
+
+  const handleFail = async () => {
+    if (!confirm("이 생명을 페일 처리하시겠습니까?")) return;
+    await supabase.from("lives").update({ is_failed: true }).eq("id", lifeId);
+    router.push(backPath);
+  };
+
+  const handleRestore = async () => {
+    await supabase.from("lives").update({ is_failed: false }).eq("id", lifeId);
+    fetchData();
+  };
+
+  if (loading || !life) {
+    return (
+      <div className="flex min-h-full items-center justify-center">
+        <p className="text-gray-500">로딩 중...</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-full bg-gray-50 pb-24">
+      <header className="bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between">
+        <div className="flex items-center">
+          <button onClick={() => router.push(backPath)} className="text-gray-500 mr-3">&larr;</button>
+          <div>
+            <h1 className="text-lg font-bold">{life.name}</h1>
+            <p className="text-xs text-gray-500">
+              {STAGE_LABELS[life.stage] || life.stage}
+              {life.is_failed && " (페일)"}
+            </p>
+          </div>
+        </div>
+        {life.is_failed ? (
+          <button onClick={handleRestore} className="text-xs text-blue-500 border border-blue-300 rounded-full px-3 py-1">복구</button>
+        ) : (
+          <button onClick={handleFail} className="text-xs text-red-400 border border-red-200 rounded-full px-3 py-1">페일</button>
+        )}
+      </header>
+
+      <div className="p-4 space-y-4">
+        {!life.is_failed && (
+          <div className="bg-white rounded-lg border border-gray-200 p-4">
+            <p className="text-sm font-medium text-gray-700 mb-2">단계 변경</p>
+            <div className="flex flex-wrap gap-2">
+              {STAGE_OPTIONS.map((opt) => (
+                <button
+                  key={opt.value}
+                  onClick={() => handleStageChange(opt.value)}
+                  className={`text-xs px-3 py-1.5 rounded-full border transition-colors ${
+                    life.stage === opt.value
+                      ? "bg-blue-600 text-white border-blue-600"
+                      : "bg-white text-gray-600 border-gray-300 hover:border-blue-400"
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="bg-white rounded-lg border border-gray-200 p-4">
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-sm font-medium text-gray-700">기본 정보</p>
+            <button
+              onClick={() => { if (editingInfo) handleSaveInfo(); else setEditingInfo(true); }}
+              className="text-xs text-blue-500"
+            >
+              {editingInfo ? "저장" : "수정"}
+            </button>
+          </div>
+          {editingInfo ? (
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <input placeholder="학번(나이)" value={editForm.student_id_number || ""} onChange={(e) => setEditForm((f) => ({ ...f, student_id_number: e.target.value }))} className="rounded border border-gray-300 px-3 py-2 text-sm" />
+                <input type="number" placeholder="나이" value={editForm.age || ""} onChange={(e) => setEditForm((f) => ({ ...f, age: parseInt(e.target.value) || null }))} className="rounded border border-gray-300 px-3 py-2 text-sm" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <input placeholder="학년" value={editForm.grade || ""} onChange={(e) => setEditForm((f) => ({ ...f, grade: e.target.value }))} className="rounded border border-gray-300 px-3 py-2 text-sm" />
+                <input placeholder="학과" value={editForm.department || ""} onChange={(e) => setEditForm((f) => ({ ...f, department: e.target.value }))} className="rounded border border-gray-300 px-3 py-2 text-sm" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <input placeholder="MBTI" value={editForm.mbti || ""} onChange={(e) => setEditForm((f) => ({ ...f, mbti: e.target.value }))} className="rounded border border-gray-300 px-3 py-2 text-sm" />
+                <input placeholder="생년 뒤 2자리" value={editForm.birth_year || ""} onChange={(e) => setEditForm((f) => ({ ...f, birth_year: e.target.value }))} maxLength={2} className="rounded border border-gray-300 px-3 py-2 text-sm" />
+              </div>
+              <input placeholder="만남 경위" value={editForm.meeting_reason || ""} onChange={(e) => setEditForm((f) => ({ ...f, meeting_reason: e.target.value }))} className="w-full rounded border border-gray-300 px-3 py-2 text-sm" />
+              <textarea placeholder="특징" value={editForm.characteristics || ""} onChange={(e) => setEditForm((f) => ({ ...f, characteristics: e.target.value }))} rows={2} className="w-full rounded border border-gray-300 px-3 py-2 text-sm resize-none" />
+            </div>
+          ) : (
+            <div className="space-y-2 text-sm">
+              {life.student_id_number && <InfoRow label="학번" value={life.student_id_number} />}
+              {life.age && <InfoRow label="나이" value={`${life.age}세`} />}
+              {life.grade && <InfoRow label="학년" value={life.grade} />}
+              {life.department && <InfoRow label="학과" value={life.department} />}
+              {life.mbti && <InfoRow label="MBTI" value={life.mbti} />}
+              {life.meeting_reason && <InfoRow label="만남 경위" value={life.meeting_reason} />}
+              {life.has_partner !== null && <InfoRow label="이성 유무" value={life.has_partner ? "있음" : "없음"} />}
+              {life.characteristics && <InfoRow label="특징" value={life.characteristics} />}
+              {!life.student_id_number && !life.age && !life.department && !life.mbti && (
+                <p className="text-gray-400 text-xs">기본 정보가 아직 없습니다.</p>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="bg-white rounded-lg border border-gray-200 p-4">
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-sm font-medium text-gray-700">일지 ({journals.length})</p>
+            <button onClick={() => router.push(`${basePath}/life/${lifeId}/journal/new`)} className="text-xs text-blue-500">+ 일지 추가</button>
+          </div>
+          {journals.length === 0 ? (
+            <p className="text-xs text-gray-400">작성된 일지가 없습니다.</p>
+          ) : (
+            <div className="space-y-3">
+              {journals.map((j) => (
+                <button
+                  key={j.id}
+                  onClick={() => router.push(`${basePath}/life/${lifeId}/journal/${j.id}`)}
+                  className="w-full text-left border-b border-gray-100 pb-3 last:border-0 last:pb-0"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-gray-500">{new Date(j.met_date).toLocaleDateString("ko-KR")}</span>
+                    <span className="text-xs text-gray-400">{(j.author as any)?.display_name || ""}</span>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-0.5">{j.location}</p>
+                  <p className="text-sm text-gray-800 mt-1 line-clamp-2">{j.response}</p>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function InfoRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex">
+      <span className="text-gray-400 w-20 shrink-0">{label}</span>
+      <span className="text-gray-800">{value}</span>
+    </div>
+  );
+}
