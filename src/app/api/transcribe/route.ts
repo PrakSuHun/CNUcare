@@ -1,8 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenerativeAI } from "@google/generative-ai";
+
+// 쉼표로 구분된 여러 API 키를 라운드 로빈으로 사용
+let requestCount = 0;
+
+function getApiKey(): string | null {
+  const keys = (process.env.GEMINI_API_KEY || "")
+    .split(",")
+    .map((k) => k.trim())
+    .filter(Boolean);
+
+  if (keys.length === 0) return null;
+
+  const key = keys[requestCount % keys.length];
+  requestCount++;
+  return key;
+}
 
 export async function POST(req: NextRequest) {
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = getApiKey();
   if (!apiKey) {
     return NextResponse.json({ error: "Gemini API key not configured" }, { status: 500 });
   }
@@ -17,7 +33,8 @@ export async function POST(req: NextRequest) {
   const arrayBuffer = await file.arrayBuffer();
   const base64 = Buffer.from(arrayBuffer).toString("base64");
 
-  const ai = new GoogleGenAI({ apiKey });
+  const ai = new GoogleGenerativeAI(apiKey);
+  const model = ai.getGenerativeModel({ model: "gemini-2.0-flash" });
 
   const prompt = `이 오디오는 선교 활동 중 생명(선교 대상자)과의 만남을 녹음한 것입니다.
 다음 JSON 형식으로 정확히 정리해주세요. 반드시 JSON만 출력하세요.
@@ -30,31 +47,20 @@ export async function POST(req: NextRequest) {
 
 한국어로 작성하고, 내용을 요약하지 말고 최대한 상세하게 전사하여 정리해주세요.`;
 
-  // Determine MIME type
-  let mimeType = file.type || "audio/webm";
-  if (mimeType === "audio/mp4") mimeType = "audio/mp4";
+  const mimeType = file.type || "audio/webm";
 
-  const response = await ai.models.generateContent({
-    model: "gemini-2.0-flash",
-    contents: [
-      {
-        role: "user",
-        parts: [
-          { text: prompt },
-          {
-            inlineData: {
-              mimeType,
-              data: base64,
-            },
-          },
-        ],
+  const response = await model.generateContent([
+    { text: prompt },
+    {
+      inlineData: {
+        mimeType,
+        data: base64,
       },
-    ],
-  });
+    },
+  ]);
 
-  const text = response.text || "";
+  const text = response.response.text();
 
-  // JSON 파싱 시도
   try {
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
