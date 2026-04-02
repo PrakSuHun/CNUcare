@@ -228,7 +228,6 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
     const file = e.target.files?.[0];
     if (!file) return;
     setShowRecordOption(false);
-    setAudioBlob(file);
 
     setUploading(true);
     const url = await uploadAudio(file);
