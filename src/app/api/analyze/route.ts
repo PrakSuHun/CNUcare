@@ -278,7 +278,14 @@ ${failed.length}/${context.lives.length} (${context.lives.length ? Math.round(fa
 
     return NextResponse.json({ id: report?.id, status: "pending" });
   } catch (err: any) {
-    console.error("Analyze error:", err?.message);
-    return NextResponse.json({ error: err?.message || "분석 요청에 실패했습니다." }, { status: 500 });
+    console.error("Analyze error:", err?.message, err?.stack);
+    return NextResponse.json({
+      error: err?.message || "분석 요청에 실패했습니다.",
+      debug: {
+        hasSupabaseUrl: !!process.env.NEXT_PUBLIC_SUPABASE_URL,
+        hasAnonKey: !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+        hasServiceKey: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
+      }
+    }, { status: 500 });
   }
 }
