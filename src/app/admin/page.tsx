@@ -92,7 +92,6 @@ export default function AdminPage() {
       <div className="flex border-b border-gray-200 bg-white overflow-x-auto">
         {[
           { key: "org", label: "조직도" },
-          { key: "mylives", label: "내 생명" },
           { key: "dashboard", label: "현황" },
           { key: "analysis", label: "AI 분석" },
           { key: "users", label: "권한 관리" },
@@ -113,7 +112,6 @@ export default function AdminPage() {
         {tab === "org" && (
           <OrgChart userRole="instructor" userId={user.id} basePath="/admin" editMode={editMode} />
         )}
-        {tab === "mylives" && <MyLives userId={user.id} basePath="/admin" />}
         {tab === "dashboard" && <Dashboard />}
         {tab === "analysis" && <AnalysisPage />}
         {tab === "users" && (
