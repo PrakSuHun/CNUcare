@@ -117,12 +117,6 @@ export default function MyLives({ userId, basePath }: MyLivesProps) {
               <div className="fixed inset-0 z-40" onClick={() => setMenuLifeId(null)} />
               <div className="absolute right-2 top-12 z-50 bg-white border border-gray-200 rounded-lg shadow-lg py-1 w-44">
                 <button
-                  onClick={() => handleFail(life.id, life.name)}
-                  className="w-full text-left px-4 py-2.5 text-sm text-orange-600 hover:bg-orange-50"
-                >
-                  페일 처리
-                </button>
-                <button
                   onClick={() => handleUnlink(life.id)}
                   className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50"
                 >
