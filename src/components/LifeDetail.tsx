@@ -86,6 +86,7 @@ export default function LifeDetail({ lifeId, basePath, backPath }: LifeDetailPro
         .from("journals")
         .select("*, author:users(display_name)")
         .eq("life_id", lifeId)
+        .is("deleted_at", null)
         .order("met_date", { ascending: false }),
     ]);
 
@@ -127,6 +128,12 @@ export default function LifeDetail({ lifeId, basePath, backPath }: LifeDetailPro
     if (!confirm("이 생명을 페일 처리하시겠습니까?")) return;
     await supabase.from("lives").update({ is_failed: true }).eq("id", lifeId);
     router.push(backPath);
+  };
+
+  const handleDeleteJournal = async (journalId: string) => {
+    if (!confirm("이 일지를 삭제하시겠습니까? (30일간 휴지통에 보관됩니다)")) return;
+    await supabase.from("journals").update({ deleted_at: new Date().toISOString() }).eq("id", journalId);
+    fetchData();
   };
 
   const handleRestore = async () => {
@@ -266,20 +273,39 @@ export default function LifeDetail({ lifeId, basePath, backPath }: LifeDetailPro
             <p className="text-xs text-gray-400">작성된 일지가 없습니다.</p>
           ) : (
             <div className="space-y-3">
-              {journals.map((j) => (
-                <button
-                  key={j.id}
-                  onClick={() => router.push(`${basePath}/life/${lifeId}/journal/${j.id}`)}
-                  className="w-full text-left border-b border-gray-100 pb-3 last:border-0 last:pb-0"
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-gray-500">{new Date(j.met_date).toLocaleDateString("ko-KR")}</span>
-                    <span className="text-xs text-gray-400">{(j.author as any)?.display_name || ""}</span>
+              {journals.map((j) => {
+                const isConverting = j.response === "(텍스트 변환 중입니다)";
+                return (
+                  <div key={j.id} className="border-b border-gray-100 pb-3 last:border-0 last:pb-0">
+                    <div className="flex items-start justify-between">
+                      <button
+                        onClick={() => router.push(`${basePath}/life/${lifeId}/journal/${j.id}`)}
+                        className="flex-1 text-left"
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-gray-500">{new Date(j.met_date).toLocaleDateString("ko-KR")}</span>
+                          <span className="text-xs text-gray-400">{(j.author as any)?.display_name || ""}</span>
+                          {isConverting && (
+                            <span className="text-[10px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded-full animate-pulse">변환 중</span>
+                          )}
+                        </div>
+                        <p className="text-xs text-gray-500 mt-0.5">{j.location}</p>
+                        {isConverting ? (
+                          <p className="text-sm text-blue-500 mt-1 italic">텍스트 변환 중입니다...</p>
+                        ) : (
+                          <p className="text-sm text-gray-800 mt-1 line-clamp-2">{j.response}</p>
+                        )}
+                      </button>
+                      <button
+                        onClick={() => handleDeleteJournal(j.id)}
+                        className="text-xs text-gray-300 hover:text-red-400 ml-2 mt-1 shrink-0"
+                      >
+                        삭제
+                      </button>
+                    </div>
                   </div>
-                  <p className="text-xs text-gray-500 mt-0.5">{j.location}</p>
-                  <p className="text-sm text-gray-800 mt-1 line-clamp-2">{j.response}</p>
-                </button>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
