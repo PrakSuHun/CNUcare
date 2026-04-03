@@ -411,7 +411,7 @@ export default function OrgChart({ userRole, userId, basePath, editMode: externa
               basePath={basePath}
               router={router}
               formatDate={formatDate}
-              editMode={editMode}
+              editMode={isEditing}
               onMoveStudent={(id, name) => setMovingStudent({ id, name })}
               onMoveLife={(id, name, fromId) => setMovingLife({ id, name, fromStudentId: fromId })}
               selectedLives={selectedLives}
