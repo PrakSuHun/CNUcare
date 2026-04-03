@@ -33,25 +33,7 @@ interface Journal {
   author?: { display_name: string };
 }
 
-const STAGE_LABELS: Record<string, string> = {
-  first_meeting: "1차 만남",
-  pre_visit: "전초",
-  intro: "입문",
-  beginner: "초급",
-  intermediate: "중급",
-  advanced: "고급",
-  completed: "수료",
-};
-
-const STAGE_OPTIONS = [
-  { value: "first_meeting", label: "1차 만남" },
-  { value: "pre_visit", label: "전초" },
-  { value: "intro", label: "입문" },
-  { value: "beginner", label: "초급" },
-  { value: "intermediate", label: "중급" },
-  { value: "advanced", label: "고급" },
-  { value: "completed", label: "수료" },
-];
+import { STAGE_LABELS, STAGE_OPTIONS } from "@/lib/stages";
 
 interface LifeDetailProps {
   lifeId: string;
@@ -89,7 +71,7 @@ export default function LifeDetail({ lifeId, basePath, backPath }: LifeDetailPro
       supabase.from("lives").select("*").eq("id", lifeId).single(),
       supabase
         .from("journals")
-        .select("*, author:users(display_name)")
+        .select("*, author:users(display_name), read_by")
         .eq("life_id", lifeId)
         .is("deleted_at", null)
         .order("met_date", { ascending: false }),
@@ -101,6 +83,14 @@ export default function LifeDetail({ lifeId, basePath, backPath }: LifeDetailPro
     }
     if (journalRes.data) {
       setJournals(journalRes.data as any);
+      // 읽음 처리: 현재 사용자를 read_by에 추가
+      const currentUser = getUser();
+      if (currentUser) {
+        const unread = journalRes.data.filter((j: any) => !(j.read_by || []).includes(currentUser.id));
+        for (const j of unread) {
+          supabase.from("journals").update({ read_by: [...(j.read_by || []), currentUser.id] }).eq("id", j.id).then(() => {});
+        }
+      }
     }
     setLoading(false);
   };

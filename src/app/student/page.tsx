@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { getUser, logout, User } from "@/lib/auth";
+import { STAGE_LABELS, STAGE_COLORS } from "@/lib/stages";
 
 interface Life {
   id: string;
@@ -12,26 +13,6 @@ interface Life {
   is_failed: boolean;
   updated_at: string;
 }
-
-const STAGE_LABELS: Record<string, string> = {
-  first_meeting: "1차 만남",
-  pre_visit: "전초",
-  intro: "입문",
-  beginner: "초급",
-  intermediate: "중급",
-  advanced: "고급",
-  completed: "수료",
-};
-
-const STAGE_COLORS: Record<string, string> = {
-  first_meeting: "bg-red-100 text-red-700",
-  pre_visit: "bg-orange-100 text-orange-700",
-  intro: "bg-amber-100 text-amber-700",
-  beginner: "bg-yellow-100 text-yellow-700",
-  intermediate: "bg-blue-100 text-blue-700",
-  advanced: "bg-teal-100 text-teal-700",
-  completed: "bg-green-100 text-green-700",
-};
 
 export default function StudentPage() {
   const router = useRouter();

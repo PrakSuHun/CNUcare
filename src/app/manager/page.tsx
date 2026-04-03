@@ -6,12 +6,13 @@ import { getUser, logout, User } from "@/lib/auth";
 import OrgChart from "@/components/OrgChart";
 import Dashboard from "@/components/Dashboard";
 import AnalysisPage from "@/components/AnalysisPage";
+import MyLives from "@/components/MyLives";
 
 export default function ManagerPage() {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
   const [editMode, setEditMode] = useState(false);
-  const [tab, setTab] = useState<"org" | "dashboard" | "analysis">("org");
+  const [tab, setTab] = useState<"org" | "mylives" | "dashboard" | "analysis">("org");
 
   useEffect(() => {
     const u = getUser();
@@ -38,52 +39,38 @@ export default function ManagerPage() {
             <button
               onClick={() => setEditMode(!editMode)}
               className={`text-sm px-3 py-1 rounded-full border transition-colors ${
-                editMode
-                  ? "bg-orange-500 text-white border-orange-500"
-                  : "text-gray-500 border-gray-300 hover:border-orange-400"
+                editMode ? "bg-orange-500 text-white border-orange-500" : "text-gray-500 border-gray-300 hover:border-orange-400"
               }`}
             >
               {editMode ? "편집 완료" : "편집"}
             </button>
           )}
-          <button onClick={logout} className="text-sm text-gray-400 hover:text-gray-600">
-            로그아웃
-          </button>
+          <button onClick={logout} className="text-sm text-gray-400 hover:text-gray-600">로그아웃</button>
         </div>
       </header>
 
-      {/* 탭 */}
-      <div className="flex border-b border-gray-200 bg-white">
-        <button
-          onClick={() => setTab("org")}
-          className={`flex-1 py-2.5 text-sm font-medium text-center border-b-2 transition-colors ${
-            tab === "org" ? "border-blue-600 text-blue-600" : "border-transparent text-gray-500"
-          }`}
-        >
-          조직도
-        </button>
-        <button
-          onClick={() => setTab("dashboard")}
-          className={`flex-1 py-2.5 text-sm font-medium text-center border-b-2 transition-colors ${
-            tab === "dashboard" ? "border-blue-600 text-blue-600" : "border-transparent text-gray-500"
-          }`}
-        >
-          현황
-        </button>
-        <button
-          onClick={() => setTab("analysis")}
-          className={`flex-1 py-2.5 text-sm font-medium text-center border-b-2 transition-colors ${
-            tab === "analysis" ? "border-blue-600 text-blue-600" : "border-transparent text-gray-500"
-          }`}
-        >
-          AI 분석
-        </button>
+      <div className="flex border-b border-gray-200 bg-white overflow-x-auto">
+        {[
+          { key: "org", label: "조직도" },
+          { key: "mylives", label: "내 생명" },
+          { key: "dashboard", label: "현황" },
+          { key: "analysis", label: "AI 분석" },
+        ].map((t) => (
+          <button
+            key={t.key}
+            onClick={() => setTab(t.key as any)}
+            className={`flex-1 py-2.5 text-sm font-medium text-center border-b-2 transition-colors whitespace-nowrap px-2 ${
+              tab === t.key ? "border-blue-600 text-blue-600" : "border-transparent text-gray-500"
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
       </div>
 
       <div className="p-4">
-        {tab === "org" && (
-          <OrgChart userRole="manager" userId={user.id} basePath="/manager" editMode={editMode} />
-        )}
+        {tab === "org" && <OrgChart userRole="manager" userId={user.id} basePath="/manager" editMode={editMode} />}
+        {tab === "mylives" && <MyLives userId={user.id} basePath="/manager" />}
         {tab === "dashboard" && <Dashboard />}
         {tab === "analysis" && <AnalysisPage />}
       </div>

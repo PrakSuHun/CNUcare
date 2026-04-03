@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { getUser } from "@/lib/auth";
+import { STAGE_LABELS, STAGE_COLORS, STAGE_NAME_COLORS, STAGE_ORDER } from "@/lib/stages";
 
 interface LifeItem {
   id: string;
@@ -12,6 +14,7 @@ interface LifeItem {
   stage: string;
   is_failed: boolean;
   last_met_at: string | null;
+  has_unread?: boolean;
 }
 
 interface StudentNode {
@@ -25,26 +28,6 @@ interface ManagerNode {
   display_name: string;
   students: StudentNode[];
 }
-
-const STAGE_LABELS: Record<string, string> = {
-  first_meeting: "1차",
-  pre_visit: "전초",
-  intro: "입문",
-  beginner: "초급",
-  intermediate: "중급",
-  advanced: "고급",
-  completed: "수료",
-};
-
-const STAGE_COLORS: Record<string, string> = {
-  first_meeting: "bg-red-200 text-red-800",
-  pre_visit: "bg-orange-200 text-orange-800",
-  intro: "bg-amber-200 text-amber-800",
-  beginner: "bg-yellow-200 text-yellow-800",
-  intermediate: "bg-blue-200 text-blue-800",
-  advanced: "bg-teal-200 text-teal-800",
-  completed: "bg-green-200 text-green-800",
-};
 
 interface OrgChartProps {
   userRole: "manager" | "instructor";
@@ -66,9 +49,30 @@ export default function OrgChart({ userRole, userId, basePath, editMode: externa
   const [movingStudent, setMovingStudent] = useState<{ id: string; name: string } | null>(null);
   const [movingLife, setMovingLife] = useState<{ id: string; name: string; fromStudentId: string } | null>(null);
 
+  const [hasUnread, setHasUnread] = useState(false);
+
   useEffect(() => {
     fetchOrgData();
   }, []);
+
+  // 전체 읽음 처리
+  const markAllRead = async () => {
+    const currentUser = getUser();
+    if (!currentUser) return;
+    // 읽지 않은 일지에 현재 사용자 ID 추가
+    const { data: unread } = await supabase
+      .from("journals")
+      .select("id, read_by")
+      .is("deleted_at", null);
+
+    if (!unread) return;
+    const toUpdate = unread.filter((j: any) => !(j.read_by || []).includes(currentUser.id));
+    for (const j of toUpdate.slice(0, 200)) {
+      const readBy = [...(j.read_by || []), currentUser.id];
+      await supabase.from("journals").update({ read_by: readBy }).eq("id", j.id);
+    }
+    fetchOrgData();
+  };
 
   const fetchOrgData = async () => {
     const { data: managers } = await supabase
@@ -79,15 +83,66 @@ export default function OrgChart({ userRole, userId, basePath, editMode: externa
 
     const { data: userLives } = await supabase
       .from("user_lives")
-      .select("user_id, life_id, lives(id, name, age, department, stage, is_failed, last_met_at)")
-      .eq("role_in_life", "evangelist");
+      .select("user_id, life_id, created_at, lives(id, name, age, department, stage, is_failed, last_met_at)")
+      .order("created_at", { ascending: true });
+
+    // 생명당 최초 등록자만 조직도에 표시 (중복 방지)
+    const firstOwner = new Map<string, string>(); // life_id → first user_id
+    userLives?.forEach((ul: any) => {
+      if (!firstOwner.has(ul.life_id)) {
+        firstOwner.set(ul.life_id, ul.user_id);
+      }
+    });
+
+    // 현재 사용자
+    const currentUser = getUser();
+    const currentUserId = currentUser?.id || "";
+
+    // 관리자만 알림 표시 (자기 소속 대학생의 생명만)
+    const unreadLifeIds = new Set<string>();
+    if (userRole === "manager") {
+      // 자기 소속 대학생 ID 목록
+      const myStudentIds = new Set(
+        (students || []).filter((s) => s.manager_id === userId).map((s) => s.id)
+      );
+      // 소속 대학생의 생명 ID 목록
+      const myLifeIds = new Set(
+        (userLives || []).filter((ul: any) => myStudentIds.has(ul.user_id)).map((ul: any) => ul.life_id)
+      );
+
+      const { data: recentJournals } = await supabase
+        .from("journals")
+        .select("life_id, read_by")
+        .is("deleted_at", null)
+        .order("created_at", { ascending: false })
+        .limit(500);
+
+      recentJournals?.forEach((j: any) => {
+        if (!myLifeIds.has(j.life_id)) return; // 내 소속만
+        const readBy = j.read_by || [];
+        if (!readBy.includes(currentUserId)) {
+          unreadLifeIds.add(j.life_id);
+        }
+      });
+    }
 
     const livesMap = new Map<string, LifeItem[]>();
     userLives?.forEach((ul: any) => {
       if (!ul.lives) return;
+      if (firstOwner.get(ul.life_id) !== ul.user_id) return;
       const list = livesMap.get(ul.user_id) || [];
-      list.push(ul.lives);
+      const life = { ...ul.lives, has_unread: unreadLifeIds.has(ul.life_id) };
+      list.push(life);
       livesMap.set(ul.user_id, list);
+    });
+
+    // 정렬: 알림 있는 생명 먼저 → 단계 순
+    livesMap.forEach((lives) => {
+      lives.sort((a, b) => {
+        if (a.has_unread && !b.has_unread) return -1;
+        if (!a.has_unread && b.has_unread) return 1;
+        return (STAGE_ORDER[a.stage] ?? 9) - (STAGE_ORDER[b.stage] ?? 9);
+      });
     });
 
     const studentMap = new Map<string, StudentNode[]>();
@@ -95,19 +150,20 @@ export default function OrgChart({ userRole, userId, basePath, editMode: externa
       const mgrId = s.manager_id || "unassigned";
       const list = studentMap.get(mgrId) || [];
       const lives = livesMap.get(s.id) || [];
-      // 수료→고급→중급→초급→입문→전초→1차 순 정렬
-      const stageOrder: Record<string, number> = {
-        completed: 0, advanced: 1, intermediate: 2, beginner: 3,
-        intro: 4, pre_visit: 5, first_meeting: 6,
-      };
-      lives.sort((a, b) => (stageOrder[a.stage] ?? 9) - (stageOrder[b.stage] ?? 9));
       list.push({ id: s.id, display_name: s.display_name, lives });
       studentMap.set(mgrId, list);
     });
 
     const treeData: ManagerNode[] = [];
     managers?.forEach((m) => {
-      treeData.push({ id: m.id, display_name: m.display_name, students: studentMap.get(m.id) || [] });
+      const mgrStudents = studentMap.get(m.id) || [];
+      // 관리자 직접 관리 생명 추가
+      const mgrLives = livesMap.get(m.id) || [];
+      if (mgrLives.length > 0) {
+        mgrLives.sort((a, b) => (STAGE_ORDER[a.stage] ?? 9) - (STAGE_ORDER[b.stage] ?? 9));
+        mgrStudents.unshift({ id: m.id + "_direct", display_name: m.display_name + " (직접)", lives: mgrLives });
+      }
+      treeData.push({ id: m.id, display_name: m.display_name, students: mgrStudents });
     });
 
     const unassigned = studentMap.get("unassigned");
@@ -116,6 +172,7 @@ export default function OrgChart({ userRole, userId, basePath, editMode: externa
     }
 
     setTree(treeData);
+    setHasUnread(unreadLifeIds.size > 0);
     setLoading(false);
   };
 
@@ -174,6 +231,16 @@ export default function OrgChart({ userRole, userId, basePath, editMode: externa
 
   return (
     <div className="space-y-3">
+      {/* 전체 읽음 - 관리자만 */}
+      {hasUnread && userRole === "manager" && (
+        <button
+          onClick={markAllRead}
+          className="w-full rounded-lg bg-blue-50 border border-blue-200 py-2 text-center text-xs text-blue-600 hover:bg-blue-100 transition-colors"
+        >
+          새 업데이트 알림 전체 읽음 처리
+        </button>
+      )}
+
       {/* 상단 컨트롤 */}
       <div className="flex flex-wrap gap-2 items-center">
         {/* 관리자: 내 소속 / 전체 보기 토글 */}
@@ -425,7 +492,10 @@ function ManagerColumn({
                         }`}
                       >
                         <div className="flex items-center gap-2 min-w-0">
-                          <span className="text-sm font-medium truncate">{life.name}</span>
+                          <span className={`text-sm font-medium truncate ${STAGE_NAME_COLORS[life.stage] || "text-gray-800"}`}>{life.name}</span>
+                          {life.has_unread && (
+                            <span className="w-2 h-2 bg-yellow-400 rounded-full shrink-0" />
+                          )}
                           {life.age && <span className="text-[11px] text-gray-400 shrink-0">{life.age}세</span>}
                         </div>
                         <div className="flex items-center gap-1.5 shrink-0">

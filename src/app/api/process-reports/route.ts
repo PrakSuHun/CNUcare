@@ -115,9 +115,32 @@ export async function GET(req: NextRequest) {
       processed++;
     } catch (err: any) {
       console.error("Report processing failed:", err?.message);
+      const isTokenLimit = err?.message?.includes("token") || err?.message?.includes("too large") || err?.message?.includes("length");
+
+      // 토큰 한도 초과 시 → 데이터 요약 후 재시도
+      if (isTokenLimit) {
+        try {
+          console.log("Token limit exceeded, summarizing data first...");
+          const originalPrompt = report.request_data?.prompt || "";
+          // Gemini Flash로 데이터 요약
+          const summary = await callGemini(
+            "아래 텍스트를 핵심 내용만 남겨 한국어로 3000자 이내로 요약해주세요. 사람 이름, 단계, 주요 반응, 특이사항은 유지하세요.\n\n" + originalPrompt.slice(0, 50000)
+          );
+          // 요약본으로 다시 분석
+          const useClaude = report.type === "overall" || report.type === "manager";
+          const retryPrompt = originalPrompt.split("다음 항목을 분석")[0] + "\n[요약된 데이터]\n" + summary + "\n\n" + "다음 항목을 분석" + originalPrompt.split("다음 항목을 분석").slice(1).join("다음 항목을 분석");
+          const content = useClaude ? await callClaude(retryPrompt) : await callGemini(retryPrompt);
+          await sb.from("reports").update({ status: "completed", content }).eq("id", report.id);
+          processed++;
+          continue;
+        } catch (retryErr: any) {
+          console.error("Retry with summary also failed:", retryErr?.message);
+        }
+      }
+
       await sb.from("reports").update({
         status: "failed",
-        content: `분석에 실패했습니다: ${err?.message || "알 수 없는 오류"}`,
+        content: `<div style="padding:20px;text-align:center;color:#dc2626"><p style="font-size:16px;font-weight:bold">분석에 실패했습니다</p><p style="font-size:13px;color:#9ca3af;margin-top:8px">${err?.message || "알 수 없는 오류"}</p></div>`,
       }).eq("id", report.id);
     }
   }
