@@ -80,6 +80,8 @@ export default function LifeDetail({ lifeId, basePath, backPath }: LifeDetailPro
     }
     setUser(u);
     fetchData();
+    // 밀린 큐 처리
+    fetch("/api/process-queue").catch(() => {});
   }, [router, lifeId]);
 
   const fetchData = async () => {

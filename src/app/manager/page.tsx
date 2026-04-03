@@ -20,6 +20,7 @@ export default function ManagerPage() {
       return;
     }
     setUser(u);
+    fetch("/api/process-queue").catch(() => {});
   }, [router]);
 
   if (!user) return null;

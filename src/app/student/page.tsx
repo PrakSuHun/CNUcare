@@ -47,6 +47,8 @@ export default function StudentPage() {
     }
     setUser(u);
     fetchLives(u.id);
+    // 밀린 큐 처리 (백그라운드)
+    fetch("/api/process-queue").catch(() => {});
   }, [router]);
 
   const fetchLives = async (userId: string) => {
