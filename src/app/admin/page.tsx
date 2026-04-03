@@ -7,6 +7,7 @@ import { getUser, logout, User } from "@/lib/auth";
 import OrgChart from "@/components/OrgChart";
 import Dashboard from "@/components/Dashboard";
 import AnalysisPage from "@/components/AnalysisPage";
+import MyLives from "@/components/MyLives";
 
 interface UserRow {
   id: string;
@@ -28,7 +29,7 @@ export default function AdminPage() {
   const [user, setUser] = useState<User | null>(null);
   const [users, setUsers] = useState<UserRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<"org" | "dashboard" | "analysis" | "users">("org");
+  const [tab, setTab] = useState<"org" | "mylives" | "dashboard" | "analysis" | "users">("org");
   const [editMode, setEditMode] = useState(false);
 
   useEffect(() => {
@@ -78,23 +79,20 @@ export default function AdminPage() {
             <button
               onClick={() => setEditMode(!editMode)}
               className={`text-sm px-3 py-1 rounded-full border transition-colors ${
-                editMode
-                  ? "bg-orange-500 text-white border-orange-500"
-                  : "text-gray-500 border-gray-300 hover:border-orange-400"
+                editMode ? "bg-orange-500 text-white border-orange-500" : "text-gray-500 border-gray-300 hover:border-orange-400"
               }`}
             >
               {editMode ? "편집 완료" : "편집"}
             </button>
           )}
-          <button onClick={logout} className="text-sm text-gray-400 hover:text-gray-600">
-            로그아웃
-          </button>
+          <button onClick={logout} className="text-sm text-gray-400 hover:text-gray-600">로그아웃</button>
         </div>
       </header>
 
       <div className="flex border-b border-gray-200 bg-white overflow-x-auto">
         {[
           { key: "org", label: "조직도" },
+          { key: "mylives", label: "내 생명" },
           { key: "dashboard", label: "현황" },
           { key: "analysis", label: "AI 분석" },
           { key: "users", label: "권한 관리" },
@@ -115,6 +113,7 @@ export default function AdminPage() {
         {tab === "org" && (
           <OrgChart userRole="instructor" userId={user.id} basePath="/admin" editMode={editMode} />
         )}
+        {tab === "mylives" && <MyLives userId={user.id} basePath="/admin" />}
         {tab === "dashboard" && <Dashboard />}
         {tab === "analysis" && <AnalysisPage />}
         {tab === "users" && (

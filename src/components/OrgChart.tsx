@@ -263,8 +263,12 @@ export default function OrgChart({ userRole, userId, basePath, editMode: externa
     fetchOrgData();
   };
 
-  // 전체 대학생 목록 (이동 대상)
-  const allStudents = tree.flatMap((m) => m.students.map((s) => ({ ...s, managerName: m.display_name })));
+  // 이동 대상 대학생 목록 (현재 보이는 트리 기반, _direct 제외)
+  const allStudents = visibleTree.flatMap((m) =>
+    m.students
+      .filter((s) => !s.id.endsWith("_direct"))
+      .map((s) => ({ ...s, managerName: m.display_name }))
+  );
 
   const filterLife = (life: LifeItem) => {
     if (stageFilter && life.stage !== stageFilter) return false;
