@@ -8,13 +8,13 @@ function getSupabaseAdmin() {
     process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ""
   );
 }
-const supabaseAdmin = getSupabaseAdmin();
 
-function getApiKeys(): string[] {
-  return (process.env.GEMINI_API_KEY || "")
-    .split(",")
-    .map((k) => k.trim())
-    .filter(Boolean);
+function getFreeKeys(): string[] {
+  return (process.env.GEMINI_API_KEY || "").split(",").map((k) => k.trim()).filter(Boolean);
+}
+
+function getPaidKey(): string | null {
+  return process.env.GEMINI_PAID_KEY?.trim() || null;
 }
 
 let keyIndex = 0;
@@ -30,9 +30,11 @@ const PROMPT = `이 오디오는 선교 활동 중 생명(선교 대상자)과�
 
 한국어로 작성하고, 내용을 요약하지 말고 최대한 상세하게 전사하여 정리해주세요.`;
 
-async function transcribeWithRetry(audioBase64: string, mimeType: string, keys: string[]): Promise<string | null> {
-  for (let attempt = 0; attempt < keys.length; attempt++) {
-    const key = keys[keyIndex % keys.length];
+async function transcribeWithRetry(audioBase64: string, mimeType: string): Promise<string | null> {
+  // 1차: 무료 키들
+  const freeKeys = getFreeKeys();
+  for (let i = 0; i < freeKeys.length; i++) {
+    const key = freeKeys[keyIndex % freeKeys.length];
     keyIndex++;
     try {
       const ai = new GoogleGenerativeAI(key);
@@ -44,28 +46,47 @@ async function transcribeWithRetry(audioBase64: string, mimeType: string, keys: 
       return response.response.text();
     } catch (err: any) {
       const is429 = err?.message?.includes("429") || err?.message?.includes("quota");
-      if (is429 && attempt < keys.length - 1) continue;
-      throw err;
+      if (is429 && i < freeKeys.length - 1) continue;
+      if (!is429) break;
     }
   }
+
+  // 2차: 유료 키 폴백
+  const paidKey = getPaidKey();
+  if (paidKey) {
+    try {
+      const ai = new GoogleGenerativeAI(paidKey);
+      const model = ai.getGenerativeModel({ model: "gemini-2.5-flash" });
+      const response = await model.generateContent([
+        { text: PROMPT },
+        { inlineData: { mimeType, data: audioBase64 } },
+      ]);
+      return response.response.text();
+    } catch {
+      // 유료 키도 실패
+    }
+  }
+
   return null;
 }
 
 export async function GET(req: NextRequest) {
-  // 간단한 보안: cron secret 또는 내부 호출만 허용
+  const sb = getSupabaseAdmin();
+
   const authHeader = req.headers.get("authorization");
   const cronSecret = process.env.CRON_SECRET;
   if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const keys = getApiKeys();
-  if (keys.length === 0) {
+  const freeKeys = getFreeKeys();
+  const paidKey = getPaidKey();
+  if (freeKeys.length === 0 && !paidKey) {
     return NextResponse.json({ error: "No API keys" }, { status: 500 });
   }
 
-  // 대기 중인 작업 가져오기 (최대 3개씩 처리)
-  const { data: queue } = await supabaseAdmin
+  // 대기 중인 작업
+  const { data: queue } = await sb
     .from("audio_queue")
     .select("*")
     .eq("status", "pending")
@@ -79,8 +100,7 @@ export async function GET(req: NextRequest) {
   let processed = 0;
 
   for (const task of queue) {
-    // 처리 중으로 변경
-    await supabaseAdmin.from("audio_queue").update({ status: "processing" }).eq("id", task.id);
+    await sb.from("audio_queue").update({ status: "processing" }).eq("id", task.id);
 
     try {
       // 녹음 파일 다운로드
@@ -93,7 +113,7 @@ export async function GET(req: NextRequest) {
       const mimeType = contentType.split(";")[0];
 
       // Gemini 변환
-      const text = await transcribeWithRetry(base64, mimeType, keys);
+      const text = await transcribeWithRetry(base64, mimeType);
       if (!text) throw new Error("Transcription returned empty");
 
       // JSON 파싱
@@ -103,16 +123,16 @@ export async function GET(req: NextRequest) {
         if (jsonMatch) result = JSON.parse(jsonMatch[0]);
       } catch {}
 
-      // 결과를 큐에 저장
-      await supabaseAdmin.from("audio_queue").update({
+      // 큐 완료 처리
+      await sb.from("audio_queue").update({
         status: "completed",
         result_json: result,
         completed_at: new Date().toISOString(),
       }).eq("id", task.id);
 
-      // 해당 생명의 가장 최근 일지(audio_url 일치)에 내용 채우기
+      // 일지에 변환 결과 채우기 (변환 중 메시지이거나 비어있으면 업데이트)
       if (result.생명반응) {
-        const { data: journal } = await supabaseAdmin
+        const { data: journal } = await sb
           .from("journals")
           .select("id, response")
           .eq("life_id", task.life_id)
@@ -121,21 +141,27 @@ export async function GET(req: NextRequest) {
           .limit(1)
           .single();
 
-        if (journal && (!journal.response || journal.response.trim() === "")) {
-          const updateData: any = { response: result.생명반응 };
-          if (result.만남장소) updateData.location = result.만남장소;
-          await supabaseAdmin.from("journals").update(updateData).eq("id", journal.id);
+        if (journal) {
+          const isEmpty = !journal.response
+            || journal.response.trim() === ""
+            || journal.response === "(텍스트 변환 중입니다)";
+
+          if (isEmpty) {
+            const updateData: any = { response: result.생명반응 };
+            if (result.만남장소) updateData.location = result.만남장소;
+            await sb.from("journals").update(updateData).eq("id", journal.id);
+          }
         }
       }
 
       processed++;
 
-      // rate limit 방지: 4초 대기
+      // rate limit 방지
       await new Promise((r) => setTimeout(r, 4000));
 
     } catch (err: any) {
       const retryCount = (task.retry_count || 0) + 1;
-      await supabaseAdmin.from("audio_queue").update({
+      await sb.from("audio_queue").update({
         status: retryCount >= 3 ? "failed" : "pending",
         retry_count: retryCount,
       }).eq("id", task.id);
