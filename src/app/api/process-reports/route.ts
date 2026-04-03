@@ -20,36 +20,16 @@ function getFreeKeys(): string[] {
 
 let keyIdx = 0;
 
-// 전체 분석 / 관리자 팀 분석 → Claude Sonnet (충남대 Gateway)
-async function callClaude(prompt: string): Promise<string> {
-  try {
-    return await callGateway(prompt, "claude-sonnet-4-6");
-  } catch (err: any) {
-    console.error("CNU Gateway Claude failed:", err?.message);
-  }
-  // 2순위: Gateway Gemini Pro
+// 1순위: 충남대 Gateway Gemini Pro → 2순위: 유료 Gemini 키 → 3순위: 무료 키
+async function callGemini(prompt: string): Promise<string> {
+  // 1순위: 충남대 Gateway
   try {
     return await callGateway(prompt, "gemini-2.5-pro");
   } catch (err: any) {
-    console.error("CNU Gateway Gemini failed:", err?.message);
+    console.error("CNU Gateway failed:", err?.message);
   }
-  // 3순위: 유료 Gemini 키
-  const paidKey = getPaidKey();
-  if (paidKey) {
-    try {
-      const ai = new GoogleGenerativeAI(paidKey);
-      const model = ai.getGenerativeModel({ model: "gemini-2.5-pro" });
-      const res = await model.generateContent([{ text: prompt }]);
-      return res.response.text();
-    } catch (err: any) {
-      console.error("Paid Gemini key failed:", err?.message);
-    }
-  }
-  throw new Error("All AI services failed");
-}
 
-// 생명별 분석 / 대학생별 분석 → Gemini (유료 키 → 무료 키)
-async function callGemini(prompt: string): Promise<string> {
+  // 2순위: 유료 Gemini 키
   const paidKey = getPaidKey();
   if (paidKey) {
     try {
@@ -62,6 +42,7 @@ async function callGemini(prompt: string): Promise<string> {
     }
   }
 
+  // 3순위: 무료 키
   const keys = getFreeKeys();
   for (let i = 0; i < keys.length; i++) {
     const key = keys[keyIdx % keys.length];
@@ -103,9 +84,8 @@ export async function GET(req: NextRequest) {
       const prompt = report.request_data?.prompt;
       if (!prompt) throw new Error("No prompt in request_data");
 
-      // 전체/관리자 → Claude, 생명/대학생 → Gemini
-      const useClaude = report.type === "overall" || report.type === "manager";
-      const content = useClaude ? await callClaude(prompt) : await callGemini(prompt);
+      // 모두 Gemini Pro 사용 (Vercel 타임아웃 10초 제한 대응)
+      const content = await callGemini(prompt);
 
       await sb.from("reports").update({
         status: "completed",
@@ -127,9 +107,8 @@ export async function GET(req: NextRequest) {
             "아래 텍스트를 핵심 내용만 남겨 한국어로 3000자 이내로 요약해주세요. 사람 이름, 단계, 주요 반응, 특이사항은 유지하세요.\n\n" + originalPrompt.slice(0, 50000)
           );
           // 요약본으로 다시 분석
-          const useClaude = report.type === "overall" || report.type === "manager";
           const retryPrompt = originalPrompt.split("다음 항목을 분석")[0] + "\n[요약된 데이터]\n" + summary + "\n\n" + "다음 항목을 분석" + originalPrompt.split("다음 항목을 분석").slice(1).join("다음 항목을 분석");
-          const content = useClaude ? await callClaude(retryPrompt) : await callGemini(retryPrompt);
+          const content = await callGemini(retryPrompt);
           await sb.from("reports").update({ status: "completed", content }).eq("id", report.id);
           processed++;
           continue;
