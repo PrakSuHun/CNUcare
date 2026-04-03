@@ -256,7 +256,7 @@ ${failed.length}/${context.lives.length} (${context.lives.length ? Math.round(fa
     }
 
     // 보고서를 "pending" 상태로 바로 저장
-    const { data: report } = await getSb().from("reports").insert({
+    const { data: report, error: insertError } = await getSb().from("reports").insert({
       type,
       target_id: targetId || null,
       target_name: targetName,
@@ -265,6 +265,11 @@ ${failed.length}/${context.lives.length} (${context.lives.length ? Math.round(fa
       request_data: { prompt },
       created_by: createdBy || null,
     }).select("id").single();
+
+    if (insertError) {
+      console.error("Report insert error:", insertError);
+      return NextResponse.json({ error: insertError.message }, { status: 500 });
+    }
 
     // 서버에 즉시 처리 요청 (fire-and-forget)
     const baseUrl = req.headers.get("host") || "localhost:3000";
