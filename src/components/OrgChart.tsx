@@ -48,6 +48,9 @@ export default function OrgChart({ userRole, userId, basePath, editMode: externa
   const isEditing = externalEditMode !== undefined ? externalEditMode : editMode;
   const [movingStudent, setMovingStudent] = useState<{ id: string; name: string } | null>(null);
   const [movingLife, setMovingLife] = useState<{ id: string; name: string; fromStudentId: string } | null>(null);
+  const [selectedLives, setSelectedLives] = useState<Set<string>>(new Set());
+  const [showToolModal, setShowToolModal] = useState(false);
+  const [movingSelectedTo, setMovingSelectedTo] = useState(false);
 
   const [hasUnread, setHasUnread] = useState(false);
 
@@ -190,6 +193,55 @@ export default function OrgChart({ userRole, userId, basePath, editMode: externa
     return filtered;
   })();
 
+  // 선택 토글
+  const toggleSelectLife = (lifeId: string) => {
+    setSelectedLives((prev) => {
+      const next = new Set(prev);
+      if (next.has(lifeId)) next.delete(lifeId);
+      else next.add(lifeId);
+      return next;
+    });
+  };
+
+  // 선택된 생명 일괄 삭제
+  const deleteSelectedLives = async () => {
+    if (selectedLives.size === 0) return;
+    if (!confirm(`선택한 ${selectedLives.size}명의 생명을 삭제하시겠습니까?\n(모든 일지, 강의 기록이 삭제되며 복구할 수 없습니다)`)) return;
+
+    for (const lifeId of selectedLives) {
+      await supabase.from("journals").delete().eq("life_id", lifeId);
+      await supabase.from("lesson_checks").delete().eq("life_id", lifeId);
+      await supabase.from("worship_attendance").delete().eq("life_id", lifeId);
+      await supabase.from("bible_reading").delete().eq("life_id", lifeId);
+      await supabase.from("audio_queue").delete().eq("life_id", lifeId);
+      await supabase.from("user_lives").delete().eq("life_id", lifeId);
+      await supabase.from("lives").delete().eq("id", lifeId);
+    }
+
+    setSelectedLives(new Set());
+    setShowToolModal(false);
+    fetchOrgData();
+  };
+
+  // 선택된 생명 일괄 이동
+  const moveSelectedToStudent = async (toStudentId: string) => {
+    for (const lifeId of selectedLives) {
+      // 기존 evangelist 연결 삭제
+      await supabase.from("user_lives").delete().eq("life_id", lifeId).eq("role_in_life", "evangelist");
+      // 새 연결
+      await supabase.from("user_lives").upsert({
+        user_id: toStudentId,
+        life_id: lifeId,
+        role_in_life: "evangelist",
+      }, { onConflict: "user_id,life_id" });
+    }
+
+    setSelectedLives(new Set());
+    setShowToolModal(false);
+    setMovingSelectedTo(false);
+    fetchOrgData();
+  };
+
   // 대학생을 다른 관리자로 이동
   const moveStudentToManager = async (studentId: string, newManagerId: string) => {
     await supabase.from("users").update({ manager_id: newManagerId }).eq("id", studentId);
@@ -328,6 +380,8 @@ export default function OrgChart({ userRole, userId, basePath, editMode: externa
                   editMode={isEditing}
                   onMoveStudent={(id, name) => setMovingStudent({ id, name })}
                   onMoveLife={(id, name, fromId) => setMovingLife({ id, name, fromStudentId: fromId })}
+                  selectedLives={selectedLives}
+                  onToggleSelect={toggleSelectLife}
                 />
               );
             })}
@@ -356,9 +410,60 @@ export default function OrgChart({ userRole, userId, basePath, editMode: externa
               editMode={editMode}
               onMoveStudent={(id, name) => setMovingStudent({ id, name })}
               onMoveLife={(id, name, fromId) => setMovingLife({ id, name, fromStudentId: fromId })}
+              selectedLives={selectedLives}
+              onToggleSelect={toggleSelectLife}
             />
           );
         })
+      )}
+
+      {/* 편집 모드 하단 도구 바 */}
+      {isEditing && selectedLives.size > 0 && !movingSelectedTo && (
+        <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 shadow-lg z-40 p-3 flex items-center justify-between">
+          <span className="text-sm font-medium text-blue-600">{selectedLives.size}명 선택됨</span>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setMovingSelectedTo(true)}
+              className="text-sm bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
+            >
+              이동
+            </button>
+            <button
+              onClick={deleteSelectedLives}
+              className="text-sm bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600"
+            >
+              삭제
+            </button>
+            <button
+              onClick={() => setSelectedLives(new Set())}
+              className="text-sm text-gray-500 border border-gray-300 px-4 py-2 rounded-lg"
+            >
+              취소
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 선택된 생명 이동 대상 선택 모달 */}
+      {movingSelectedTo && (
+        <div className="fixed inset-0 bg-black/50 flex items-end justify-center z-50" onClick={() => setMovingSelectedTo(false)}>
+          <div className="bg-white w-full max-w-lg rounded-t-2xl p-4 space-y-3" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-sm font-bold">{selectedLives.size}명을 이동할 대학생 선택</h3>
+            <div className="space-y-2 max-h-60 overflow-y-auto">
+              {allStudents.map((s) => (
+                <button
+                  key={s.id}
+                  onClick={() => moveSelectedToStudent(s.id)}
+                  className="w-full text-left rounded-lg border border-gray-200 px-4 py-3 hover:bg-blue-50 hover:border-blue-300 transition-colors"
+                >
+                  <span className="text-sm font-medium">{s.display_name}</span>
+                  <span className="text-xs text-gray-400 ml-2">{s.managerName} 소속</span>
+                </button>
+              ))}
+            </div>
+            <button onClick={() => setMovingSelectedTo(false)} className="w-full text-center text-sm text-gray-500 py-2">취소</button>
+          </div>
+        </div>
       )}
 
       {/* 대학생 이동 모달 */}
@@ -413,7 +518,7 @@ export default function OrgChart({ userRole, userId, basePath, editMode: externa
 /* 통일된 관리자 컬럼 컴포넌트 */
 function ManagerColumn({
   manager, visibleStudents, horizontal, searchQuery, stageFilter, filterLife, basePath, router, formatDate,
-  editMode, onMoveStudent, onMoveLife,
+  editMode, onMoveStudent, onMoveLife, selectedLives, onToggleSelect,
 }: {
   manager: ManagerNode;
   visibleStudents: StudentNode[];
@@ -427,6 +532,8 @@ function ManagerColumn({
   editMode: boolean;
   onMoveStudent: (id: string, name: string) => void;
   onMoveLife: (id: string, name: string, fromStudentId: string) => void;
+  selectedLives: Set<string>;
+  onToggleSelect: (lifeId: string) => void;
 }) {
   const totalLives = manager.students.reduce((s, st) => s + st.lives.filter((l) => !l.is_failed).length, 0);
 
@@ -485,10 +592,20 @@ function ManagerColumn({
                   )}
                   {activeLives.map((life) => (
                     <div key={life.id} className="flex items-center gap-1">
+                      {editMode && (
+                        <input
+                          type="checkbox"
+                          checked={selectedLives.has(life.id)}
+                          onChange={() => onToggleSelect(life.id)}
+                          className="w-4 h-4 shrink-0 accent-blue-600"
+                        />
+                      )}
                       <button
-                        onClick={() => !editMode && router.push(`${basePath}/life/${life.id}`)}
-                        className={`flex-1 text-left rounded border border-gray-100 px-2 py-1.5 transition-colors flex items-center justify-between gap-2 ${
-                          editMode ? "cursor-default" : "hover:bg-blue-50 hover:border-blue-300"
+                        onClick={() => editMode ? onToggleSelect(life.id) : router.push(`${basePath}/life/${life.id}`)}
+                        className={`flex-1 text-left rounded border px-2 py-1.5 transition-colors flex items-center justify-between gap-2 ${
+                          editMode
+                            ? selectedLives.has(life.id) ? "border-blue-400 bg-blue-50" : "border-gray-100 cursor-pointer"
+                            : "border-gray-100 hover:bg-blue-50 hover:border-blue-300"
                         }`}
                       >
                         <div className="flex items-center gap-2 min-w-0">
@@ -507,14 +624,6 @@ function ManagerColumn({
                           </span>
                         </div>
                       </button>
-                      {editMode && (
-                        <button
-                          onClick={() => onMoveLife(life.id, life.name, student.id)}
-                          className="text-[10px] bg-orange-100 text-orange-600 px-1.5 py-1 rounded hover:bg-orange-200 shrink-0"
-                        >
-                          이동
-                        </button>
-                      )}
                     </div>
                   ))}
                   {failedLives.length > 0 && (
