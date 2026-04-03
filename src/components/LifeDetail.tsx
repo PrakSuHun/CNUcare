@@ -68,6 +68,9 @@ export default function LifeDetail({ lifeId, basePath, backPath }: LifeDetailPro
   const [editingInfo, setEditingInfo] = useState(false);
   const [editForm, setEditForm] = useState<Partial<Life>>({});
   const [activeTab, setActiveTab] = useState<"info" | "lessons">("info");
+  const [showMenu, setShowMenu] = useState(false);
+  const [showTrash, setShowTrash] = useState(false);
+  const [deletedJournals, setDeletedJournals] = useState<Journal[]>([]);
 
   useEffect(() => {
     const u = getUser();
@@ -130,10 +133,27 @@ export default function LifeDetail({ lifeId, basePath, backPath }: LifeDetailPro
     router.push(backPath);
   };
 
+  const fetchDeletedJournals = async () => {
+    const { data } = await supabase
+      .from("journals")
+      .select("*, author:users(display_name)")
+      .eq("life_id", lifeId)
+      .not("deleted_at", "is", null)
+      .order("deleted_at", { ascending: false });
+    if (data) setDeletedJournals(data as any);
+  };
+
+  const handleRestoreJournal = async (journalId: string) => {
+    await supabase.from("journals").update({ deleted_at: null }).eq("id", journalId);
+    fetchData();
+    fetchDeletedJournals();
+  };
+
   const handleDeleteJournal = async (journalId: string) => {
     if (!confirm("이 일지를 삭제하시겠습니까? (30일간 휴지통에 보관됩니다)")) return;
     await supabase.from("journals").update({ deleted_at: new Date().toISOString() }).eq("id", journalId);
     fetchData();
+    fetchDeletedJournals();
   };
 
   const handleRestore = async () => {
@@ -162,11 +182,42 @@ export default function LifeDetail({ lifeId, basePath, backPath }: LifeDetailPro
             </p>
           </div>
         </div>
-        {life.is_failed ? (
-          <button onClick={handleRestore} className="text-xs text-blue-500 border border-blue-300 rounded-full px-3 py-1">복구</button>
-        ) : (
-          <button onClick={handleFail} className="text-xs text-red-400 border border-red-200 rounded-full px-3 py-1">페일</button>
-        )}
+        <div className="relative">
+          <button
+            onClick={() => setShowMenu(!showMenu)}
+            className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-gray-600 rounded-full hover:bg-gray-100"
+          >
+            <span className="text-lg leading-none">⋯</span>
+          </button>
+          {showMenu && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setShowMenu(false)} />
+              <div className="absolute right-0 top-10 z-50 bg-white border border-gray-200 rounded-lg shadow-lg py-1 w-40">
+                <button
+                  onClick={() => { setShowMenu(false); setShowTrash(true); fetchDeletedJournals(); }}
+                  className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50"
+                >
+                  휴지통
+                </button>
+                {life.is_failed ? (
+                  <button
+                    onClick={() => { setShowMenu(false); handleRestore(); }}
+                    className="w-full text-left px-4 py-2.5 text-sm text-blue-600 hover:bg-blue-50"
+                  >
+                    생명 복구
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => { setShowMenu(false); handleFail(); }}
+                    className="w-full text-left px-4 py-2.5 text-sm text-red-500 hover:bg-red-50"
+                  >
+                    페일 처리
+                  </button>
+                )}
+              </div>
+            </>
+          )}
+        </div>
       </header>
 
       {/* 탭 */}
@@ -310,6 +361,42 @@ export default function LifeDetail({ lifeId, basePath, backPath }: LifeDetailPro
           )}
         </div>
       </div>
+      )}
+
+      {/* 휴지통 모달 */}
+      {showTrash && (
+        <div className="fixed inset-0 bg-black/50 flex items-end justify-center z-50" onClick={() => setShowTrash(false)}>
+          <div className="bg-white w-full max-w-lg rounded-t-2xl p-4 max-h-[70vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-bold">휴지통 (30일 보관)</h3>
+              <button onClick={() => setShowTrash(false)} className="text-xs text-gray-400">닫기</button>
+            </div>
+            {deletedJournals.length === 0 ? (
+              <p className="text-center text-sm text-gray-400 py-8">삭제된 일지가 없습니다.</p>
+            ) : (
+              <div className="space-y-3">
+                {deletedJournals.map((j) => (
+                  <div key={j.id} className="border border-gray-200 rounded-lg p-3 bg-gray-50">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <span className="text-xs text-gray-500">{new Date(j.met_date).toLocaleDateString("ko-KR")}</span>
+                        <span className="text-xs text-gray-400 ml-2">{(j.author as any)?.display_name || ""}</span>
+                      </div>
+                      <button
+                        onClick={() => handleRestoreJournal(j.id)}
+                        className="text-xs text-blue-500 border border-blue-300 rounded-full px-2.5 py-1 hover:bg-blue-50"
+                      >
+                        복원
+                      </button>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">{j.location}</p>
+                    <p className="text-sm text-gray-600 mt-1 line-clamp-3">{j.response}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
       )}
     </div>
   );
