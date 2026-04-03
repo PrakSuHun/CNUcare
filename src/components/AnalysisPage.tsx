@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import { getUser } from "@/lib/auth";
 
@@ -9,6 +9,7 @@ interface Report {
   type: string;
   target_name: string;
   content: string;
+  status: string;
   created_at: string;
 }
 
@@ -39,23 +40,41 @@ const TYPE_COLORS: Record<string, string> = {
 };
 
 export default function AnalysisPage() {
-  const [tab, setTab] = useState<"new" | "history">("new");
+  const [tab, setTab] = useState<"new" | "history" | "chat">("new");
   const [selectedType, setSelectedType] = useState("");
   const [targets, setTargets] = useState<SelectOption[]>([]);
   const [selectedTarget, setSelectedTarget] = useState("");
-  const [analyzing, setAnalyzing] = useState(false);
-  const [currentReport, setCurrentReport] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
   const [reports, setReports] = useState<Report[]>([]);
   const [viewingReport, setViewingReport] = useState<Report | null>(null);
   const [error, setError] = useState("");
+  const printRef = useRef<HTMLDivElement>(null);
+
+  // 채팅
+  const [chatMessages, setChatMessages] = useState<{ role: "user" | "ai"; text: string }[]>([]);
+  const [chatInput, setChatInput] = useState("");
+  const [chatLoading, setChatLoading] = useState(false);
+  const chatEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     fetchReports();
+    fetch("/api/process-reports").catch(() => {});
   }, []);
 
   useEffect(() => {
     if (selectedType && selectedType !== "overall") fetchTargets();
   }, [selectedType]);
+
+  // pending이 있으면 10초마다 갱신
+  useEffect(() => {
+    const hasPending = reports.some((r) => r.status === "pending" || r.status === "processing");
+    if (!hasPending) return;
+    const interval = setInterval(() => {
+      fetchReports();
+      fetch("/api/process-reports").catch(() => {});
+    }, 10000);
+    return () => clearInterval(interval);
+  }, [reports]);
 
   const fetchTargets = async () => {
     if (selectedType === "life") {
@@ -79,10 +98,8 @@ export default function AnalysisPage() {
   const handleAnalyze = async () => {
     const user = getUser();
     if (!user) return;
-
-    setAnalyzing(true);
+    setSubmitting(true);
     setError("");
-    setCurrentReport(null);
 
     const targetName = selectedType === "overall"
       ? "전체 조직"
@@ -99,19 +116,74 @@ export default function AnalysisPage() {
           createdBy: user.id,
         }),
       });
-
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error || "분석에 실패했습니다.");
+        setError(data.error || "분석 요청에 실패했습니다.");
       } else {
-        setCurrentReport(data.content);
-        fetchReports();
+        await fetchReports();
+        setTab("history");
+        setSelectedType("");
+        setSelectedTarget("");
       }
     } catch {
       setError("서버 연결에 실패했습니다.");
     }
+    setSubmitting(false);
+  };
 
-    setAnalyzing(false);
+  // 채팅 전송
+  const handleChat = async () => {
+    if (!chatInput.trim() || chatLoading) return;
+    const msg = chatInput.trim();
+    setChatInput("");
+    setChatMessages((prev) => [...prev, { role: "user", text: msg }]);
+    setChatLoading(true);
+
+    try {
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: msg }),
+      });
+      const data = await res.json();
+      setChatMessages((prev) => [...prev, { role: "ai", text: data.reply || data.error || "답변 실패" }]);
+    } catch {
+      setChatMessages((prev) => [...prev, { role: "ai", text: "서버 연결에 실패했습니다." }]);
+    }
+    setChatLoading(false);
+    setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
+  };
+
+  const handleDelete = async (reportId: string) => {
+    if (!confirm("이 보고서를 삭제하시겠습니까?")) return;
+    await supabase.from("reports").delete().eq("id", reportId);
+    setViewingReport(null);
+    fetchReports();
+  };
+
+  const handlePrint = () => {
+    if (!printRef.current) return;
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) return;
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>${viewingReport?.target_name || "보고서"} - CNUcare 분석 보고서</title>
+        <style>
+          body { font-family: system-ui, -apple-system, sans-serif; margin: 0; padding: 20px; }
+          @media print { body { padding: 0; } }
+        </style>
+      </head>
+      <body>
+        ${printRef.current.innerHTML}
+      </body>
+      </html>
+    `);
+    printWindow.document.close();
+    setTimeout(() => { printWindow.print(); }, 500);
   };
 
   const canAnalyze = selectedType === "overall" || (selectedType && selectedTarget);
@@ -129,28 +201,33 @@ export default function AnalysisPage() {
           새 분석
         </button>
         <button
-          onClick={() => { setTab("history"); setCurrentReport(null); }}
+          onClick={() => setTab("history")}
           className={`flex-1 py-2.5 text-sm font-medium text-center transition-colors ${
             tab === "history" ? "bg-blue-600 text-white" : "text-gray-500"
           }`}
         >
-          보고서 이력 ({reports.length})
+          보고서 ({reports.length})
+        </button>
+        <button
+          onClick={() => setTab("chat")}
+          className={`flex-1 py-2.5 text-sm font-medium text-center transition-colors ${
+            tab === "chat" ? "bg-blue-600 text-white" : "text-gray-500"
+          }`}
+        >
+          AI 채팅
         </button>
       </div>
 
       {/* 새 분석 */}
-      {tab === "new" && !currentReport && (
+      {tab === "new" && (
         <div className="space-y-3">
-          {/* 유형 선택 */}
           <div className="grid grid-cols-2 gap-2">
             {Object.entries(TYPE_LABELS).map(([key, label]) => (
               <button
                 key={key}
-                onClick={() => { setSelectedType(key); setCurrentReport(null); setError(""); }}
+                onClick={() => { setSelectedType(key); setError(""); }}
                 className={`p-3 rounded-lg border-2 text-left transition-colors ${
-                  selectedType === key
-                    ? TYPE_COLORS[key] + " border-current"
-                    : "border-gray-200 bg-white"
+                  selectedType === key ? TYPE_COLORS[key] + " border-current" : "border-gray-200 bg-white"
                 }`}
               >
                 <p className="text-sm font-bold">{label}</p>
@@ -159,7 +236,6 @@ export default function AnalysisPage() {
             ))}
           </div>
 
-          {/* 대상 선택 */}
           {selectedType && selectedType !== "overall" && (
             <select
               value={selectedTarget}
@@ -183,37 +259,11 @@ export default function AnalysisPage() {
 
           <button
             onClick={handleAnalyze}
-            disabled={!canAnalyze || analyzing}
+            disabled={!canAnalyze || submitting}
             className="w-full rounded-lg bg-blue-600 py-3 text-base font-semibold text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
           >
-            {analyzing ? "분석 중... (30초~1분 소요)" : "분석 시작"}
+            {submitting ? "요청 중..." : "분석 시작"}
           </button>
-        </div>
-      )}
-
-      {/* 분석 중 */}
-      {analyzing && (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-6 text-center">
-          <div className="animate-pulse text-blue-600 font-medium">Gemini가 분석 중입니다...</div>
-          <p className="text-xs text-blue-400 mt-2">데이터를 수집하고 보고서를 생성하고 있습니다</p>
-        </div>
-      )}
-
-      {/* 현재 보고서 표시 */}
-      {currentReport && tab === "new" && (
-        <div className="bg-white rounded-lg border border-gray-200 p-4">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-bold text-gray-700">분석 보고서</h3>
-            <button
-              onClick={() => setCurrentReport(null)}
-              className="text-xs text-blue-500"
-            >
-              새 분석
-            </button>
-          </div>
-          <div className="prose prose-sm max-w-none text-gray-700 whitespace-pre-wrap text-sm leading-relaxed"
-            dangerouslySetInnerHTML={{ __html: markdownToHtml(currentReport) }}
-          />
         </div>
       )}
 
@@ -223,39 +273,67 @@ export default function AnalysisPage() {
           {reports.length === 0 && (
             <p className="text-center text-sm text-gray-400 py-8">저장된 보고서가 없습니다.</p>
           )}
-          {reports.map((r) => (
-            <button
-              key={r.id}
-              onClick={() => setViewingReport(r)}
-              className="w-full bg-white rounded-lg border border-gray-200 p-3 text-left hover:border-blue-300 transition-colors"
-            >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
-                    r.type === "life" ? "bg-blue-100 text-blue-700" :
-                    r.type === "student" ? "bg-indigo-100 text-indigo-700" :
-                    r.type === "manager" ? "bg-purple-100 text-purple-700" :
-                    "bg-green-100 text-green-700"
-                  }`}>
-                    {TYPE_LABELS[r.type]}
-                  </span>
-                  <span className="text-sm font-medium">{r.target_name}</span>
+          {reports.map((r) => {
+            const isPending = r.status === "pending" || r.status === "processing";
+            const isFailed = r.status === "failed";
+            return (
+              <div key={r.id} className={`rounded-lg border p-3 ${
+                isPending ? "bg-blue-50 border-blue-200" : isFailed ? "bg-red-50 border-red-200" : "bg-white border-gray-200"
+              }`}>
+                <div className="flex items-start justify-between">
+                  <button
+                    onClick={() => !isPending && setViewingReport(r)}
+                    className="flex-1 text-left"
+                  >
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
+                        r.type === "life" ? "bg-blue-100 text-blue-700" :
+                        r.type === "student" ? "bg-indigo-100 text-indigo-700" :
+                        r.type === "manager" ? "bg-purple-100 text-purple-700" :
+                        "bg-green-100 text-green-700"
+                      }`}>
+                        {TYPE_LABELS[r.type]}
+                      </span>
+                      <span className="text-sm font-medium">{r.target_name}</span>
+                      {isPending && (
+                        <span className="text-[10px] bg-blue-200 text-blue-700 px-1.5 py-0.5 rounded-full animate-pulse">분석 중</span>
+                      )}
+                      {isFailed && (
+                        <span className="text-[10px] bg-red-200 text-red-700 px-1.5 py-0.5 rounded-full">실패</span>
+                      )}
+                    </div>
+                    {isPending && (
+                      <p className="text-xs text-blue-500 mt-1 italic">Claude가 분석 중입니다...</p>
+                    )}
+                    {!isPending && !isFailed && (
+                      <p className="text-xs text-gray-500 mt-1 line-clamp-1">
+                        {r.content.replace(/<[^>]*>/g, "").slice(0, 80)}...
+                      </p>
+                    )}
+                  </button>
+                  <div className="flex items-center gap-2 ml-2 shrink-0">
+                    <span className="text-xs text-gray-400">
+                      {new Date(r.created_at).toLocaleDateString("ko-KR")}
+                    </span>
+                    <button
+                      onClick={() => handleDelete(r.id)}
+                      className="text-xs text-gray-300 hover:text-red-400"
+                    >
+                      삭제
+                    </button>
+                  </div>
                 </div>
-                <span className="text-xs text-gray-400">
-                  {new Date(r.created_at).toLocaleDateString("ko-KR")}
-                </span>
               </div>
-              <p className="text-xs text-gray-500 mt-1 line-clamp-2">{r.content.slice(0, 100)}...</p>
-            </button>
-          ))}
+            );
+          })}
         </div>
       )}
 
       {/* 보고서 상세 보기 */}
       {viewingReport && tab === "history" && (
-        <div className="bg-white rounded-lg border border-gray-200 p-4">
+        <div>
           <div className="flex items-center justify-between mb-3">
-            <div>
+            <div className="flex items-center gap-2">
               <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
                 viewingReport.type === "life" ? "bg-blue-100 text-blue-700" :
                 viewingReport.type === "student" ? "bg-indigo-100 text-indigo-700" :
@@ -264,30 +342,121 @@ export default function AnalysisPage() {
               }`}>
                 {TYPE_LABELS[viewingReport.type]}
               </span>
-              <span className="text-sm font-bold ml-2">{viewingReport.target_name}</span>
-              <span className="text-xs text-gray-400 ml-2">
-                {new Date(viewingReport.created_at).toLocaleDateString("ko-KR")}
-              </span>
+              <span className="text-sm font-bold">{viewingReport.target_name}</span>
             </div>
-            <button onClick={() => setViewingReport(null)} className="text-xs text-gray-500">← 목록</button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handlePrint}
+                className="text-xs text-blue-500 border border-blue-300 rounded-full px-3 py-1 hover:bg-blue-50"
+              >
+                출력
+              </button>
+              <button
+                onClick={() => handleDelete(viewingReport.id)}
+                className="text-xs text-red-400 border border-red-200 rounded-full px-3 py-1 hover:bg-red-50"
+              >
+                삭제
+              </button>
+              <button onClick={() => setViewingReport(null)} className="text-xs text-gray-500">← 목록</button>
+            </div>
           </div>
-          <div className="prose prose-sm max-w-none text-gray-700 whitespace-pre-wrap text-sm leading-relaxed"
-            dangerouslySetInnerHTML={{ __html: markdownToHtml(viewingReport.content) }}
-          />
+          <div ref={printRef} dangerouslySetInnerHTML={{ __html: extractHtml(viewingReport.content) }} />
+        </div>
+      )}
+      {/* AI 채팅 */}
+      {tab === "chat" && (
+        <div className="flex flex-col" style={{ height: "calc(100vh - 220px)" }}>
+          {/* 메시지 영역 */}
+          <div className="flex-1 overflow-y-auto space-y-3 pb-4">
+            {chatMessages.length === 0 && (
+              <div className="text-center py-12">
+                <p className="text-gray-400 text-sm">데이터에 대해 자유롭게 질문해보세요</p>
+                <div className="mt-4 space-y-2">
+                  {[
+                    "현재 전도 현황을 요약해줘",
+                    "가장 잘 진행되고 있는 생명은?",
+                    "페일 비율이 높은 이유는?",
+                    "1차 만남에서 전초로 넘어가려면?",
+                  ].map((q) => (
+                    <button
+                      key={q}
+                      onClick={() => { setChatInput(q); }}
+                      className="block mx-auto text-xs text-blue-500 border border-blue-200 rounded-full px-4 py-1.5 hover:bg-blue-50"
+                    >
+                      {q}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {chatMessages.map((msg, i) => (
+              <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+                <div className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-sm ${
+                  msg.role === "user"
+                    ? "bg-blue-600 text-white rounded-br-md"
+                    : "bg-white border border-gray-200 text-gray-800 rounded-bl-md"
+                }`}>
+                  <div className="whitespace-pre-wrap">{msg.text}</div>
+                </div>
+              </div>
+            ))}
+
+            {chatLoading && (
+              <div className="flex justify-start">
+                <div className="bg-white border border-gray-200 rounded-2xl rounded-bl-md px-4 py-2.5">
+                  <div className="flex gap-1">
+                    <span className="w-2 h-2 bg-gray-300 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
+                    <span className="w-2 h-2 bg-gray-300 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
+                    <span className="w-2 h-2 bg-gray-300 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div ref={chatEndRef} />
+          </div>
+
+          {/* 입력 영역 */}
+          <div className="border-t border-gray-200 pt-3">
+            <form
+              onSubmit={(e) => { e.preventDefault(); handleChat(); }}
+              className="flex gap-2"
+            >
+              <input
+                type="text"
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                placeholder="질문을 입력하세요..."
+                className="flex-1 rounded-full border border-gray-300 px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none"
+              />
+              <button
+                type="submit"
+                disabled={!chatInput.trim() || chatLoading}
+                className="bg-blue-600 text-white rounded-full px-4 py-2.5 text-sm font-medium disabled:opacity-50 hover:bg-blue-700 shrink-0"
+              >
+                전송
+              </button>
+            </form>
+          </div>
         </div>
       )}
     </div>
   );
 }
 
-// 간단한 마크다운 → HTML 변환
-function markdownToHtml(md: string): string {
-  return md
-    .replace(/^### (.+)$/gm, '<h3 class="text-base font-bold mt-4 mb-1">$1</h3>')
-    .replace(/^## (.+)$/gm, '<h2 class="text-lg font-bold mt-5 mb-2">$1</h2>')
-    .replace(/^# (.+)$/gm, '<h1 class="text-xl font-bold mt-6 mb-2">$1</h1>')
+function extractHtml(content: string): string {
+  const codeBlockMatch = content.match(/```html\s*([\s\S]*?)```/);
+  if (codeBlockMatch) return codeBlockMatch[1].trim();
+
+  const divMatch = content.match(/<div[\s\S]*<\/div>/);
+  if (divMatch) return divMatch[0];
+
+  return content
+    .replace(/^### (.+)$/gm, '<h3 style="font-size:16px;font-weight:bold;margin:16px 0 4px">$1</h3>')
+    .replace(/^## (.+)$/gm, '<h2 style="font-size:18px;font-weight:bold;margin:20px 0 8px">$1</h2>')
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    .replace(/^- (.+)$/gm, '<li class="ml-4 list-disc">$1</li>')
+    .replace(/^- (.+)$/gm, '<li style="margin-left:16px;list-style:disc">$1</li>')
     .replace(/\n\n/g, '<br/><br/>')
     .replace(/\n/g, '<br/>');
 }

@@ -50,9 +50,7 @@ export default function SignupPage() {
       return;
     }
 
-    // 표시 이름 생성 (이름 + 생년 뒤 2자리)
-    const birthYear = form.birthDate.slice(2, 4);
-    const displayName = `${form.name}${birthYear}`;
+    const displayName = form.name;
 
     const { error: insertError } = await supabase.from("users").insert({
       login_id: form.loginId,

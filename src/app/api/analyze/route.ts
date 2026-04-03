@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { GoogleGenerativeAI } from "@google/generative-ai";
 import { createClient } from "@supabase/supabase-js";
 
 function getSb() {
@@ -9,47 +8,6 @@ function getSb() {
   );
 }
 
-function getPaidKey(): string | null {
-  return process.env.GEMINI_PAID_KEY?.trim() || null;
-}
-
-function getFreeKeys(): string[] {
-  return (process.env.GEMINI_API_KEY || "").split(",").map((k) => k.trim()).filter(Boolean);
-}
-
-let keyIdx = 0;
-
-async function callGemini(prompt: string): Promise<string> {
-  // 분석은 유료 키 + Pro 모델 우선
-  const paidKey = getPaidKey();
-  if (paidKey) {
-    try {
-      const ai = new GoogleGenerativeAI(paidKey);
-      const model = ai.getGenerativeModel({ model: "gemini-2.5-pro" });
-      const res = await model.generateContent([{ text: prompt }]);
-      return res.response.text();
-    } catch (err: any) {
-      console.error("Paid key failed, falling back to free keys:", err?.message);
-    }
-  }
-
-  // 폴백: 무료 키 + Flash 모델
-  const keys = getFreeKeys();
-  for (let i = 0; i < keys.length; i++) {
-    const key = keys[keyIdx % keys.length];
-    keyIdx++;
-    try {
-      const ai = new GoogleGenerativeAI(key);
-      const model = ai.getGenerativeModel({ model: "gemini-2.5-flash" });
-      const res = await model.generateContent([{ text: prompt }]);
-      return res.response.text();
-    } catch (err: any) {
-      if (err?.message?.includes("429") && i < keys.length - 1) continue;
-      throw err;
-    }
-  }
-  throw new Error("All keys exhausted");
-}
 
 // 생명별 분석 데이터 수집
 async function getLifeContext(lifeId: string) {
@@ -139,7 +97,19 @@ ${context.checks.map((c: any) => `- ${c.lesson?.number}. ${c.lesson?.name} ${c.i
 5. **주의사항** - 접근 시 조심해야 할 점
 6. **다음 단계 제안** - 구체적인 행동 제안
 
-한국어로 상세하게 작성해주세요.`;
+한국어로 상세하게 작성해주세요.
+
+중요: 결과를 아래 규칙에 따라 HTML 코드로 출력하세요. HTML만 출력하고 다른 텍스트는 넣지 마세요.
+- 전체를 하나의 <div> 안에 담기
+- 상단에 제목과 요약 카드 (배경색 있는 둥근 카드)
+- 각 분석 항목은 흰 배경 카드로 구분
+- 중요한 수치는 큰 글씨 + 색상 강조
+- 긍정적 내용은 초록, 부정적/주의는 빨강/주황
+- 리스트는 아이콘 또는 색상 불릿으로 시각화
+- CSS는 인라인 스타일로 포함 (외부 CSS 없이)
+- 폰트: system-ui, 둥근 모서리, 부드러운 그림자 사용
+- 모바일 대응 (max-width: 100%)
+- 마지막에 "AI 분석 보고서 · 생성일: 오늘 날짜" 푸터 포함`;
 
     } else if (type === "student") {
       context = await getStudentContext(targetId);
@@ -165,7 +135,19 @@ ${context.journals.slice(0, 50).map((j: any) => `- ${j.met_date} | ${j.response?
 5. **잘 맞는 생명 유형** - 어떤 유형의 사람과 잘 소통하는지
 6. **성장 포인트 제안** - 구체적인 개선 방안
 
-한국어로 상세하게 작성해주세요.`;
+한국어로 상세하게 작성해주세요.
+
+중요: 결과를 아래 규칙에 따라 HTML 코드로 출력하세요. HTML만 출력하고 다른 텍스트는 넣지 마세요.
+- 전체를 하나의 <div> 안에 담기
+- 상단에 제목과 요약 카드 (배경색 있는 둥근 카드)
+- 각 분석 항목은 흰 배경 카드로 구분
+- 중요한 수치는 큰 글씨 + 색상 강조
+- 긍정적 내용은 초록, 부정적/주의는 빨강/주황
+- 리스트는 아이콘 또는 색상 불릿으로 시각화
+- CSS는 인라인 스타일로 포함 (외부 CSS 없이)
+- 폰트: system-ui, 둥근 모서리, 부드러운 그림자 사용
+- 모바일 대응 (max-width: 100%)
+- 마지막에 "AI 분석 보고서 · 생성일: 오늘 날짜" 푸터 포함`;
 
     } else if (type === "manager") {
       context = await getManagerContext(targetId);
@@ -197,7 +179,19 @@ ${context.journals.slice(0, 30).map((j: any) => `- ${j.met_date} | ${j.response?
 5. **팀 강점과 약점**
 6. **개선 제안** - 구체적인 전략
 
-한국어로 상세하게 작성해주세요.`;
+한국어로 상세하게 작성해주세요.
+
+중요: 결과를 아래 규칙에 따라 HTML 코드로 출력하세요. HTML만 출력하고 다른 텍스트는 넣지 마세요.
+- 전체를 하나의 <div> 안에 담기
+- 상단에 제목과 요약 카드 (배경색 있는 둥근 카드)
+- 각 분석 항목은 흰 배경 카드로 구분
+- 중요한 수치는 큰 글씨 + 색상 강조
+- 긍정적 내용은 초록, 부정적/주의는 빨강/주황
+- 리스트는 아이콘 또는 색상 불릿으로 시각화
+- CSS는 인라인 스타일로 포함 (외부 CSS 없이)
+- 폰트: system-ui, 둥근 모서리, 부드러운 그림자 사용
+- 모바일 대응 (max-width: 100%)
+- 마지막에 "AI 분석 보고서 · 생성일: 오늘 날짜" 푸터 포함`;
 
     } else if (type === "overall") {
       context = await getOverallContext();
@@ -244,25 +238,42 @@ ${failed.length}/${context.lives.length} (${context.lives.length ? Math.round(fa
 5. **관리자별 성과** - 어느 팀이 잘하고 어디가 부족한지
 6. **전략적 개선 제안** - 전도 효과를 높이기 위한 구체적 방안
 
-한국어로 상세하게 작성해주세요.`;
+한국어로 상세하게 작성해주세요.
+
+중요: 결과를 아래 규칙에 따라 HTML 코드로 출력하세요. HTML만 출력하고 다른 텍스트는 넣지 마세요.
+- 전체를 하나의 <div> 안에 담기
+- 상단에 제목과 요약 카드 (배경색 있는 둥근 카드)
+- 각 분석 항목은 흰 배경 카드로 구분
+- 중요한 수치는 큰 글씨 + 색상 강조
+- 긍정적 내용은 초록, 부정적/주의는 빨강/주황
+- 리스트는 아이콘 또는 색상 불릿으로 시각화
+- CSS는 인라인 스타일로 포함 (외부 CSS 없이)
+- 폰트: system-ui, 둥근 모서리, 부드러운 그림자 사용
+- 모바일 대응 (max-width: 100%)
+- 마지막에 "AI 분석 보고서 · 생성일: 오늘 날짜" 푸터 포함`;
     } else {
       return NextResponse.json({ error: "Invalid type" }, { status: 400 });
     }
 
-    const content = await callGemini(prompt);
-
-    // 보고서 저장
+    // 보고서를 "pending" 상태로 바로 저장
     const { data: report } = await getSb().from("reports").insert({
       type,
       target_id: targetId || null,
       target_name: targetName,
-      content,
+      content: "<div style=\"padding:24px;text-align:center;color:#6b7280\"><p>분석 중입니다...</p></div>",
+      status: "pending",
+      request_data: { prompt },
       created_by: createdBy || null,
     }).select("id").single();
 
-    return NextResponse.json({ id: report?.id, content });
+    // 서버에 즉시 처리 요청 (fire-and-forget)
+    const baseUrl = req.headers.get("host") || "localhost:3000";
+    const protocol = baseUrl.includes("localhost") ? "http" : "https";
+    fetch(`${protocol}://${baseUrl}/api/process-reports`).catch(() => {});
+
+    return NextResponse.json({ id: report?.id, status: "pending" });
   } catch (err: any) {
     console.error("Analyze error:", err?.message);
-    return NextResponse.json({ error: err?.message || "분석 중 오류가 발생했습니다." }, { status: 500 });
+    return NextResponse.json({ error: err?.message || "분석 요청에 실패했습니다." }, { status: 500 });
   }
 }

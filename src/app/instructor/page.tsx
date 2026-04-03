@@ -21,6 +21,7 @@ export default function InstructorPage() {
     }
     setUser(u);
     fetch("/api/process-queue").catch(() => {});
+    fetch("/api/process-reports").catch(() => {});
   }, [router]);
 
   if (!user) return null;
