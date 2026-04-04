@@ -139,7 +139,7 @@ export default function Appointments({ lifeId, readOnly = false }: AppointmentsP
 
   const handleSave = async () => {
     const user = getUser();
-    if (!user || !form.title || !form.date || !form.purpose) return;
+    if (!user || !form.date || !form.purpose) return;
     setSaving(true);
 
     const assignee = getAssigneeName();
