@@ -127,11 +127,11 @@ export default function Appointments({ lifeId, readOnly = false }: AppointmentsP
   };
 
   const getAssigneeName = (): string | null => {
-    if (form.purpose === "pre_visit") {
+    if (form.purpose === "pre_visit" || form.purpose === "management") {
       if (form.pre_visit_type === "manager") return managerName;
-      if (form.pre_visit_type === "self") return getUser()?.display_name || null;
       if (form.pre_visit_type === "other") return form.other_name || null;
-      return null;
+      // self 또는 미선택 → 본인
+      return getUser()?.display_name || null;
     }
     if (form.purpose === "lecture") return form.instructor_name || null;
     return null;
@@ -303,21 +303,19 @@ export default function Appointments({ lifeId, readOnly = false }: AppointmentsP
             )}
 
 
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">날짜</label>
-                <input type="date" value={form.date} onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none" />
-              </div>
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">시간</label>
-                <input type="time" value={form.time} onChange={(e) => setForm((f) => ({ ...f, time: e.target.value }))}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none" />
-              </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">날짜</label>
+              <input type="date" value={form.date} onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))}
+                className="w-full rounded-lg border border-gray-300 px-3 py-3 text-base focus:border-blue-500 focus:outline-none" />
             </div>
-            <input type="text" placeholder="장소" value={form.location} onChange={(e) => setForm((f) => ({ ...f, location: e.target.value }))}
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">시간 (선택)</label>
+              <input type="time" value={form.time} onChange={(e) => setForm((f) => ({ ...f, time: e.target.value }))}
+                className="w-full rounded-lg border border-gray-300 px-3 py-3 text-base focus:border-blue-500 focus:outline-none" />
+            </div>
+            <input type="text" placeholder="장소 (선택)" value={form.location} onChange={(e) => setForm((f) => ({ ...f, location: e.target.value }))}
               className="w-full rounded-lg border border-gray-300 px-4 py-3 text-base focus:border-blue-500 focus:outline-none" />
-            <textarea placeholder="메모" value={form.note} onChange={(e) => setForm((f) => ({ ...f, note: e.target.value }))} rows={2}
+            <textarea placeholder="메모 (선택)" value={form.note} onChange={(e) => setForm((f) => ({ ...f, note: e.target.value }))} rows={2}
               className="w-full rounded-lg border border-gray-300 px-4 py-3 text-base focus:border-blue-500 focus:outline-none resize-none" />
 
             <div className="flex gap-2">
