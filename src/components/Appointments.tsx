@@ -196,9 +196,18 @@ export default function Appointments({ lifeId, readOnly = false }: AppointmentsP
     fetchAppointments();
   };
 
-  const today = new Date().toISOString().split("T")[0];
-  const upcoming = appointments.filter((a) => a.date >= today);
-  const past = appointments.filter((a) => a.date < today);
+  const now = new Date();
+  const today = now.toISOString().split("T")[0];
+  const currentTime = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+
+  const isPast = (a: Appointment) => {
+    if (a.date < today) return true;
+    if (a.date === today && a.time && a.time < currentTime) return true;
+    return false;
+  };
+
+  const upcoming = appointments.filter((a) => !isPast(a));
+  const past = appointments.filter((a) => isPast(a));
 
   if (loading) return <p className="text-xs text-gray-400 text-center py-4">로딩 중...</p>;
 
@@ -379,7 +388,7 @@ export default function Appointments({ lifeId, readOnly = false }: AppointmentsP
 
       {past.length > 0 && (
         <details>
-          <summary className="text-xs text-gray-400 cursor-pointer">지난 약속 ({past.length})</summary>
+          <summary className="text-xs text-gray-400 cursor-pointer">만료 ({past.length})</summary>
           <div className="mt-2 space-y-2">
             {past.map((a) => (
               <div key={a.id} className="bg-gray-50 rounded-lg border border-gray-200 p-3 opacity-60">
