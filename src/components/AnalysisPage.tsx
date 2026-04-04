@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import { getUser } from "@/lib/auth";
+import { STAGE_LABELS } from "@/lib/stages";
 
 interface Report {
   id: string;
@@ -19,16 +20,16 @@ interface SelectOption {
 }
 
 const TYPE_LABELS: Record<string, string> = {
-  life: "생명별 분석",
-  student: "대학생별 분석",
-  manager: "관리자 팀 분석",
+  life: "생명 분석",
+  student: "전도자 분석",
+  manager: "팀 분석",
   overall: "전체 분석",
 };
 
 const TYPE_DESCRIPTIONS: Record<string, string> = {
   life: "개별 생명의 상태, 반응 동향, 성격 파악, 다음 단계 제안",
-  student: "대학생의 전도 스타일, 장단점, 페일 패턴 분석",
-  manager: "관리자 팀의 현황, 팀워크, 병목 구간 분석",
+  student: "전도자의 전도 스타일, 장단점, 페일 패턴 분석",
+  manager: "팀 현황, 팀워크, 병목 구간 분석",
   overall: "전체 조직의 성과, 병목, 전략적 개선 제안",
 };
 
@@ -40,7 +41,11 @@ const TYPE_COLORS: Record<string, string> = {
 };
 
 export default function AnalysisPage() {
-  const [tab, setTab] = useState<"new" | "history" | "chat">("new");
+  const [tab, setTab] = useState<"new" | "history" | "lecture" | "chat">("new");
+  const [lectureLife, setLectureLife] = useState("");
+  const [allLives, setAllLives] = useState<{ id: string; name: string; stage: string }[]>([]);
+  const [lectureReactions, setLectureReactions] = useState<any[]>([]);
+  const [loadingLecture, setLoadingLecture] = useState(false);
   const [selectedType, setSelectedType] = useState("");
   const [targets, setTargets] = useState<SelectOption[]>([]);
   const [selectedTarget, setSelectedTarget] = useState("");
@@ -58,8 +63,35 @@ export default function AnalysisPage() {
 
   useEffect(() => {
     fetchReports();
+    fetchAllLives();
     fetch("/api/process-reports").catch(() => {});
   }, []);
+
+  const fetchAllLives = async () => {
+    const { data } = await supabase.from("lives").select("id, name, stage").eq("is_failed", false).order("name");
+    if (data) setAllLives(data);
+  };
+
+  const fetchLectureReactions = async (lifeId: string) => {
+    setLoadingLecture(true);
+    setLectureLife(lifeId);
+    const { data: checks } = await supabase
+      .from("lesson_checks").select("*, lesson:lessons(number, name, level)").eq("life_id", lifeId).order("created_at");
+    const { data: journals } = await supabase
+      .from("journals").select("lesson_id, met_date, instructor_name, response")
+      .eq("life_id", lifeId).eq("purpose", "lecture").is("deleted_at", null).order("met_date");
+    const jMap = new Map<string, any>();
+    journals?.forEach((j: any) => { if (j.lesson_id && !jMap.has(j.lesson_id)) jMap.set(j.lesson_id, j); });
+    const result = (checks || []).map((c: any) => ({
+      lesson_number: c.lesson?.number || 0, lesson_name: c.lesson?.name || "",
+      lesson_level: c.lesson?.level || "", attended_date: c.attended_date,
+      instructor_name: c.instructor_name, is_passed: c.is_passed, note: c.note,
+      journal_response: jMap.get(c.lesson_id)?.response || null,
+      journal_date: jMap.get(c.lesson_id)?.met_date || null,
+    })).sort((a: any, b: any) => a.lesson_number - b.lesson_number);
+    setLectureReactions(result);
+    setLoadingLecture(false);
+  };
 
   useEffect(() => {
     if (selectedType && selectedType !== "overall") fetchTargets();
@@ -209,6 +241,14 @@ export default function AnalysisPage() {
           보고서 ({reports.length})
         </button>
         <button
+          onClick={() => setTab("lecture")}
+          className={`flex-1 py-2.5 text-sm font-medium text-center transition-colors ${
+            tab === "lecture" ? "bg-blue-600 text-white" : "text-gray-500"
+          }`}
+        >
+          강의 반응
+        </button>
+        <button
           onClick={() => setTab("chat")}
           className={`flex-1 py-2.5 text-sm font-medium text-center transition-colors ${
             tab === "chat" ? "bg-blue-600 text-white" : "text-gray-500"
@@ -243,7 +283,7 @@ export default function AnalysisPage() {
               className="w-full rounded-lg border border-gray-300 px-4 py-3 text-base focus:border-blue-500 focus:outline-none"
             >
               <option value="">
-                {selectedType === "life" ? "생명 선택" : selectedType === "student" ? "대학생 선택" : "관리자 선택"}
+                {selectedType === "life" ? "생명 선택" : selectedType === "student" ? "전도자 선택" : "관리자 선택"}
               </option>
               {targets.map((t) => (
                 <option key={t.id} value={t.id}>{t.name}</option>
@@ -363,6 +403,57 @@ export default function AnalysisPage() {
           <div ref={printRef} dangerouslySetInnerHTML={{ __html: extractHtml(viewingReport.content) }} />
         </div>
       )}
+      {/* 강의 반응 정리 */}
+      {tab === "lecture" && (
+        <div className="space-y-3">
+          <select value={lectureLife}
+            onChange={(e) => { if (e.target.value) fetchLectureReactions(e.target.value); else { setLectureLife(""); setLectureReactions([]); } }}
+            className="w-full rounded-lg border border-gray-300 px-4 py-3 text-base focus:border-blue-500 focus:outline-none">
+            <option value="">생명 선택</option>
+            {allLives.map((l) => (
+              <option key={l.id} value={l.id}>{l.name} ({STAGE_LABELS[l.stage] || l.stage})</option>
+            ))}
+          </select>
+          {loadingLecture && <p className="text-center text-sm text-gray-400 py-4">로딩 중...</p>}
+          {!loadingLecture && lectureLife && lectureReactions.length === 0 && (
+            <p className="text-center text-sm text-gray-400 py-8">수강 기록이 없습니다.</p>
+          )}
+          {lectureReactions.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-xs text-gray-500">수강 강의 {lectureReactions.length}개</p>
+              {lectureReactions.map((r: any, i: number) => (
+                <div key={i} className="bg-white rounded-lg border border-gray-200 p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-base font-bold">{r.lesson_number}. {r.lesson_name}</span>
+                      {r.is_passed && <span className="text-[10px] bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded-full">패스</span>}
+                    </div>
+                    <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded">
+                      {({ intro: "입문", beginner: "초급", intermediate: "중급", advanced: "고급" } as Record<string, string>)[r.lesson_level] || r.lesson_level}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-3 text-xs text-gray-500 mb-2">
+                    {r.attended_date && <span>{r.attended_date}</span>}
+                    {r.instructor_name && <span className="bg-blue-50 text-blue-600 px-2 py-0.5 rounded">강사: {r.instructor_name}</span>}
+                  </div>
+                  {(r.note || r.journal_response) ? (
+                    <div className="bg-gray-50 rounded-lg p-3">
+                      <p className="text-[10px] text-gray-400 mb-1 font-medium">생명 반응</p>
+                      {r.note && <p className="text-sm text-gray-700 whitespace-pre-wrap">{r.note}</p>}
+                      {r.journal_response && r.journal_response !== r.note && (
+                        <p className="text-sm text-gray-700 whitespace-pre-wrap mt-1">{r.journal_response}</p>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-gray-300">반응 기록 없음</p>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* AI 채팅 */}
       {tab === "chat" && (
         <div className="flex flex-col" style={{ height: "calc(100vh - 220px)" }}>
