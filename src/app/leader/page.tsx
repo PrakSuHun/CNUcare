@@ -29,7 +29,7 @@ export default function LeaderPage() {
   if (!user) return null;
 
   return (
-    <div className="min-h-full bg-gray-50">
+    <div className="h-full flex flex-col bg-gray-50">
       <header className="bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between">
         <div>
           <h1 className="text-lg font-bold">CNUcare</h1>
@@ -70,7 +70,7 @@ export default function LeaderPage() {
         ))}
       </div>
 
-      <div className="p-4">
+      <div className="flex-1 overflow-y-auto p-4">
         {tab === "org" && <OrgChart userRole="instructor" userId={user.id} basePath="/leader" editMode={editMode} />}
         {tab === "mylives" && <MyLives userId={user.id} basePath="/leader" />}
         {tab === "calendar" && <InstructorCalendar basePath="/leader" />}

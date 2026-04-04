@@ -63,14 +63,14 @@ export default function AdminPage() {
 
   if (!user || loading) {
     return (
-      <div className="flex min-h-full items-center justify-center">
+      <div className="flex h-full items-center justify-center">
         <p className="text-gray-500">로딩 중...</p>
       </div>
     );
   }
 
   return (
-    <div className="min-h-full bg-gray-50">
+    <div className="h-full flex flex-col bg-gray-50">
       <header className="bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between">
         <div>
           <h1 className="text-lg font-bold">CNUcare</h1>
@@ -111,7 +111,7 @@ export default function AdminPage() {
         ))}
       </div>
 
-      <div className="p-4">
+      <div className="flex-1 overflow-y-auto p-4">
         {tab === "org" && (
           <OrgChart userRole="instructor" userId={user.id} basePath="/admin" editMode={editMode} />
         )}

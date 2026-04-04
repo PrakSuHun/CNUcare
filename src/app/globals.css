@@ -1,1 +1,7 @@
 @import "tailwindcss";
+
+/* 모바일 웹앱: 전체 페이지 바운스/오버스크롤 방지 */
+html, body {
+  overscroll-behavior: none;
+  -webkit-overflow-scrolling: touch;
+}

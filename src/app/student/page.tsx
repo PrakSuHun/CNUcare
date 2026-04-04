@@ -96,15 +96,15 @@ export default function StudentPage() {
 
   if (loading) {
     return (
-      <div className="flex min-h-full items-center justify-center">
+      <div className="flex h-full items-center justify-center">
         <p className="text-gray-500">로딩 중...</p>
       </div>
     );
   }
 
   return (
-    <div className="min-h-full bg-gray-50">
-      <header className="bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between">
+    <div className="h-full flex flex-col bg-gray-50">
+      <header className="bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between shrink-0">
         <div>
           <h1 className="text-lg font-bold">CNUcare</h1>
           <p className="text-xs text-gray-500">{user?.display_name}</p>
@@ -117,7 +117,7 @@ export default function StudentPage() {
         </button>
       </header>
 
-      <div className="flex border-b border-gray-200 bg-white">
+      <div className="flex border-b border-gray-200 bg-white shrink-0">
         <button onClick={() => setTab("lives")}
           className={`flex-1 py-2.5 text-sm font-medium text-center border-b-2 transition-colors ${tab === "lives" ? "border-blue-600 text-blue-600" : "border-transparent text-gray-500"}`}>
           내 생명
@@ -128,6 +128,7 @@ export default function StudentPage() {
         </button>
       </div>
 
+      <div className="flex-1 overflow-y-auto">
       {tab === "calendar" && (
         <div className="p-4">
           <InstructorCalendar basePath="/student" />
@@ -257,6 +258,7 @@ export default function StudentPage() {
         )}
       </div>
       )}
+      </div>
     </div>
   );
 }

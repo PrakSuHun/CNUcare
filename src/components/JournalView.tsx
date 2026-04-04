@@ -30,11 +30,11 @@ export default function JournalView({ lifeId, journalId, backPath }: JournalView
   };
 
   if (loading) {
-    return <div className="flex min-h-full items-center justify-center"><p className="text-gray-500">로딩 중...</p></div>;
+    return <div className="flex h-full items-center justify-center"><p className="text-gray-500">로딩 중...</p></div>;
   }
 
   if (!journal) {
-    return <div className="flex min-h-full items-center justify-center"><p className="text-gray-500">일지를 찾을 수 없습니다.</p></div>;
+    return <div className="flex h-full items-center justify-center"><p className="text-gray-500">일지를 찾을 수 없습니다.</p></div>;
   }
 
   const purposeLabels: Record<string, string> = {
@@ -45,13 +45,13 @@ export default function JournalView({ lifeId, journalId, backPath }: JournalView
   };
 
   return (
-    <div className="min-h-full bg-gray-50">
-      <header className="bg-white border-b border-gray-200 px-4 py-3 flex items-center">
+    <div className="h-full flex flex-col bg-gray-50">
+      <header className="bg-white border-b border-gray-200 px-4 py-3 flex items-center shrink-0">
         <button onClick={() => router.push(backPath)} className="text-gray-500 mr-3">&larr;</button>
         <h1 className="text-lg font-bold">일지 상세</h1>
       </header>
 
-      <div className="p-4 space-y-4">
+      <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {/* 목적 */}
         {journal.purpose && (
           <div className="bg-white rounded-lg border border-gray-200 p-4">

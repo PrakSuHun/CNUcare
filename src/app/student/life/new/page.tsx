@@ -119,8 +119,8 @@ export default function NewLifePage() {
   };
 
   return (
-    <div className="min-h-full bg-gray-50">
-      <header className="bg-white border-b border-gray-200 px-4 py-3 flex items-center">
+    <div className="h-full flex flex-col bg-gray-50">
+      <header className="shrink-0 bg-white border-b border-gray-200 px-4 py-3 flex items-center">
         <button
           onClick={() => {
             if (step === "form" || step === "similar") setStep("name");
@@ -133,7 +133,7 @@ export default function NewLifePage() {
         <h1 className="text-lg font-bold">생명 추가</h1>
       </header>
 
-      <div className="p-4">
+      <div className="flex-1 overflow-y-auto p-4">
         {/* Step 1: 이름 입력 */}
         {step === "name" && (
           <div className="space-y-4">

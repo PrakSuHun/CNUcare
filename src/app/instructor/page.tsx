@@ -95,12 +95,12 @@ export default function InstructorPage() {
   const failedLives = lives.filter((l) => l.is_failed);
 
   if (loading) {
-    return <div className="flex min-h-full items-center justify-center"><p className="text-gray-500">로딩 중...</p></div>;
+    return <div className="flex h-full items-center justify-center"><p className="text-gray-500">로딩 중...</p></div>;
   }
 
   return (
-    <div className="min-h-full bg-gray-50">
-      <header className="bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between">
+    <div className="h-full flex flex-col bg-gray-50">
+      <header className="bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between shrink-0">
         <div>
           <h1 className="text-lg font-bold">CNUcare</h1>
           <p className="text-xs text-gray-500">{user?.display_name} (강사)</p>
@@ -108,7 +108,7 @@ export default function InstructorPage() {
         <button onClick={logout} className="text-sm text-gray-400 hover:text-gray-600">로그아웃</button>
       </header>
 
-      <div className="flex border-b border-gray-200 bg-white overflow-x-auto">
+      <div className="flex border-b border-gray-200 bg-white overflow-x-auto shrink-0">
         {[
           { key: "lives", label: "내 강의 생명" },
           { key: "calendar", label: "캘린더" },
@@ -126,6 +126,7 @@ export default function InstructorPage() {
         ))}
       </div>
 
+      <div className="flex-1 overflow-y-auto">
       {tab === "calendar" && (
         <div className="p-4">
           <InstructorCalendar basePath="/instructor" />
@@ -247,6 +248,7 @@ export default function InstructorPage() {
         )}
       </div>
       )}
+      </div>
     </div>
   );
 }

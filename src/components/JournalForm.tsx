@@ -373,20 +373,20 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
   };
 
   if (loading) {
-    return <div className="flex min-h-full items-center justify-center"><p className="text-gray-500">로딩 중...</p></div>;
+    return <div className="flex h-full items-center justify-center"><p className="text-gray-500">로딩 중...</p></div>;
   }
 
   const lectureOnlyLessons = lessons.filter((l) => l.category === "lecture");
   const canRecord = form.purpose && form.met_date && form.location.trim();
 
   return (
-    <div className="min-h-full bg-gray-50">
-      <header className="bg-white border-b border-gray-200 px-4 py-3 flex items-center">
+    <div className="h-full flex flex-col bg-gray-50">
+      <header className="bg-white border-b border-gray-200 px-4 py-3 flex items-center shrink-0">
         <button onClick={() => router.push(backPath)} className="text-gray-500 mr-3">&larr;</button>
         <h1 className="text-lg font-bold">{isEdit ? "일지 수정" : "일지 작성"}</h1>
       </header>
 
-      <div className="p-4">
+      <div className="flex-1 overflow-y-auto p-4">
         {/* 저장 중 오버레이 */}
         {(saving || uploading) && (
           <div className="mb-4 bg-blue-50 border border-blue-200 rounded-lg p-4 text-center">
