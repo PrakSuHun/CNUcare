@@ -13,7 +13,7 @@ function getSb() {
 async function getLifeContext(lifeId: string) {
   const [life, journals, checks] = await Promise.all([
     getSb().from("lives").select("*").eq("id", lifeId).single(),
-    getSb().from("journals").select("*, author:users(display_name)").eq("life_id", lifeId).order("met_date", { ascending: false }),
+    getSb().from("journals").select("*, author:users(display_name)").eq("life_id", lifeId).is("deleted_at", null).order("met_date", { ascending: false }),
     getSb().from("lesson_checks").select("*, lesson:lessons(number, name)").eq("life_id", lifeId),
   ]);
   return { life: life.data, journals: journals.data || [], checks: checks.data || [] };
@@ -28,7 +28,7 @@ async function getStudentContext(studentId: string) {
   const lifeIds = (userLives.data || []).map((ul: any) => ul.life_id);
   const [lives, journals] = await Promise.all([
     getSb().from("lives").select("*").in("id", lifeIds),
-    getSb().from("journals").select("*").in("life_id", lifeIds).order("met_date", { ascending: false }),
+    getSb().from("journals").select("*").in("life_id", lifeIds).is("deleted_at", null).order("met_date", { ascending: false }),
   ]);
   return { student: student.data, lives: lives.data || [], journals: journals.data || [] };
 }
@@ -42,7 +42,7 @@ async function getManagerContext(managerId: string) {
   const studentIds = (students.data || []).map((s: any) => s.id);
   const [userLives, allJournals] = await Promise.all([
     getSb().from("user_lives").select("user_id, life_id").in("user_id", studentIds).eq("role_in_life", "evangelist"),
-    getSb().from("journals").select("life_id, met_date, response, author_id").order("met_date", { ascending: false }).limit(200),
+    getSb().from("journals").select("life_id, met_date, response, author_id").is("deleted_at", null).order("met_date", { ascending: false }).limit(200),
   ]);
   const lifeIds = (userLives.data || []).map((ul: any) => ul.life_id);
   const [lives] = await Promise.all([
@@ -62,7 +62,7 @@ async function getOverallContext() {
   const [lives, users, journals, checks] = await Promise.all([
     getSb().from("lives").select("id, name, stage, is_failed, last_met_at, created_at"),
     getSb().from("users").select("id, display_name, role, manager_id"),
-    getSb().from("journals").select("life_id, met_date, purpose").order("met_date", { ascending: false }).limit(500),
+    getSb().from("journals").select("life_id, met_date, purpose").is("deleted_at", null).order("met_date", { ascending: false }).limit(500),
     getSb().from("lesson_checks").select("life_id, lesson_id, is_passed"),
   ]);
   return { lives: lives.data || [], users: users.data || [], journals: journals.data || [], checks: checks.data || [] };

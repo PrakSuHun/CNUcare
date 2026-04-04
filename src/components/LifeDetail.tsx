@@ -143,6 +143,12 @@ export default function LifeDetail({ lifeId, basePath, backPath, readOnly = fals
     fetchDeletedJournals();
   };
 
+  const handlePermanentDelete = async (journalId: string) => {
+    if (!confirm("영구 삭제하시겠습니까? 복원할 수 없습니다.")) return;
+    await supabase.from("journals").delete().eq("id", journalId);
+    fetchDeletedJournals();
+  };
+
   const handleDeleteJournal = async (journalId: string) => {
     if (!confirm("이 일지를 삭제하시겠습니까? (30일간 휴지통에 보관됩니다)")) return;
     await supabase.from("journals").update({ deleted_at: new Date().toISOString() }).eq("id", journalId);
@@ -397,12 +403,20 @@ export default function LifeDetail({ lifeId, basePath, backPath, readOnly = fals
                         <span className="text-xs text-gray-500">{new Date(j.met_date).toLocaleDateString("ko-KR")}</span>
                         <span className="text-xs text-gray-400 ml-2">{(j.author as any)?.display_name || ""}</span>
                       </div>
-                      <button
-                        onClick={() => handleRestoreJournal(j.id)}
-                        className="text-xs text-blue-500 border border-blue-300 rounded-full px-2.5 py-1 hover:bg-blue-50"
-                      >
-                        복원
-                      </button>
+                      <div className="flex gap-1.5">
+                        <button
+                          onClick={() => handleRestoreJournal(j.id)}
+                          className="text-xs text-blue-500 border border-blue-300 rounded-full px-2.5 py-1 hover:bg-blue-50"
+                        >
+                          복원
+                        </button>
+                        <button
+                          onClick={() => handlePermanentDelete(j.id)}
+                          className="text-xs text-red-400 border border-red-200 rounded-full px-2.5 py-1 hover:bg-red-50"
+                        >
+                          삭제
+                        </button>
+                      </div>
                     </div>
                     <p className="text-xs text-gray-500 mt-1">{j.location}</p>
                     <p className="text-sm text-gray-600 mt-1 line-clamp-3">{j.response}</p>
