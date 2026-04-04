@@ -92,7 +92,20 @@ export default function InstructorCalendar({ basePath }: { basePath: string }) {
     // 생명 약속
     const lifeIds = (ul || []).map((u: any) => u.life_id);
     let apptEvents: CalEvent[] = [];
-    if (lifeIds.length > 0) {
+
+    if (user.role === "instructor") {
+      // 강사: instructor_name이 본인인 약속만
+      const { data: appts } = await supabase
+        .from("appointments").select("*, life:lives(name)")
+        .eq("instructor_name", user.display_name)
+        .order("date");
+      apptEvents = (appts || []).map((a: any) => ({
+        id: a.id, type: "appointment" as const, title: a.title,
+        date: a.date, time: a.time, location: a.location,
+        purpose: a.purpose, life_name: a.life?.name, life_id: a.life_id, memo: a.note,
+      }));
+    } else if (lifeIds.length > 0) {
+      // 대학생/관리자/지도자: 내 생명 약속 + 내 이름 약속
       const { data: appts } = await supabase
         .from("appointments").select("*, life:lives(name)")
         .or(`instructor_name.eq.${user.display_name},life_id.in.(${lifeIds.join(",")})`)
