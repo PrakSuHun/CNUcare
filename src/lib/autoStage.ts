@@ -29,12 +29,16 @@ export async function autoUpdateByLessons(lifeId: string) {
   else if (beginnerComplete) correctStage = "beginner";
   else if (introComplete) correctStage = "beginner";
   else if (numbers.length > 0) correctStage = "intro";
-  else correctStage = "intro"; // 강의 체크가 있었다면 최소 입문
+  else return; // 체크된 강의 없으면 변경 안 함
 
-  // 현재 단계가 intro 이상(강의 관련)이면 진도에 맞게 조정
+  // 강의 체크가 있으면 최소 입문 이상으로 설정
+  // 현재 단계가 강의 관련이면 진도에 맞게 조정 (뒤로도 가능)
   const lectureStages = ["intro", "beginner", "intermediate", "advanced"];
   if (lectureStages.includes(life.stage)) {
     await supabase.from("lives").update({ stage: correctStage }).eq("id", lifeId);
+  } else {
+    // 1차 만남/전초연결/전초 등에서도 강의 체크하면 입문 이상으로 올림
+    await autoUpdateStage(lifeId, correctStage);
   }
 }
 
