@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { getUser, saveUser } from "@/lib/auth";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -10,6 +11,15 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  // 이미 로그인되어 있으면 자동 리다이렉트
+  useEffect(() => {
+    const user = getUser();
+    if (user) {
+      const routes: Record<string, string> = { admin: "/admin", leader: "/leader", instructor: "/instructor", manager: "/manager" };
+      router.replace(routes[user.role] || "/student");
+    }
+  }, [router]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -29,8 +39,8 @@ export default function LoginPage() {
       return;
     }
 
-    // 세션 저장
-    localStorage.setItem("user", JSON.stringify(data));
+    // 세션 저장 (localStorage + 쿠키)
+    saveUser(data);
 
     // 역할별 리다이렉트
     switch (data.role) {
