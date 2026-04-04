@@ -15,6 +15,8 @@ interface LifeItem {
   is_failed: boolean;
   last_met_at: string | null;
   has_unread?: boolean;
+  date_label?: string; // 조직도에 표시할 날짜 텍스트
+  date_is_upcoming?: boolean; // 예정 약속 여부
 }
 
 interface StudentNode {
@@ -129,12 +131,66 @@ export default function OrgChart({ userRole, userId, basePath, editMode: externa
       });
     }
 
+    // 약속 데이터 조회 (각 생명의 최근/다음 약속)
+    const allLifeIds = [...firstOwner.keys()];
+    const { data: appointments } = await supabase
+      .from("appointments")
+      .select("life_id, date")
+      .in("life_id", allLifeIds.length > 0 ? allLifeIds : ["_"])
+      .order("date", { ascending: false });
+
+    // 생명별 등록일 (user_lives의 created_at)
+    const lifeCreatedAt = new Map<string, string>();
+    userLives?.forEach((ul: any) => {
+      if (!lifeCreatedAt.has(ul.life_id)) {
+        lifeCreatedAt.set(ul.life_id, ul.created_at);
+      }
+    });
+
+    const today = new Date().toISOString().split("T")[0];
+
+    // 생명별 날짜 라벨 계산
+    const lifeDateInfo = new Map<string, { label: string; upcoming: boolean }>();
+    allLifeIds.forEach((lifeId) => {
+      const lifeAppts = (appointments || []).filter((a: any) => a.life_id === lifeId);
+      // 미래 약속 (오늘 포함)
+      const futureAppt = lifeAppts.filter((a: any) => a.date >= today).sort((a: any, b: any) => a.date.localeCompare(b.date))[0];
+      // 과거 약속 (가장 최근)
+      const pastAppt = lifeAppts.filter((a: any) => a.date < today).sort((a: any, b: any) => b.date.localeCompare(a.date))[0];
+
+      if (futureAppt) {
+        lifeDateInfo.set(lifeId, { label: futureAppt.date, upcoming: true });
+      } else if (pastAppt) {
+        lifeDateInfo.set(lifeId, { label: pastAppt.date, upcoming: false });
+      }
+      // 약속 없으면 아래에서 last_met_at 또는 등록일 사용
+    });
+
     const livesMap = new Map<string, LifeItem[]>();
     userLives?.forEach((ul: any) => {
       if (!ul.lives) return;
       if (firstOwner.get(ul.life_id) !== ul.user_id) return;
       const list = livesMap.get(ul.user_id) || [];
-      const life = { ...ul.lives, has_unread: unreadLifeIds.has(ul.life_id) };
+
+      // 날짜 라벨 결정: 약속 > 마지막 만남일 > 등록일
+      const apptInfo = lifeDateInfo.get(ul.life_id);
+      let dateLabel = "";
+      let dateIsUpcoming = false;
+      if (apptInfo) {
+        dateLabel = apptInfo.label;
+        dateIsUpcoming = apptInfo.upcoming;
+      } else if (ul.lives.last_met_at) {
+        dateLabel = ul.lives.last_met_at;
+      } else {
+        dateLabel = lifeCreatedAt.get(ul.life_id) || "";
+      }
+
+      const life = {
+        ...ul.lives,
+        has_unread: unreadLifeIds.has(ul.life_id),
+        date_label: dateLabel,
+        date_is_upcoming: dateIsUpcoming,
+      };
       list.push(life);
       livesMap.set(ul.user_id, list);
     });
@@ -620,8 +676,10 @@ function ManagerColumn({
                           {life.age && <span className="text-[11px] text-gray-400 shrink-0">{life.age}세</span>}
                         </div>
                         <div className="flex items-center gap-1.5 shrink-0">
-                          {life.last_met_at && (
-                            <span className="text-[10px] text-gray-300">{formatDate(life.last_met_at)}</span>
+                          {life.date_label && (
+                            <span className={`text-[10px] font-medium ${life.date_is_upcoming ? "text-blue-600" : "text-gray-700"}`}>
+                              {formatDate(life.date_label)}{life.date_is_upcoming ? " 예정" : ""}
+                            </span>
                           )}
                           <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${STAGE_COLORS[life.stage]}`}>
                             {STAGE_LABELS[life.stage]}
