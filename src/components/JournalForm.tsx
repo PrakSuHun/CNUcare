@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { getUser } from "@/lib/auth";
+import { autoUpdateStage } from "@/lib/autoStage";
 
 interface Lesson {
   id: string;
@@ -42,6 +43,7 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
     location: "",
     purpose: "",
     lesson_id: "",
+    instructor_name: "",
     response: "",
   });
   const [lessons, setLessons] = useState<Lesson[]>([]);
@@ -88,6 +90,7 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
         location: data.location || "",
         purpose: data.purpose || "",
         lesson_id: data.lesson_id || "",
+        instructor_name: data.instructor_name || "",
         response: data.response || "",
       });
       if (data.audio_url) setAudioUrl(data.audio_url);
@@ -138,6 +141,7 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
       response: "(텍스트 변환 중입니다)",
       purpose: form.purpose || null,
       lesson_id: form.lesson_id || null,
+      instructor_name: form.instructor_name || null,
       audio_url: url,
     }).select("id").single();
 
@@ -148,7 +152,22 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
         life_id: lifeId,
         lesson_id: form.lesson_id,
         attended_date: form.met_date,
+        instructor_name: form.instructor_name || null,
+        note: form.response ? form.response.slice(0, 200) : null,
       }, { onConflict: "life_id,lesson_id" });
+    }
+
+    // 강의자 이름으로 강사 자동 연결
+    if (form.instructor_name) {
+      const { data: instructors } = await supabase
+        .from("users").select("id").eq("role", "instructor").eq("display_name", form.instructor_name);
+      if (instructors) {
+        for (const inst of instructors) {
+          await supabase.from("user_lives").upsert({
+            user_id: inst.id, life_id: lifeId, role_in_life: "instructor",
+          }, { onConflict: "user_id,life_id" }).then(() => {});
+        }
+      }
     }
 
     // 3. 변환 큐에 등록 (서버가 알아서 처리)
@@ -269,11 +288,38 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
       response: form.response,
       purpose: form.purpose || null,
       lesson_id: form.lesson_id || null,
+      instructor_name: form.instructor_name || null,
       audio_url: audioUrl,
     };
 
     if (isEdit) {
       await supabase.from("journals").update(journalData).eq("id", journalId);
+
+      // 수정 시에도 강의 진도표 연동
+      if (form.purpose === "lecture" && form.lesson_id) {
+        const { data: existing } = await supabase
+          .from("lesson_checks")
+          .select("id")
+          .eq("life_id", lifeId)
+          .eq("lesson_id", form.lesson_id)
+          .single();
+
+        const checkData = {
+          attended_date: form.met_date,
+          instructor_name: form.instructor_name || null,
+          note: form.response ? form.response.slice(0, 200) : null,
+        };
+
+        if (existing) {
+          await supabase.from("lesson_checks").update(checkData).eq("id", existing.id);
+        } else {
+          await supabase.from("lesson_checks").insert({
+            life_id: lifeId,
+            lesson_id: form.lesson_id,
+            ...checkData,
+          });
+        }
+      }
     } else {
       await supabase.from("journals").insert({
         life_id: lifeId,
@@ -283,11 +329,43 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
       await supabase.from("lives").update({ last_met_at: form.met_date }).eq("id", lifeId);
 
       if (form.purpose === "lecture" && form.lesson_id) {
-        await supabase.from("lesson_checks").upsert({
-          life_id: lifeId,
-          lesson_id: form.lesson_id,
-          attended_date: form.met_date,
-        }, { onConflict: "life_id,lesson_id" });
+        // 강의 진도표 체크 (없으면 추가, 있으면 유지)
+        const { data: existing } = await supabase
+          .from("lesson_checks")
+          .select("id")
+          .eq("life_id", lifeId)
+          .eq("lesson_id", form.lesson_id)
+          .single();
+
+        if (!existing) {
+          await supabase.from("lesson_checks").insert({
+            life_id: lifeId,
+            lesson_id: form.lesson_id,
+          });
+        }
+      }
+
+      // 단계 자동 변경
+      if (form.purpose === "pre_visit") {
+        await autoUpdateStage(lifeId, "pre_visit");
+      } else if (form.purpose === "lecture") {
+        await autoUpdateStage(lifeId, "intro");
+      }
+
+      // 강의자 이름으로 강사 계정 자동 연결
+      if (form.instructor_name) {
+        const { data: instructors } = await supabase
+          .from("users")
+          .select("id")
+          .eq("role", "instructor")
+          .eq("display_name", form.instructor_name);
+        if (instructors) {
+          for (const inst of instructors) {
+            await supabase.from("user_lives").upsert({
+              user_id: inst.id, life_id: lifeId, role_in_life: "instructor",
+            }, { onConflict: "user_id,life_id" }).then(() => {});
+          }
+        }
       }
     }
 
@@ -341,19 +419,31 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
           </div>
 
           {form.purpose === "lecture" && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">수강 강의</label>
-              <select
-                value={form.lesson_id}
-                onChange={(e) => setForm((f) => ({ ...f, lesson_id: e.target.value }))}
-                className="w-full rounded-lg border border-gray-300 px-4 py-3 text-base focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-              >
-                <option value="">강의를 선택하세요</option>
-                {lectureOnlyLessons.map((l) => (
-                  <option key={l.id} value={l.id}>{l.number}. {l.name}</option>
-                ))}
-              </select>
-            </div>
+            <>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">수강 강의</label>
+                <select
+                  value={form.lesson_id}
+                  onChange={(e) => setForm((f) => ({ ...f, lesson_id: e.target.value }))}
+                  className="w-full rounded-lg border border-gray-300 px-4 py-3 text-base focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                >
+                  <option value="">강의를 선택하세요</option>
+                  {lectureOnlyLessons.map((l) => (
+                    <option key={l.id} value={l.id}>{l.number}. {l.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">강의자</label>
+                <input
+                  type="text"
+                  placeholder="강의자 이름"
+                  value={form.instructor_name}
+                  onChange={(e) => setForm((f) => ({ ...f, instructor_name: e.target.value }))}
+                  className="w-full rounded-lg border border-gray-300 px-4 py-3 text-base focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+            </>
           )}
 
           <div>

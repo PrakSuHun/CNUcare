@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { getUser, logout, User } from "@/lib/auth";
 import { STAGE_LABELS, STAGE_COLORS } from "@/lib/stages";
+import InstructorCalendar from "@/components/InstructorCalendar";
 
 interface Life {
   id: string;
@@ -20,6 +21,7 @@ export default function StudentPage() {
   const [lives, setLives] = useState<Life[]>([]);
   const [loading, setLoading] = useState(true);
   const [menuLifeId, setMenuLifeId] = useState<string | null>(null);
+  const [tab, setTab] = useState<"lives" | "calendar">("lives");
 
   useEffect(() => {
     const u = getUser();
@@ -104,7 +106,7 @@ export default function StudentPage() {
     <div className="min-h-full bg-gray-50">
       <header className="bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between">
         <div>
-          <h1 className="text-lg font-bold">내 생명 목록</h1>
+          <h1 className="text-lg font-bold">CNUcare</h1>
           <p className="text-xs text-gray-500">{user?.display_name}</p>
         </div>
         <button
@@ -115,6 +117,24 @@ export default function StudentPage() {
         </button>
       </header>
 
+      <div className="flex border-b border-gray-200 bg-white">
+        <button onClick={() => setTab("lives")}
+          className={`flex-1 py-2.5 text-sm font-medium text-center border-b-2 transition-colors ${tab === "lives" ? "border-blue-600 text-blue-600" : "border-transparent text-gray-500"}`}>
+          내 생명
+        </button>
+        <button onClick={() => setTab("calendar")}
+          className={`flex-1 py-2.5 text-sm font-medium text-center border-b-2 transition-colors ${tab === "calendar" ? "border-blue-600 text-blue-600" : "border-transparent text-gray-500"}`}>
+          캘린더
+        </button>
+      </div>
+
+      {tab === "calendar" && (
+        <div className="p-4">
+          <InstructorCalendar basePath="/student" />
+        </div>
+      )}
+
+      {tab === "lives" && (
       <div className="p-4 space-y-3">
         <button
           onClick={() => router.push("/student/life/new")}
@@ -236,6 +256,7 @@ export default function StudentPage() {
           </details>
         )}
       </div>
+      )}
     </div>
   );
 }

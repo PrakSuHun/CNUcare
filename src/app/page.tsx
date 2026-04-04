@@ -37,6 +37,9 @@ export default function LoginPage() {
       case "admin":
         router.push("/admin");
         break;
+      case "leader":
+        router.push("/leader");
+        break;
       case "instructor":
         router.push("/instructor");
         break;

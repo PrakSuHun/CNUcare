@@ -7,6 +7,7 @@ import { getUser, logout, User } from "@/lib/auth";
 import OrgChart from "@/components/OrgChart";
 import Dashboard from "@/components/Dashboard";
 import AnalysisPage from "@/components/AnalysisPage";
+import InstructorCalendar from "@/components/InstructorCalendar";
 import MyLives from "@/components/MyLives";
 
 interface UserRow {
@@ -21,6 +22,7 @@ const ROLE_COLORS: Record<string, string> = {
   student: "bg-gray-100 text-gray-700",
   manager: "bg-yellow-100 text-yellow-700",
   instructor: "bg-blue-100 text-blue-700",
+  leader: "bg-purple-100 text-purple-700",
   admin: "bg-red-100 text-red-700",
 };
 
@@ -29,7 +31,7 @@ export default function AdminPage() {
   const [user, setUser] = useState<User | null>(null);
   const [users, setUsers] = useState<UserRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<"org" | "mylives" | "dashboard" | "analysis" | "users">("org");
+  const [tab, setTab] = useState<"org" | "calendar" | "dashboard" | "analysis" | "users">("org");
   const [editMode, setEditMode] = useState(false);
 
   useEffect(() => {
@@ -92,6 +94,7 @@ export default function AdminPage() {
       <div className="flex border-b border-gray-200 bg-white overflow-x-auto">
         {[
           { key: "org", label: "조직도" },
+          { key: "calendar", label: "캘린더" },
           { key: "dashboard", label: "현황" },
           { key: "analysis", label: "AI 분석" },
           { key: "users", label: "권한 관리" },
@@ -112,6 +115,7 @@ export default function AdminPage() {
         {tab === "org" && (
           <OrgChart userRole="instructor" userId={user.id} basePath="/admin" editMode={editMode} />
         )}
+        {tab === "calendar" && <InstructorCalendar basePath="/admin" />}
         {tab === "dashboard" && <Dashboard />}
         {tab === "analysis" && <AnalysisPage />}
         {tab === "users" && (
@@ -136,6 +140,7 @@ export default function AdminPage() {
                   <option value="student">대학생</option>
                   <option value="manager">관리자</option>
                   <option value="instructor">강사</option>
+                  <option value="leader">지도자</option>
                   <option value="admin">어드민</option>
                 </select>
               </div>

@@ -2,7 +2,7 @@ export interface User {
   id: string;
   login_id: string;
   name: string;
-  role: "student" | "manager" | "instructor" | "admin";
+  role: "student" | "manager" | "instructor" | "leader" | "admin";
   display_name: string;
 }
 

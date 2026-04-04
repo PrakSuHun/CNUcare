@@ -9,7 +9,7 @@ import AnalysisPage from "@/components/AnalysisPage";
 import InstructorCalendar from "@/components/InstructorCalendar";
 import MyLives from "@/components/MyLives";
 
-export default function ManagerPage() {
+export default function LeaderPage() {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
   const [editMode, setEditMode] = useState(false);
@@ -17,7 +17,7 @@ export default function ManagerPage() {
 
   useEffect(() => {
     const u = getUser();
-    if (!u || u.role !== "manager") {
+    if (!u || u.role !== "leader") {
       router.push("/");
       return;
     }
@@ -33,7 +33,7 @@ export default function ManagerPage() {
       <header className="bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between">
         <div>
           <h1 className="text-lg font-bold">CNUcare</h1>
-          <p className="text-xs text-gray-500">{user.display_name} (관리자)</p>
+          <p className="text-xs text-gray-500">{user.display_name} (지도자)</p>
         </div>
         <div className="flex items-center gap-2">
           {tab === "org" && (
@@ -71,9 +71,9 @@ export default function ManagerPage() {
       </div>
 
       <div className="p-4">
-        {tab === "org" && <OrgChart userRole="manager" userId={user.id} basePath="/manager" editMode={editMode} />}
-        {tab === "mylives" && <MyLives userId={user.id} basePath="/manager" />}
-        {tab === "calendar" && <InstructorCalendar basePath="/manager" />}
+        {tab === "org" && <OrgChart userRole="instructor" userId={user.id} basePath="/leader" editMode={editMode} />}
+        {tab === "mylives" && <MyLives userId={user.id} basePath="/leader" />}
+        {tab === "calendar" && <InstructorCalendar basePath="/leader" />}
         {tab === "dashboard" && <Dashboard />}
         {tab === "analysis" && <AnalysisPage />}
       </div>

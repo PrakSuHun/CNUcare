@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { getUser, User } from "@/lib/auth";
 import LessonProgress from "@/components/LessonProgress";
+import Appointments from "@/components/Appointments";
 
 interface Life {
   id: string;
@@ -39,9 +40,10 @@ interface LifeDetailProps {
   lifeId: string;
   basePath: string;
   backPath: string;
+  readOnly?: boolean;
 }
 
-export default function LifeDetail({ lifeId, basePath, backPath }: LifeDetailProps) {
+export default function LifeDetail({ lifeId, basePath, backPath, readOnly = false }: LifeDetailProps) {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
   const [life, setLife] = useState<Life | null>(null);
@@ -49,7 +51,7 @@ export default function LifeDetail({ lifeId, basePath, backPath }: LifeDetailPro
   const [loading, setLoading] = useState(true);
   const [editingInfo, setEditingInfo] = useState(false);
   const [editForm, setEditForm] = useState<Partial<Life>>({});
-  const [activeTab, setActiveTab] = useState<"info" | "lessons">("info");
+  const [activeTab, setActiveTab] = useState<"info" | "lessons" | "appointments">("info");
   const [showMenu, setShowMenu] = useState(false);
   const [showTrash, setShowTrash] = useState(false);
   const [deletedJournals, setDeletedJournals] = useState<Journal[]>([]);
@@ -174,7 +176,7 @@ export default function LifeDetail({ lifeId, basePath, backPath }: LifeDetailPro
             </p>
           </div>
         </div>
-        <div className="relative">
+        {!readOnly && <div className="relative">
           <button
             onClick={() => setShowMenu(!showMenu)}
             className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-gray-600 rounded-full hover:bg-gray-100"
@@ -209,7 +211,7 @@ export default function LifeDetail({ lifeId, basePath, backPath }: LifeDetailPro
               </div>
             </>
           )}
-        </div>
+        </div>}
       </header>
 
       {/* 탭 */}
@@ -221,6 +223,14 @@ export default function LifeDetail({ lifeId, basePath, backPath }: LifeDetailPro
           }`}
         >
           정보 · 일지
+        </button>
+        <button
+          onClick={() => setActiveTab("appointments")}
+          className={`flex-1 py-2.5 text-sm font-medium text-center border-b-2 transition-colors ${
+            activeTab === "appointments" ? "border-blue-600 text-blue-600" : "border-transparent text-gray-500"
+          }`}
+        >
+          약속
         </button>
         <button
           onClick={() => setActiveTab("lessons")}
@@ -239,39 +249,52 @@ export default function LifeDetail({ lifeId, basePath, backPath }: LifeDetailPro
         </div>
       )}
 
+      {/* 약속 탭 */}
+      {activeTab === "appointments" && (
+        <div className="p-4">
+          <Appointments lifeId={lifeId} readOnly={readOnly} />
+        </div>
+      )}
+
       {/* 정보 · 일지 탭 */}
       {activeTab === "info" && (
       <div className="p-4 space-y-4">
-        {!life.is_failed && (
+        {!life.is_failed && !readOnly && life.stage !== "completed" && (
           <div className="bg-white rounded-lg border border-gray-200 p-4">
-            <p className="text-sm font-medium text-gray-700 mb-2">단계 변경</p>
-            <div className="flex flex-wrap gap-2">
-              {STAGE_OPTIONS.map((opt) => (
-                <button
-                  key={opt.value}
-                  onClick={() => handleStageChange(opt.value)}
-                  className={`text-xs px-3 py-1.5 rounded-full border transition-colors ${
-                    life.stage === opt.value
-                      ? "bg-blue-600 text-white border-blue-600"
-                      : "bg-white text-gray-600 border-gray-300 hover:border-blue-400"
-                  }`}
-                >
-                  {opt.label}
-                </button>
-              ))}
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs text-gray-400">현재 단계</p>
+                <p className="text-sm font-medium">{STAGE_LABELS[life.stage] || life.stage}</p>
+              </div>
+              <button
+                onClick={() => {
+                  const dateInput = prompt("수료일을 입력해주세요 (예: 2026-04-15)");
+                  if (!dateInput) return;
+                  supabase.from("lives").update({ stage: "completed", completed_at: dateInput }).eq("id", lifeId).then(() => fetchData());
+                }}
+                className="text-xs px-4 py-2 rounded-full border border-green-400 text-green-600 hover:bg-green-50 transition-colors"
+              >
+                수료 처리
+              </button>
             </div>
+          </div>
+        )}
+        {life.stage === "completed" && (
+          <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+            <p className="text-sm font-medium text-green-700">수료 완료</p>
+            {(life as any).completed_at && <p className="text-xs text-green-500 mt-1">수료일: {(life as any).completed_at}</p>}
           </div>
         )}
 
         <div className="bg-white rounded-lg border border-gray-200 p-4">
           <div className="flex items-center justify-between mb-3">
             <p className="text-sm font-medium text-gray-700">기본 정보</p>
-            <button
+            {!readOnly && <button
               onClick={() => { if (editingInfo) handleSaveInfo(); else setEditingInfo(true); }}
               className="text-xs text-blue-500"
             >
               {editingInfo ? "저장" : "수정"}
-            </button>
+            </button>}
           </div>
           {editingInfo ? (
             <div className="space-y-3">
@@ -310,7 +333,7 @@ export default function LifeDetail({ lifeId, basePath, backPath }: LifeDetailPro
         <div className="bg-white rounded-lg border border-gray-200 p-4">
           <div className="flex items-center justify-between mb-3">
             <p className="text-sm font-medium text-gray-700">일지 ({journals.length})</p>
-            <button onClick={() => router.push(`${basePath}/life/${lifeId}/journal/new`)} className="text-xs text-blue-500">+ 일지 추가</button>
+            {!readOnly && <button onClick={() => router.push(`${basePath}/life/${lifeId}/journal/new`)} className="text-xs text-blue-500">+ 일지 추가</button>}
           </div>
           {journals.length === 0 ? (
             <p className="text-xs text-gray-400">작성된 일지가 없습니다.</p>
@@ -339,12 +362,12 @@ export default function LifeDetail({ lifeId, basePath, backPath }: LifeDetailPro
                           <p className="text-sm text-gray-800 mt-1 line-clamp-2">{j.response}</p>
                         )}
                       </button>
-                      <button
+                      {!readOnly && <button
                         onClick={() => handleDeleteJournal(j.id)}
                         className="text-xs text-gray-300 hover:text-red-400 ml-2 mt-1 shrink-0"
                       >
                         삭제
-                      </button>
+                      </button>}
                     </div>
                   </div>
                 );
