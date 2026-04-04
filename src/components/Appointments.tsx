@@ -56,6 +56,8 @@ export default function Appointments({ lifeId, readOnly = false }: AppointmentsP
     pre_visit_type: "",  // manager / self / other
     other_name: "",
     note: "",
+    shared_with: [] as string[],
+    share_input: "",
   });
   const [saving, setSaving] = useState(false);
 
@@ -97,6 +99,7 @@ export default function Appointments({ lifeId, readOnly = false }: AppointmentsP
     setForm({
       title: "", purpose: "", date: new Date().toISOString().split("T")[0],
       time: "", location: "", instructor_name: "", pre_visit_type: "", other_name: "", note: "",
+      shared_with: [], share_input: "",
     });
     setEditingId(null);
     setShowForm(false);
@@ -121,6 +124,8 @@ export default function Appointments({ lifeId, readOnly = false }: AppointmentsP
       pre_visit_type: preVisitType,
       other_name: preVisitType === "other" ? (a.instructor_name || "") : "",
       note: a.note || "",
+      shared_with: (a as any).shared_with || [],
+      share_input: "",
     });
     setEditingId(a.id);
     setShowForm(true);
@@ -153,6 +158,7 @@ export default function Appointments({ lifeId, readOnly = false }: AppointmentsP
       location: form.location || null,
       instructor_name: assignee,
       note: form.note || null,
+      shared_with: form.shared_with.length > 0 ? form.shared_with : [],
     };
 
     if (editingId) {
@@ -326,6 +332,36 @@ export default function Appointments({ lifeId, readOnly = false }: AppointmentsP
               className="w-full rounded-lg border border-gray-300 px-4 py-3 text-base focus:border-blue-500 focus:outline-none" />
             <textarea placeholder="메모 (선택)" value={form.note} onChange={(e) => setForm((f) => ({ ...f, note: e.target.value }))} rows={2}
               className="w-full rounded-lg border border-gray-300 px-4 py-3 text-base focus:border-blue-500 focus:outline-none resize-none" />
+
+            {/* 공유 대상 */}
+            <div>
+              <p className="text-xs text-gray-500 mb-1">공유 대상 (선택)</p>
+              <div className="flex gap-2">
+                <input type="text" placeholder="이름 입력" value={form.share_input}
+                  onChange={(e) => setForm((f) => ({ ...f, share_input: e.target.value }))}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && form.share_input.trim()) {
+                      e.preventDefault();
+                      setForm((f) => ({ ...f, shared_with: [...f.shared_with, f.share_input.trim()], share_input: "" }));
+                    }
+                  }}
+                  className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none" />
+                <button type="button" onClick={() => {
+                  if (form.share_input.trim()) setForm((f) => ({ ...f, shared_with: [...f.shared_with, f.share_input.trim()], share_input: "" }));
+                }} className="text-xs bg-gray-200 text-gray-600 px-3 rounded-lg">추가</button>
+              </div>
+              {form.shared_with.length > 0 && (
+                <div className="flex flex-wrap gap-1 mt-2">
+                  {form.shared_with.map((name, i) => (
+                    <span key={i} className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full flex items-center gap-1">
+                      {name}
+                      <button onClick={() => setForm((f) => ({ ...f, shared_with: f.shared_with.filter((_, idx) => idx !== i) }))}
+                        className="text-blue-400 hover:text-red-400">×</button>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
 
             <div className="flex gap-2">
               <button onClick={handleSave} disabled={!form.date || !form.purpose || saving}

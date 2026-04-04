@@ -63,6 +63,7 @@ export default function InstructorCalendar({ basePath }: { basePath: string }) {
   const [form, setForm] = useState({
     life_id: "", title: "", date: "", time: "", location: "", memo: "",
     instructor_name: "", pre_visit_type: "", other_name: "",
+    shared_with: [] as string[], share_input: "",
     group_id: "", new_group_name: "", group_mode: "" as "" | "new" | "existing",
     members: [] as string[],
     member_input: "",
@@ -89,21 +90,42 @@ export default function InstructorCalendar({ basePath }: { basePath: string }) {
       if (mgr) setManagerName(mgr.display_name);
     }
 
-    // 생명 약속: 내가 만든 것 + 내 이름으로 지정된 것
+    // 생명 약속 조회
+    const lifeIds = (ul || []).map((u: any) => u.life_id);
     let apptEvents: CalEvent[] = [];
-    const { data: appts } = await supabase
-      .from("appointments").select("*, life:lives(name)")
-      .or(`created_by.eq.${user.id},instructor_name.eq.${user.display_name}`)
-      .order("date");
-    apptEvents = (appts || []).map((a: any) => ({
+
+    // 대학생: 내 생명의 모든 약속 + 내가 만든 것 + 내 이름 지정 + 공유 대상
+    // 그 외: 내가 만든 것 + 내 이름 지정 + 공유 대상
+    let apptQuery = supabase.from("appointments").select("*, life:lives(name)");
+
+    if (user.role === "student" && lifeIds.length > 0) {
+      apptQuery = apptQuery.or(
+        `created_by.eq.${user.id},instructor_name.eq.${user.display_name},life_id.in.(${lifeIds.join(",")}),shared_with.cs.{${user.display_name}}`
+      );
+    } else {
+      apptQuery = apptQuery.or(
+        `created_by.eq.${user.id},instructor_name.eq.${user.display_name},shared_with.cs.{${user.display_name}}`
+      );
+    }
+
+    const { data: appts } = await apptQuery.order("date");
+    // 중복 제거
+    const seenIds = new Set<string>();
+    apptEvents = (appts || []).filter((a: any) => {
+      if (seenIds.has(a.id)) return false;
+      seenIds.add(a.id);
+      return true;
+    }).map((a: any) => ({
       id: a.id, type: "appointment" as const, title: a.title,
       date: a.date, time: a.time, location: a.location,
       purpose: a.purpose, life_name: a.life?.name, life_id: a.life_id, memo: a.note,
     }));
 
-    // 개인일정
+    // 개인일정 (내꺼 + 나에게 공유된 것)
     const { data: personal } = await supabase
-      .from("personal_events").select("*").eq("user_id", user.id).order("date");
+      .from("personal_events").select("*")
+      .or(`user_id.eq.${user.id},shared_with.cs.{${user.display_name}}`)
+      .order("date");
     const personalEvents: CalEvent[] = (personal || []).map((p: any) => ({
       id: p.id, type: "personal" as const, title: p.title,
       date: p.date, time: p.time, location: p.location, memo: p.memo,
@@ -139,6 +161,7 @@ export default function InstructorCalendar({ basePath }: { basePath: string }) {
   const resetForm = () => {
     setForm({ life_id: "", title: "", date: selectedDate, time: "", location: "", memo: "",
       instructor_name: "", pre_visit_type: "", other_name: "",
+      shared_with: [], share_input: "",
       group_id: "", new_group_name: "", group_mode: "", members: [], member_input: "" });
     setFormType("");
     setShowForm(false);
@@ -153,6 +176,7 @@ export default function InstructorCalendar({ basePath }: { basePath: string }) {
       await supabase.from("personal_events").insert({
         user_id: user.id, title: form.title || "개인일정",
         date: form.date, time: form.time || null, location: form.location || null, memo: form.memo || null,
+        shared_with: form.shared_with.length > 0 ? form.shared_with : [],
       });
     } else if (formType === "group") {
       let groupId = form.group_id;
@@ -195,6 +219,7 @@ export default function InstructorCalendar({ basePath }: { basePath: string }) {
         life_id: form.life_id, title: form.title || PURPOSE_LABELS[formType] || formType,
         purpose: formType, date: form.date, time: form.time || null,
         location: form.location || null, instructor_name: assignee, note: form.memo || null, created_by: user.id,
+        shared_with: form.shared_with.length > 0 ? form.shared_with : [],
       });
     }
 
@@ -496,6 +521,35 @@ export default function InstructorCalendar({ basePath }: { basePath: string }) {
                 className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none" />
               <textarea placeholder="메모" value={form.memo} onChange={(e) => setForm((f) => ({ ...f, memo: e.target.value }))}
                 rows={2} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none resize-none" />
+              {/* 공유 대상 (행사 제외) */}
+              {formType !== "group" && (
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">공유 대상 (선택)</p>
+                  <div className="flex gap-2">
+                    <input type="text" placeholder="이름 입력" value={form.share_input}
+                      onChange={(e) => setForm((f) => ({ ...f, share_input: e.target.value }))}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && form.share_input.trim()) {
+                          e.preventDefault();
+                          setForm((f) => ({ ...f, shared_with: [...f.shared_with, f.share_input.trim()], share_input: "" }));
+                        }
+                      }}
+                      className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-xs focus:border-blue-500 focus:outline-none" />
+                    <button type="button" onClick={() => {
+                      if (form.share_input.trim()) setForm((f) => ({ ...f, shared_with: [...f.shared_with, f.share_input.trim()], share_input: "" }));
+                    }} className="text-xs bg-gray-200 text-gray-600 px-3 rounded-lg">추가</button>
+                  </div>
+                  {form.shared_with.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      {form.shared_with.map((n, i) => (
+                        <span key={i} className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full flex items-center gap-1">
+                          {n} <button onClick={() => setForm((f) => ({ ...f, shared_with: f.shared_with.filter((_, idx) => idx !== i) }))} className="text-blue-400 hover:text-red-400">×</button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
               <button onClick={handleSave} disabled={!formType || saving}
                 className="w-full rounded-lg bg-blue-600 py-2.5 text-sm font-semibold text-white disabled:opacity-50">
                 {saving ? "저장 중..." : "일정 추가"}
