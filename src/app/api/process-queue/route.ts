@@ -147,9 +147,18 @@ export async function GET(req: NextRequest) {
             || journal.response === "(텍스트 변환 중입니다)";
 
           if (isEmpty) {
-            const updateData: any = { response: result.생명반응 };
+            const updateData: any = { response: result.생명반응, audio_url: null };
             if (result.만남장소) updateData.location = result.만남장소;
             await sb.from("journals").update(updateData).eq("id", journal.id);
+
+            // 녹음 파일 삭제 (Storage 용량 확보)
+            try {
+              const url = new URL(task.audio_url);
+              const pathMatch = url.pathname.match(/\/storage\/v1\/object\/public\/recordings\/(.+)/);
+              if (pathMatch) {
+                await sb.storage.from("recordings").remove([decodeURIComponent(pathMatch[1])]);
+              }
+            } catch {}
           }
         }
       }
