@@ -91,6 +91,65 @@ export default function StudentPage() {
     fetchLives(user.id);
   };
 
+  // 지난 약속 중 일지 미작성 알림
+  const [pastApptAlerts, setPastApptAlerts] = useState<{ apptId: string; lifeId: string; lifeName: string; date: string }[]>([]);
+
+  useEffect(() => {
+    if (!user || lives.length === 0) return;
+    const fetchPastAppts = async () => {
+      const lifeIds = lives.map((l) => l.id);
+      const now = new Date();
+      const today = now.toISOString().split("T")[0];
+      const currentTime = now.toTimeString().slice(0, 5);
+
+      const { data: appts } = await supabase
+        .from("appointments")
+        .select("id, life_id, date, time")
+        .in("life_id", lifeIds)
+        .order("date", { ascending: false });
+
+      if (!appts) return;
+
+      // 지난 약속 필터 (날짜 지났거나, 오늘인데 시간 지남)
+      const pastAppts = appts.filter((a) => {
+        if (a.date < today) return true;
+        if (a.date === today && a.time && a.time <= currentTime) return true;
+        if (a.date === today && !a.time) return true;
+        return false;
+      });
+
+      // 각 약속에 대해 해당 날짜 이후 일지가 있는지 확인
+      const { data: journals } = await supabase
+        .from("journals")
+        .select("life_id, met_date")
+        .in("life_id", lifeIds)
+        .is("deleted_at", null);
+
+      const alerts: typeof pastApptAlerts = [];
+      for (const appt of pastAppts) {
+        const hasJournalAfter = (journals || []).some(
+          (j) => j.life_id === appt.life_id && j.met_date >= appt.date
+        );
+        if (!hasJournalAfter) {
+          const life = lives.find((l) => l.id === appt.life_id);
+          if (life && !life.is_failed) {
+            // 같은 생명에 대해 이미 알림이 있으면 가장 최근 약속만
+            if (!alerts.some((a) => a.lifeId === appt.life_id)) {
+              alerts.push({ apptId: appt.id, lifeId: appt.life_id, lifeName: life.name, date: appt.date });
+            }
+          }
+        }
+      }
+      setPastApptAlerts(alerts);
+    };
+    fetchPastAppts();
+  }, [user, lives]);
+
+  const dismissApptAlert = async (apptId: string) => {
+    await supabase.from("appointments").delete().eq("id", apptId);
+    setPastApptAlerts((prev) => prev.filter((a) => a.apptId !== apptId));
+  };
+
   const activeLives = lives.filter((l) => !l.is_failed);
   const failedLives = lives.filter((l) => l.is_failed);
 
@@ -137,6 +196,29 @@ export default function StudentPage() {
 
       {tab === "lives" && (
       <div className="p-4 space-y-3">
+        {/* 지난 약속 알림 */}
+        {pastApptAlerts.map((alert) => (
+          <div key={alert.apptId} className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+            <p className="text-sm text-blue-800 font-medium">
+              {new Date(alert.date).toLocaleDateString("ko-KR", { month: "numeric", day: "numeric" })} {alert.lifeName}과 잘 만나셨나요?
+            </p>
+            <div className="flex gap-2 mt-2">
+              <button
+                onClick={() => router.push(`/student/life/${alert.lifeId}/journal/new`)}
+                className="flex-1 bg-blue-600 text-white rounded-lg py-2 text-sm font-medium"
+              >
+                일지 쓰기
+              </button>
+              <button
+                onClick={() => dismissApptAlert(alert.apptId)}
+                className="flex-1 bg-white text-gray-500 border border-gray-300 rounded-lg py-2 text-sm"
+              >
+                만나지 못했어요
+              </button>
+            </div>
+          </div>
+        ))}
+
         <button
           onClick={() => router.push("/student/life/new")}
           className="w-full rounded-lg border-2 border-dashed border-gray-300 py-4 text-center text-gray-500 hover:border-blue-400 hover:text-blue-500 transition-colors"

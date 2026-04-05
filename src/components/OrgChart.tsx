@@ -135,7 +135,7 @@ export default function OrgChart({ userRole, userId, basePath, editMode: externa
     const allLifeIds = [...firstOwner.keys()];
     const safeIds = allLifeIds.length > 0 ? allLifeIds : ["_"];
     const [{ data: appointments }, { data: latestJournals }] = await Promise.all([
-      supabase.from("appointments").select("life_id, date").in("life_id", safeIds).order("date", { ascending: false }),
+      supabase.from("appointments").select("life_id, date, time").in("life_id", safeIds).order("date", { ascending: false }),
       supabase.from("journals").select("life_id, met_date").in("life_id", safeIds).is("deleted_at", null).order("met_date", { ascending: false }),
     ]);
 
@@ -156,19 +156,31 @@ export default function OrgChart({ userRole, userId, basePath, editMode: externa
     });
 
     const today = new Date().toISOString().split("T")[0];
+    // 4일 전 날짜 계산
+    const fourDaysBefore = new Date(Date.now() - 4 * 86400000).toISOString().split("T")[0];
 
-    // 생명별 날짜 라벨 계산
+    // 생명별 "예정" 표시 여부 계산
+    // 규칙: 약속일 4일 전~당일까지만 "예정" 표시, 단 약속일 이후 일지가 있으면 해제
     const lifeDateInfo = new Map<string, { label: string; upcoming: boolean }>();
     allLifeIds.forEach((lifeId) => {
       const lifeAppts = (appointments || []).filter((a: any) => a.life_id === lifeId);
-      const futureAppt = lifeAppts.filter((a: any) => a.date >= today).sort((a: any, b: any) => a.date.localeCompare(b.date))[0];
-      const pastAppt = lifeAppts.filter((a: any) => a.date < today).sort((a: any, b: any) => b.date.localeCompare(a.date))[0];
+      const lastJournal = lifeLastJournal.get(lifeId);
 
-      if (futureAppt) {
-        lifeDateInfo.set(lifeId, { label: futureAppt.date, upcoming: true });
-      } else if (pastAppt) {
-        lifeDateInfo.set(lifeId, { label: pastAppt.date, upcoming: false });
+      // 가장 가까운 미래 약속 (오늘 포함)
+      const nextAppt = lifeAppts
+        .filter((a: any) => a.date >= today)
+        .sort((a: any, b: any) => a.date.localeCompare(b.date))[0];
+
+      if (nextAppt && nextAppt.date >= fourDaysBefore) {
+        // 약속이 4일 이내에 있음
+        // 약속 당일 이후 일지가 있으면 → 예정 해제 (일지 날짜로 표시)
+        if (lastJournal && lastJournal >= nextAppt.date) {
+          // 일지가 약속 당일 이후에 작성됨 → 예정 아님
+        } else {
+          lifeDateInfo.set(lifeId, { label: nextAppt.date, upcoming: true });
+        }
       }
+      // 약속 4일 이상 남았거나 없으면 → lifeDateInfo에 안 넣음 → 아래에서 일지 날짜 사용
     });
 
     const livesMap = new Map<string, LifeItem[]>();
