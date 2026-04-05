@@ -17,6 +17,7 @@ interface LessonCheck {
   id: string;
   lesson_id: string;
   is_passed: boolean;
+  note: string | null;
 }
 
 interface JournalInfo {
@@ -56,7 +57,7 @@ export default function LessonProgress({ lifeId }: LessonProgressProps) {
   const fetchData = async () => {
     const [lessonRes, checkRes, journalRes] = await Promise.all([
       supabase.from("lessons").select("*").order("sort_order"),
-      supabase.from("lesson_checks").select("id, lesson_id, is_passed").eq("life_id", lifeId),
+      supabase.from("lesson_checks").select("id, lesson_id, is_passed, note").eq("life_id", lifeId),
       supabase.from("journals")
         .select("lesson_id, met_date, instructor_name, response")
         .eq("life_id", lifeId)
@@ -201,10 +202,10 @@ export default function LessonProgress({ lifeId }: LessonProgressProps) {
                           <span className="bg-blue-50 text-blue-600 px-2 py-0.5 rounded">강사: {journal.instructor_name}</span>
                         )}
                       </div>
-                      {journal.response && (
+                      {(check?.note || journal.response) && (
                         <div className="mt-2">
-                          <p className="text-[10px] text-gray-400 mb-1">생명 반응</p>
-                          <p className="text-sm text-gray-700 whitespace-pre-wrap">{journal.response}</p>
+                          <p className="text-[10px] text-gray-400 mb-1">{check?.note ? "요약" : "생명 반응"}</p>
+                          <p className="text-sm text-gray-700 whitespace-pre-wrap">{check?.note || journal.response}</p>
                         </div>
                       )}
                     </div>

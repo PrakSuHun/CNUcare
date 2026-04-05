@@ -345,6 +345,21 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
         }
       }
 
+      // 강의 일지 요약 → lesson_checks.note에 저장 (비동기)
+      if (form.purpose === "lecture" && form.lesson_id && form.lesson_id !== "general" && form.response?.trim()) {
+        fetch("/api/summarize", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: form.response }),
+        }).then(async (res) => {
+          const { summary } = await res.json();
+          if (summary) {
+            await supabase.from("lesson_checks").update({ note: summary })
+              .eq("life_id", lifeId).eq("lesson_id", form.lesson_id);
+          }
+        }).catch(() => {});
+      }
+
       // 단계 자동 변경
       if (form.purpose === "pre_visit") {
         await autoUpdateStage(lifeId, "pre_visit");
