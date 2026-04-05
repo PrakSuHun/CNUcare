@@ -9,12 +9,13 @@ import AnalysisPage from "@/components/AnalysisPage";
 import InstructorCalendar from "@/components/InstructorCalendar";
 import MyLives from "@/components/MyLives";
 import AdminViewBanner from "@/components/AdminViewBanner";
+import EventList from "@/components/EventList";
 
 export default function ManagerPage() {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
   const [editMode, setEditMode] = useState(false);
-  const [tab, setTab] = useState<"org" | "mylives" | "calendar" | "dashboard" | "analysis">("org");
+  const [tab, setTab] = useState<"org" | "mylives" | "calendar" | "dashboard" | "analysis" | "events">("org");
 
   useEffect(() => {
     const u = getUser();
@@ -60,6 +61,7 @@ export default function ManagerPage() {
           { key: "calendar", label: "캘린더" },
           { key: "dashboard", label: "현황" },
           { key: "analysis", label: "AI 분석" },
+          { key: "events", label: "행사" },
         ].map((t) => (
           <button
             key={t.key}
@@ -79,6 +81,7 @@ export default function ManagerPage() {
         {tab === "calendar" && <InstructorCalendar basePath="/manager" />}
         {tab === "dashboard" && <Dashboard />}
         {tab === "analysis" && <AnalysisPage />}
+        {tab === "events" && <EventList basePath="/manager" />}
       </div>
     </div>
   );

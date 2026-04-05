@@ -7,6 +7,7 @@ import { getUser, logout, User } from "@/lib/auth";
 import { STAGE_LABELS, STAGE_COLORS } from "@/lib/stages";
 import InstructorCalendar from "@/components/InstructorCalendar";
 import AdminViewBanner from "@/components/AdminViewBanner";
+import EventList from "@/components/EventList";
 
 interface Life {
   id: string;
@@ -22,7 +23,7 @@ export default function StudentPage() {
   const [lives, setLives] = useState<Life[]>([]);
   const [loading, setLoading] = useState(true);
   const [menuLifeId, setMenuLifeId] = useState<string | null>(null);
-  const [tab, setTab] = useState<"lives" | "calendar">("lives");
+  const [tab, setTab] = useState<"lives" | "calendar" | "events">("lives");
 
   useEffect(() => {
     const u = getUser();
@@ -189,9 +190,19 @@ export default function StudentPage() {
           className={`flex-1 py-2.5 text-sm font-medium text-center border-b-2 transition-colors ${tab === "calendar" ? "border-blue-600 text-blue-600" : "border-transparent text-gray-500"}`}>
           캘린더
         </button>
+        <button onClick={() => setTab("events")}
+          className={`flex-1 py-2.5 text-sm font-medium text-center border-b-2 transition-colors ${tab === "events" ? "border-blue-600 text-blue-600" : "border-transparent text-gray-500"}`}>
+          행사
+        </button>
       </div>
 
       <div className="flex-1 overflow-y-auto">
+      {tab === "events" && (
+        <div className="p-4">
+          <EventList basePath="/student" />
+        </div>
+      )}
+
       {tab === "calendar" && (
         <div className="p-4">
           <InstructorCalendar basePath="/student" />
