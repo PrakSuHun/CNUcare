@@ -31,6 +31,8 @@ interface Journal {
   response: string;
   author_id: string;
   created_at: string;
+  purpose?: string;
+  instructor_name?: string;
   author?: { display_name: string };
 }
 
@@ -362,7 +364,11 @@ export default function LifeDetail({ lifeId, basePath, backPath, readOnly = fals
                             <span className="text-[10px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded-full animate-pulse">변환 중</span>
                           )}
                         </div>
-                        <p className="text-xs text-gray-500 mt-0.5">{j.location}</p>
+                        {j.purpose && (
+                          <p className="text-xs text-gray-500 mt-0.5">
+                            {j.purpose === "first_meeting" ? "1차 만남" : j.purpose === "pre_visit" ? "전초" : j.purpose === "management" ? "관리" : j.purpose === "lecture" ? `강의${j.instructor_name ? `(${j.instructor_name})` : ""}` : j.purpose}
+                          </p>
+                        )}
                         {isConverting ? (
                           <p className="text-sm text-blue-500 mt-1 italic">텍스트 변환 중입니다...</p>
                         ) : (
