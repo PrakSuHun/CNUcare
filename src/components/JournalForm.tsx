@@ -449,7 +449,7 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">날짜</label>
-            <input type="date" value={form.met_date} onChange={(e) => setForm((f) => ({ ...f, met_date: e.target.value }))} required className="w-full rounded-lg border border-gray-300 px-4 py-3 text-base focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
+            <input type="date" value={form.met_date} onChange={(e) => setForm((f) => ({ ...f, met_date: e.target.value }))} required className="w-full rounded-lg border border-gray-300 px-4 py-3 text-base focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 appearance-none max-w-full box-border" />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">만남 장소</label>
