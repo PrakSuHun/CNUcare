@@ -96,6 +96,8 @@ export default function AdminPage() {
   const deleteUser = async (u: UserRow) => {
     if (!confirm(`"${u.display_name}" 계정을 삭제하시겠습니까?\n연결된 생명·일지는 유지됩니다.`)) return;
     await supabase.from("user_lives").delete().eq("user_id", u.id);
+    await supabase.from("reports").delete().eq("created_by", u.id);
+    await supabase.from("appointments").delete().eq("created_by", u.id);
     await supabase.from("users").delete().eq("id", u.id);
     fetchUsers();
   };
