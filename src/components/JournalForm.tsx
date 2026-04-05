@@ -502,11 +502,10 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
             </div>
           )}
 
-          {/* 녹음 저장 완료 (수정 모드에서) */}
+          {/* 녹음 저장 완료 */}
           {audioUrl && (
             <div className="bg-green-50 border border-green-200 rounded-lg p-3">
-              <span className="text-green-700 text-sm font-medium">녹음 저장됨</span>
-              <audio src={audioUrl} controls className="w-full h-8 mt-2" />
+              <span className="text-green-700 text-sm font-medium">녹음 저장됨 (텍스트 변환 후 자동 삭제됩니다)</span>
             </div>
           )}
 
