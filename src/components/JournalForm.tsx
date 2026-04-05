@@ -140,14 +140,14 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
       location: form.location,
       response: "(텍스트 변환 중입니다)",
       purpose: form.purpose || null,
-      lesson_id: form.lesson_id || null,
+      lesson_id: form.lesson_id && form.lesson_id !== "general" ? form.lesson_id : null,
       instructor_name: form.instructor_name || null,
       audio_url: url,
     }).select("id").single();
 
     await supabase.from("lives").update({ last_met_at: form.met_date }).eq("id", lifeId);
 
-    if (form.purpose === "lecture" && form.lesson_id) {
+    if (form.purpose === "lecture" && form.lesson_id && form.lesson_id !== "general") {
       await supabase.from("lesson_checks").upsert({
         life_id: lifeId,
         lesson_id: form.lesson_id,
@@ -287,7 +287,7 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
       location: form.location,
       response: form.response,
       purpose: form.purpose || null,
-      lesson_id: form.lesson_id || null,
+      lesson_id: form.lesson_id && form.lesson_id !== "general" ? form.lesson_id : null,
       instructor_name: form.instructor_name || null,
       audio_url: audioUrl,
     };
@@ -296,7 +296,7 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
       await supabase.from("journals").update(journalData).eq("id", journalId);
 
       // 수정 시에도 강의 진도표 연동
-      if (form.purpose === "lecture" && form.lesson_id) {
+      if (form.purpose === "lecture" && form.lesson_id && form.lesson_id !== "general") {
         const { data: existing } = await supabase
           .from("lesson_checks")
           .select("id")
@@ -328,7 +328,7 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
       });
       await supabase.from("lives").update({ last_met_at: form.met_date }).eq("id", lifeId);
 
-      if (form.purpose === "lecture" && form.lesson_id) {
+      if (form.purpose === "lecture" && form.lesson_id && form.lesson_id !== "general") {
         // 강의 진도표 체크 (없으면 추가, 있으면 유지)
         const { data: existing } = await supabase
           .from("lesson_checks")
@@ -428,6 +428,7 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
                   className="w-full rounded-lg border border-gray-300 px-4 py-3 text-base focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                 >
                   <option value="">강의를 선택하세요</option>
+                  <option value="general">0. 일반 말씀 (30개론 외)</option>
                   {lectureOnlyLessons.map((l) => (
                     <option key={l.id} value={l.id}>{l.number}. {l.name}</option>
                   ))}
