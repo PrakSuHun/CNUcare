@@ -131,13 +131,13 @@ export default function OrgChart({ userRole, userId, basePath, editMode: externa
       });
     }
 
-    // 약속 데이터 조회 (각 생명의 최근/다음 약속)
+    // 약속 + 일지 날짜 조회 (병렬)
     const allLifeIds = [...firstOwner.keys()];
-    const { data: appointments } = await supabase
-      .from("appointments")
-      .select("life_id, date")
-      .in("life_id", allLifeIds.length > 0 ? allLifeIds : ["_"])
-      .order("date", { ascending: false });
+    const safeIds = allLifeIds.length > 0 ? allLifeIds : ["_"];
+    const [{ data: appointments }, { data: latestJournals }] = await Promise.all([
+      supabase.from("appointments").select("life_id, date").in("life_id", safeIds).order("date", { ascending: false }),
+      supabase.from("journals").select("life_id, met_date").in("life_id", safeIds).is("deleted_at", null).order("met_date", { ascending: false }),
+    ]);
 
     // 생명별 등록일 (user_lives의 created_at)
     const lifeCreatedAt = new Map<string, string>();
@@ -147,15 +147,21 @@ export default function OrgChart({ userRole, userId, basePath, editMode: externa
       }
     });
 
+    // 생명별 최신 일지 날짜
+    const lifeLastJournal = new Map<string, string>();
+    (latestJournals || []).forEach((j: any) => {
+      if (!lifeLastJournal.has(j.life_id)) {
+        lifeLastJournal.set(j.life_id, j.met_date);
+      }
+    });
+
     const today = new Date().toISOString().split("T")[0];
 
     // 생명별 날짜 라벨 계산
     const lifeDateInfo = new Map<string, { label: string; upcoming: boolean }>();
     allLifeIds.forEach((lifeId) => {
       const lifeAppts = (appointments || []).filter((a: any) => a.life_id === lifeId);
-      // 미래 약속 (오늘 포함)
       const futureAppt = lifeAppts.filter((a: any) => a.date >= today).sort((a: any, b: any) => a.date.localeCompare(b.date))[0];
-      // 과거 약속 (가장 최근)
       const pastAppt = lifeAppts.filter((a: any) => a.date < today).sort((a: any, b: any) => b.date.localeCompare(a.date))[0];
 
       if (futureAppt) {
@@ -163,7 +169,6 @@ export default function OrgChart({ userRole, userId, basePath, editMode: externa
       } else if (pastAppt) {
         lifeDateInfo.set(lifeId, { label: pastAppt.date, upcoming: false });
       }
-      // 약속 없으면 아래에서 last_met_at 또는 등록일 사용
     });
 
     const livesMap = new Map<string, LifeItem[]>();
@@ -172,17 +177,17 @@ export default function OrgChart({ userRole, userId, basePath, editMode: externa
       if (firstOwner.get(ul.life_id) !== ul.user_id) return;
       const list = livesMap.get(ul.user_id) || [];
 
-      // 날짜 라벨 결정: 약속 > 마지막 만남일 > 등록일
+      // 날짜 라벨 결정: 약속 > 일지 최신 met_date > 등록일
       const apptInfo = lifeDateInfo.get(ul.life_id);
       let dateLabel = "";
       let dateIsUpcoming = false;
       if (apptInfo) {
         dateLabel = apptInfo.label;
         dateIsUpcoming = apptInfo.upcoming;
-      } else if (ul.lives.last_met_at) {
-        dateLabel = ul.lives.last_met_at;
+      } else if (lifeLastJournal.has(ul.life_id)) {
+        dateLabel = lifeLastJournal.get(ul.life_id)!;
       } else {
-        dateLabel = lifeCreatedAt.get(ul.life_id) || "";
+        dateLabel = (lifeCreatedAt.get(ul.life_id) || "").split("T")[0];
       }
 
       const life = {
