@@ -284,12 +284,15 @@ export default function OrgChart({ userRole, userId, basePath, editMode: externa
     fetchOrgData();
   };
 
-  // 선택된 생명 일괄 이동
+  // 선택된 생명 일괄 이동 (기존 연결 유지 + 새 연결 추가)
   const moveSelectedToStudent = async (toStudentId: string) => {
     for (const lifeId of selectedLives) {
-      // 기존 evangelist 연결 삭제
-      await supabase.from("user_lives").delete().eq("life_id", lifeId).eq("role_in_life", "evangelist");
-      // 새 연결
+      // 기존 evangelist의 created_at을 현재로 업데이트
+      await supabase.from("user_lives")
+        .update({ created_at: new Date().toISOString() })
+        .eq("life_id", lifeId)
+        .eq("role_in_life", "evangelist");
+      // 새 연결 추가
       await supabase.from("user_lives").upsert({
         user_id: toStudentId,
         life_id: lifeId,
@@ -310,26 +313,44 @@ export default function OrgChart({ userRole, userId, basePath, editMode: externa
     fetchOrgData();
   };
 
-  // 생명을 다른 대학생으로 이동
-  const moveLifeToStudent = async (lifeId: string, fromStudentId: string, toStudentId: string) => {
-    // 기존 연결 삭제
-    await supabase.from("user_lives").delete().eq("life_id", lifeId).eq("user_id", fromStudentId);
-    // 새 연결 생성
+  // 생명을 다른 사용자(대학생/관리자)로 이동
+  // 기존 연결은 유지하고, 새 연결을 추가 + 조직도 표시를 새 사람 밑으로 변경
+  const moveLifeToStudent = async (lifeId: string, fromStudentId: string, toUserId: string) => {
+    // 1. 새 연결 추가 (이미 있으면 무시)
     await supabase.from("user_lives").upsert({
-      user_id: toStudentId,
+      user_id: toUserId,
       life_id: lifeId,
       role_in_life: "evangelist",
-    });
+    }, { onConflict: "user_id,life_id" });
+
+    // 2. 기존 연결의 created_at을 현재로 업데이트하여 firstOwner가 새 사람이 되도록
+    //    (firstOwner = created_at이 가장 오래된 사람)
+    await supabase.from("user_lives")
+      .update({ created_at: new Date().toISOString() })
+      .eq("life_id", lifeId)
+      .eq("user_id", fromStudentId);
+
     setMovingLife(null);
     fetchOrgData();
   };
 
-  // 이동 대상 대학생 목록 (현재 보이는 트리 기반, _direct 제외)
-  const allStudents = visibleTree.flatMap((m) =>
-    m.students
-      .filter((s) => !s.id.endsWith("_direct"))
-      .map((s) => ({ ...s, managerName: m.display_name }))
-  );
+  // 이동 대상 목록: 관리자 + 대학생
+  const allMoveTargets = [
+    // 관리자
+    ...visibleTree.map((m) => ({
+      id: m.id,
+      display_name: m.display_name,
+      lives: [] as LifeItem[],
+      managerName: "관리자",
+      isManager: true,
+    })),
+    // 대학생
+    ...visibleTree.flatMap((m) =>
+      m.students
+        .filter((s) => !s.id.endsWith("_direct"))
+        .map((s) => ({ ...s, managerName: m.display_name, isManager: false }))
+    ),
+  ];
 
   const filterLife = (life: LifeItem) => {
     if (stageFilter && life.stage !== stageFilter) return false;
@@ -513,16 +534,18 @@ export default function OrgChart({ userRole, userId, basePath, editMode: externa
       {movingSelectedTo && (
         <div className="fixed inset-0 bg-black/50 flex items-end justify-center z-50" onClick={() => setMovingSelectedTo(false)}>
           <div className="bg-white w-full max-w-lg rounded-t-2xl p-4 space-y-3" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-sm font-bold">{selectedLives.size}명을 이동할 대학생 선택</h3>
+            <h3 className="text-sm font-bold">{selectedLives.size}명을 이동할 대상 선택</h3>
             <div className="space-y-2 max-h-60 overflow-y-auto">
-              {allStudents.map((s) => (
+              {allMoveTargets.map((s) => (
                 <button
                   key={s.id}
                   onClick={() => moveSelectedToStudent(s.id)}
                   className="w-full text-left rounded-lg border border-gray-200 px-4 py-3 hover:bg-blue-50 hover:border-blue-300 transition-colors"
                 >
                   <span className="text-sm font-medium">{s.display_name}</span>
-                  <span className="text-xs text-gray-400 ml-2">{s.managerName} 소속</span>
+                  <span className={`text-xs ml-2 ${s.isManager ? "text-yellow-600" : "text-gray-400"}`}>
+                    {s.isManager ? "관리자" : s.managerName + " 소속"}
+                  </span>
                 </button>
               ))}
             </div>
@@ -559,16 +582,18 @@ export default function OrgChart({ userRole, userId, basePath, editMode: externa
         <div className="fixed inset-0 bg-black/50 flex items-end justify-center z-50" onClick={() => setMovingLife(null)}>
           <div className="bg-white w-full max-w-lg rounded-t-2xl p-4 space-y-3" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-sm font-bold">생명 이동: {movingLife.name}</h3>
-            <p className="text-xs text-gray-500">어느 대학생에게 이동할까요?</p>
+            <p className="text-xs text-gray-500">누구에게 이동할까요?</p>
             <div className="space-y-2 max-h-60 overflow-y-auto">
-              {allStudents.filter((s) => s.id !== movingLife.fromStudentId).map((s) => (
+              {allMoveTargets.filter((s) => s.id !== movingLife.fromStudentId).map((s) => (
                 <button
                   key={s.id}
                   onClick={() => moveLifeToStudent(movingLife.id, movingLife.fromStudentId, s.id)}
                   className="w-full text-left rounded-lg border border-gray-200 px-4 py-3 hover:bg-blue-50 hover:border-blue-300 transition-colors"
                 >
                   <span className="text-sm font-medium">{s.display_name}</span>
-                  <span className="text-xs text-gray-400 ml-2">{s.managerName} 소속</span>
+                  <span className={`text-xs ml-2 ${s.isManager ? "text-yellow-600" : "text-gray-400"}`}>
+                    {s.isManager ? "관리자" : s.managerName + " 소속"}
+                  </span>
                 </button>
               ))}
             </div>
