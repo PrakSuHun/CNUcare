@@ -8,6 +8,7 @@ import Dashboard from "@/components/Dashboard";
 import AnalysisPage from "@/components/AnalysisPage";
 import InstructorCalendar from "@/components/InstructorCalendar";
 import MyLives from "@/components/MyLives";
+import AdminViewBanner from "@/components/AdminViewBanner";
 
 export default function LeaderPage() {
   const router = useRouter();
@@ -17,7 +18,8 @@ export default function LeaderPage() {
 
   useEffect(() => {
     const u = getUser();
-    if (!u || u.role !== "leader") {
+    const isAdminView = !!localStorage.getItem("admin_backup");
+    if (!u || (!isAdminView && u.role !== "leader")) {
       router.push("/");
       return;
     }
@@ -30,6 +32,7 @@ export default function LeaderPage() {
 
   return (
     <div className="h-full flex flex-col bg-gray-50">
+      <AdminViewBanner />
       <header className="bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between">
         <div>
           <h1 className="text-lg font-bold">CNUcare</h1>

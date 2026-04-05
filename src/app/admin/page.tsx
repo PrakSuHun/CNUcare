@@ -162,14 +162,23 @@ export default function AdminPage() {
         {tab === "users" && (
           <div className="space-y-2">
             <p className="text-xs text-gray-500 mb-2">전체 {users.length}명</p>
-            {users.map((u) => (
+            {users.map((u) => {
+              const roleRoute: Record<string, string> = { admin: "/admin", leader: "/leader", instructor: "/instructor", manager: "/manager", student: "/student" };
+              const viewPath = roleRoute[u.role] || "/student";
+              return (
               <div key={u.id} className="bg-white rounded-lg border border-gray-200 p-3">
                 <div className="flex items-center justify-between">
-                  <button onClick={() => openEdit(u)} className="text-left flex-1 min-w-0">
+                  <button onClick={() => {
+                    // 해당 사용자로 임시 전환하여 페이지 확인
+                    localStorage.setItem("admin_backup", localStorage.getItem("user") || "");
+                    localStorage.setItem("user", JSON.stringify({ id: u.id, login_id: u.login_id, name: u.name, role: u.role, display_name: u.display_name }));
+                    router.push(viewPath);
+                  }} className="text-left flex-1 min-w-0">
                     <p className="text-sm font-medium truncate">{u.display_name}</p>
                     <p className="text-xs text-gray-400">@{u.login_id} · {u.phone || "전화없음"}</p>
                   </button>
                   <div className="flex items-center gap-2 shrink-0">
+                    <button onClick={() => openEdit(u)} className="text-xs text-gray-400 border border-gray-200 rounded-full px-2 py-1 hover:bg-gray-50">수정</button>
                     <select
                       value={u.role}
                       onChange={(e) => changeRole(u.id, e.target.value)}
@@ -185,7 +194,8 @@ export default function AdminPage() {
                   </div>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
 

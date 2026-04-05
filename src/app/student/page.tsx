@@ -6,6 +6,7 @@ import { supabase } from "@/lib/supabase";
 import { getUser, logout, User } from "@/lib/auth";
 import { STAGE_LABELS, STAGE_COLORS } from "@/lib/stages";
 import InstructorCalendar from "@/components/InstructorCalendar";
+import AdminViewBanner from "@/components/AdminViewBanner";
 
 interface Life {
   id: string;
@@ -25,7 +26,8 @@ export default function StudentPage() {
 
   useEffect(() => {
     const u = getUser();
-    if (!u || u.role !== "student") {
+    const isAdminView = !!localStorage.getItem("admin_backup");
+    if (!u || (!isAdminView && u.role !== "student")) {
       router.push("/");
       return;
     }
@@ -164,6 +166,7 @@ export default function StudentPage() {
 
   return (
     <div className="h-full flex flex-col bg-gray-50">
+      <AdminViewBanner />
       <header className="bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between shrink-0">
         <div>
           <h1 className="text-lg font-bold">CNUcare</h1>

@@ -7,6 +7,7 @@ import { getUser, logout, User } from "@/lib/auth";
 import { STAGE_LABELS, STAGE_COLORS, STAGE_NAME_COLORS } from "@/lib/stages";
 import InstructorAnalysis from "@/components/InstructorAnalysis";
 import InstructorCalendar from "@/components/InstructorCalendar";
+import AdminViewBanner from "@/components/AdminViewBanner";
 
 interface Life {
   id: string;
@@ -38,7 +39,8 @@ export default function InstructorPage() {
 
   useEffect(() => {
     const u = getUser();
-    if (!u || u.role !== "instructor") {
+    const isAdminView = !!localStorage.getItem("admin_backup");
+    if (!u || (!isAdminView && u.role !== "instructor")) {
       router.push("/");
       return;
     }
@@ -100,6 +102,7 @@ export default function InstructorPage() {
 
   return (
     <div className="h-full flex flex-col bg-gray-50">
+      <AdminViewBanner />
       <header className="bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between shrink-0">
         <div>
           <h1 className="text-lg font-bold">CNUcare</h1>
