@@ -275,6 +275,21 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
         .single();
       if (data) setAttendanceRecords((prev) => [...prev, data as AttendanceRecord]);
     }
+
+    // 생명 연동: 출석 체크 시 life_id가 있으면 일지 자동 생성
+    if (newPresent) {
+      const att = attendees.find(a => a.id === attendeeId);
+      if (att?.life_id) {
+        const { data: existingJournal } = await supabase.from("journals")
+          .select("id").eq("life_id", att.life_id).eq("met_date", date).eq("location", event?.name || "").limit(1);
+        if (!existingJournal || existingJournal.length === 0) {
+          await supabase.from("journals").insert({
+            life_id: att.life_id, met_date: date, location: event?.name || "",
+            response: `[${event?.name}] 출석`, purpose: "management",
+          });
+        }
+      }
+    }
   };
 
   const addAttendee = async () => {
@@ -1144,6 +1159,7 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                                   const { data: life, error: lifeErr } = await supabase.from("lives").insert({
                                     name: a.name, stage: "first_meeting", department: a.department || null,
                                     age: a.year ? new Date().getFullYear() - (2000 + a.year) + 1 : null,
+                                    gender: a.gender || null, phone: a.phone || null,
                                     characteristics: `[${event?.name}] 참여`,
                                   }).select("id").single();
                                   if (!life || lifeErr) { alert("생명 등록 실패: " + (lifeErr?.message || "")); return; }
