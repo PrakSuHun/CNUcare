@@ -96,11 +96,24 @@ export default function Dashboard() {
     active.forEach((l) => { if (counts[l.stage] !== undefined) counts[l.stage]++; });
     setStageCounts(counts);
 
-    // 병목 (30일 이상 업데이트 없는 활성 생명)
+    // 병목 (14일 이상 일지 없는 활성 생명) - journals에서 실제 최신 날짜 조회
+    const activeIds = active.map((l) => l.id);
+    const { data: latestJournals } = await supabase
+      .from("journals")
+      .select("life_id, met_date")
+      .in("life_id", activeIds.length > 0 ? activeIds : ["_"])
+      .is("deleted_at", null)
+      .order("met_date", { ascending: false });
+
+    const lastJournalMap = new Map<string, string>();
+    (latestJournals || []).forEach((j: any) => {
+      if (!lastJournalMap.has(j.life_id)) lastJournalMap.set(j.life_id, j.met_date);
+    });
+
     const now = new Date();
     const stuck: StuckLife[] = active
       .map((l) => {
-        const lastDate = l.last_met_at || l.updated_at;
+        const lastDate = lastJournalMap.get(l.id) || l.updated_at;
         const days = Math.floor((now.getTime() - new Date(lastDate).getTime()) / (1000 * 60 * 60 * 24));
         return { ...l, days_stuck: days };
       })

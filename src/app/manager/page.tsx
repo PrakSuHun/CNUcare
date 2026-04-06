@@ -59,9 +59,9 @@ export default function ManagerPage() {
           { key: "org", label: "조직도" },
           { key: "mylives", label: "내 생명" },
           { key: "calendar", label: "캘린더" },
+          { key: "events", label: "행사" },
           { key: "dashboard", label: "현황" },
           { key: "analysis", label: "AI 분석" },
-          { key: "events", label: "행사" },
         ].map((t) => (
           <button
             key={t.key}

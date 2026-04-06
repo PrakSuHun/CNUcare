@@ -5,6 +5,9 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { getUser } from "@/lib/auth";
 
+const YEAR_LABELS: Record<number, string> = { 1: "1학년", 2: "2학년", 3: "3학년", 4: "4학년", 0: "졸업유예" };
+const formatYear = (y: number | null) => y != null ? YEAR_LABELS[y] || `${y}` : "";
+
 interface EventDetailProps {
   eventId: string;
   basePath: string;
@@ -47,6 +50,7 @@ interface AttendanceRecord {
   attendee_id: string;
   date: string;
   present: boolean;
+  check_group: string | null;
 }
 
 interface Feedback {
@@ -57,9 +61,9 @@ interface Feedback {
   created_at: string;
 }
 
-type Tab = "attendance" | "detail" | "status";
+type Tab = "attendance" | "detail" | "status" | "settings";
 type SortOption = "name" | "year" | "department";
-type GroupOption = "default" | "team" | "manager" | "lifeOnly" | "attendance" | "friend";
+type GroupOption = string; // "default" | "team" | "manager" | "lifeOnly" | "attendance" | "friend" | "custom_xxx"
 
 export default function EventDetail({ eventId, basePath }: EventDetailProps) {
   const router = useRouter();
@@ -74,6 +78,7 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split("T")[0]);
   const [sortBy, setSortBy] = useState<SortOption>("name");
   const [groupBy, setGroupBy] = useState<GroupOption>("default");
+  const [lifeOnly, setLifeOnly] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
   const [newAttendeeName, setNewAttendeeName] = useState("");
   const [newAttendeeGender, setNewAttendeeGender] = useState("");
@@ -113,11 +118,26 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
   const [checkinFormUrl, setCheckinFormUrl] = useState("");
   const [showRegGen, setShowRegGen] = useState(false);
   const [showCheckinGen, setShowCheckinGen] = useState(false);
-  const [regCustomFields, setRegCustomFields] = useState<string[]>([]);
-  const [regNewField, setRegNewField] = useState("");
+  const defaultRegFields = [
+    { id: "name", label: "이름", type: "text" as const, required: true, builtin: true },
+    { id: "gender", label: "성별", type: "dropdown" as const, required: false, options: ["남", "여"], builtin: true },
+    { id: "year", label: "학년", type: "dropdown" as const, required: false, options: ["1학년", "2학년", "3학년", "4학년", "졸업유예"], builtin: true },
+    { id: "department", label: "학과", type: "text" as const, required: false, builtin: true },
+    { id: "phone", label: "연락처", type: "text" as const, required: false, builtin: true },
+    { id: "friend_group", label: "함께 신청한 친구", type: "text" as const, required: false, builtin: true },
+  ];
+  const [regFields, setRegFields] = useState<{ id: string; label: string; type: "text" | "textarea" | "dropdown" | "checkbox"; required: boolean; options?: string[]; builtin?: boolean }[]>([]);
+  const [regNewLabel, setRegNewLabel] = useState("");
+  const [regNewType, setRegNewType] = useState<"text" | "textarea" | "dropdown" | "checkbox">("text");
+  const [regNewOptions, setRegNewOptions] = useState("");
+  const [regPreview, setRegPreview] = useState(false);
   const [checkinType, setCheckinType] = useState<"individual" | "team">("individual");
   const [checkinPopupText, setCheckinPopupText] = useState("");
   const [checkinShowFields, setCheckinShowFields] = useState<string[]>([]);
+
+  // Sessions (동아리 회차)
+  const [sessions, setSessions] = useState<{ number: number; date: string }[]>([]);
+  const [selectedSession, setSelectedSession] = useState<string>("all"); // "all" or session date
   const [aiLoading, setAiLoading] = useState(false);
 
   useEffect(() => {
@@ -148,13 +168,45 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
     if (attendanceRes.data) setAttendanceRecords(attendanceRes.data as AttendanceRecord[]);
     if (feedbackRes.data) setFeedbacks(feedbackRes.data as Feedback[]);
 
+    // 현재 사용자를 참석자 명단에 자동 추가 (섭리회원) — upsert로 중복 방지
+    const currentUser = getUser();
+    if (currentUser) {
+      await supabase.from("event_attendees").upsert({
+        event_id: eventId,
+        name: currentUser.display_name,
+        is_member: true,
+        status: "pending",
+      }, { onConflict: "event_id,name", ignoreDuplicates: false });
+
+      // 최신 목록 다시 조회
+      const { data: refreshed } = await supabase.from("event_attendees").select("*").eq("event_id", eventId).order("name");
+      if (refreshed) setAttendees(refreshed as Attendee[]);
+    }
+
+    // 회차 설정 로드
+    const { data: settingsForm } = await supabase.from("event_forms").select("config").eq("event_id", eventId).eq("type", "settings").limit(1);
+    if (settingsForm?.[0]?.config?.sessions) {
+      setSessions(settingsForm[0].config.sessions);
+    }
+
     // 기존 신청/출석 폼 URL 로드
     const ev = eventRes.data;
     const { data: existingForms } = await supabase.from("event_forms").select("id, type, config").eq("event_id", eventId);
     (existingForms || []).forEach((f: any) => {
-      if (f.type === "registration") setRegFormUrl(`${window.location.origin}/register/${f.id}`);
-      if (f.type === "checkin_individual") setCheckinFormUrl(`${window.location.origin}/checkin/${f.id}`);
-      if (f.type === "checkin_team") setCheckinFormUrl(`${window.location.origin}/check/${encodeURIComponent(ev?.slug || eventId)}`);
+      if (f.type === "registration") {
+        setRegFormUrl(`${window.location.origin}/register/${f.id}`);
+        if (f.config?.fields) setRegFields(f.config.fields);
+      }
+      if (f.type === "checkin_individual") {
+        setCheckinFormUrl(`${window.location.origin}/checkin/${f.id}`);
+        if (f.config?.popup_text) setCheckinPopupText(f.config.popup_text);
+        if (f.config?.show_fields) setCheckinShowFields(f.config.show_fields);
+        setCheckinType("individual");
+      }
+      if (f.type === "checkin_team") {
+        setCheckinFormUrl(`${window.location.origin}/check/${encodeURIComponent(ev?.slug || eventId)}`);
+        setCheckinType("team");
+      }
     });
 
     // 히든 피드백: 기존 폼이 있으면 URL 세팅 + 응답 조회
@@ -171,6 +223,29 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
   };
 
   // --- Attendance helpers ---
+  // 주차별 날짜 범위 계산
+  const getWeekDates = (weekKey: string): string[] => {
+    if (!weekKey.startsWith("week_")) return [];
+    const weekNum = parseInt(weekKey.replace("week_", ""));
+    const dates = [...new Set(attendanceRecords.map(r => r.date))].sort();
+    if (dates.length === 0) return [];
+    const firstDate = new Date(dates[0]);
+    const weekStart = new Date(firstDate.getTime() + (weekNum - 1) * 7 * 86400000);
+    const weekEnd = new Date(weekStart.getTime() + 6 * 86400000);
+    return dates.filter(d => d >= weekStart.toISOString().split("T")[0] && d <= weekEnd.toISOString().split("T")[0]);
+  };
+
+  const isPresentForView = (attendeeId: string): boolean => {
+    if (selectedSession === "all") {
+      return attendanceRecords.some((r) => r.attendee_id === attendeeId && r.present);
+    }
+    if (selectedSession.startsWith("week_")) {
+      const weekDates = getWeekDates(selectedSession);
+      return attendanceRecords.some((r) => r.attendee_id === attendeeId && weekDates.includes(r.date) && r.present);
+    }
+    return attendanceRecords.some((r) => r.attendee_id === attendeeId && r.date === selectedDate && r.present);
+  };
+
   const isPresent = (attendeeId: string, date: string) => {
     return attendanceRecords.some((r) => r.attendee_id === attendeeId && r.date === date && r.present);
   };
@@ -233,15 +308,15 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
 
   // --- Grouping ---
   const groupAttendees = (list: Attendee[]): { label: string; items: Attendee[] }[] => {
-    const sorted = sortAttendees(list);
+    // 생명만 필터 적용
+    const filtered = lifeOnly ? list.filter((a) => !a.is_member) : list;
+    const sorted = sortAttendees(filtered);
 
     if (groupBy === "default") return [{ label: "", items: sorted }];
 
-    if (groupBy === "lifeOnly") return [{ label: "생명만", items: sorted.filter((a) => !a.is_member) }];
-
     if (groupBy === "attendance") {
-      const present = sorted.filter((a) => isPresent(a.id, selectedDate));
-      const absent = sorted.filter((a) => !isPresent(a.id, selectedDate));
+      const present = sorted.filter((a) => isPresentForView(a.id));
+      const absent = sorted.filter((a) => !isPresentForView(a.id));
       return [
         { label: `출석 (${present.length})`, items: present },
         { label: `미출석 (${absent.length})`, items: absent },
@@ -288,8 +363,32 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
       return result;
     }
 
+    // 커스텀 필드 그룹 (custom_data 기반)
+    if (groupBy.startsWith("custom_")) {
+      const fieldLabel = groupBy.replace("custom_", "");
+      const withVal: Attendee[] = [];
+      const withoutVal: Attendee[] = [];
+      sorted.forEach((a) => {
+        const val = a.custom_data?.[fieldLabel];
+        if (val && val.trim()) withVal.push(a);
+        else withoutVal.push(a);
+      });
+      return [
+        { label: `${fieldLabel}: 있음 (${withVal.length})`, items: withVal },
+        { label: `${fieldLabel}: 없음 (${withoutVal.length})`, items: withoutVal },
+      ];
+    }
+
     return [{ label: "", items: sorted }];
   };
+
+  // 커스텀 드롭다운/체크박스 필드만 그룹 옵션으로 추출
+  const customGroupOptions: { value: string; label: string }[] = (() => {
+    const groupableFields = regFields
+      .filter((f) => !f.builtin && (f.type === "dropdown" || f.type === "checkbox"))
+      .map((f) => f.label);
+    return groupableFields.map((k) => ({ value: `custom_${k}`, label: k }));
+  })();
 
   // --- Detail tab helpers ---
   const updateAttendeeField = async (id: string, field: string, value: any) => {
@@ -351,7 +450,7 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
   const getBarData = (field: "year" | "department") => {
     const counts: Record<string, number> = {};
     attendees.filter((a) => !a.is_member).forEach((a) => {
-      const key = field === "year" ? (a.year ? String(a.year) : "미입력") : (a.department || "미입력");
+      const key = field === "year" ? (a.year != null ? formatYear(a.year) : "미입력") : (a.department || "미입력");
       counts[key] = (counts[key] || 0) + 1;
     });
     const entries = Object.entries(counts).sort((a, b) => b[1] - a[1]);
@@ -361,12 +460,38 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
 
   // --- Attendance rate (club) ---
   const getAttendanceRates = () => {
+    const isWeekly = event?.type === "club" && event?.club_unit === "weekly";
     const lifeAttendees = attendees.filter((a) => !a.is_member);
+
+    if (isWeekly) {
+      // 주차별: 1주 = 1회
+      const allDates = [...new Set(attendanceRecords.map((r) => r.date))].sort();
+      if (allDates.length === 0) return [];
+      const firstDate = new Date(allDates[0]);
+      const firstMonday = new Date(firstDate);
+      firstMonday.setDate(firstMonday.getDate() - ((firstMonday.getDay() + 6) % 7));
+      const lastDate = new Date(allDates[allDates.length - 1]);
+      // 총 주차 수
+      const totalWeeks = Math.ceil((lastDate.getTime() - firstMonday.getTime()) / (7 * 86400000)) + 1;
+
+      return lifeAttendees.map((a) => {
+        const myRecords = attendanceRecords.filter((r) => r.attendee_id === a.id && r.present);
+        // 출석한 주차 수 (같은 주에 여러 날 출석해도 1회)
+        const attendedWeeks = new Set<number>();
+        myRecords.forEach(r => {
+          const diff = Math.floor((new Date(r.date).getTime() - firstMonday.getTime()) / (7 * 86400000));
+          attendedWeeks.add(diff);
+        });
+        const attended = attendedWeeks.size;
+        const rate = Math.round((attended / totalWeeks) * 100);
+        return { name: a.name, attended, total: totalWeeks, rate };
+      }).sort((a, b) => b.rate - a.rate);
+    }
+
+    // 일반: 날짜별
     return lifeAttendees.map((a) => {
-      const records = attendanceRecords.filter((r) => r.attendee_id === a.id);
-      const totalDays = new Set(records.map((r) => r.date)).size || records.length;
-      const attended = records.filter((r) => r.present).length;
-      // Use unique dates across entire event for total
+      const myRecords = attendanceRecords.filter((r) => r.attendee_id === a.id);
+      const attended = myRecords.filter((r) => r.present).length;
       const allDates = new Set(attendanceRecords.map((r) => r.date));
       const totalPossible = allDates.size || 1;
       const rate = Math.round((attended / totalPossible) * 100);
@@ -435,7 +560,7 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
 
       {/* Tabs */}
       <div className="flex border-b border-gray-200 bg-white shrink-0">
-        {([["attendance", "출석"], ["detail", "상세"], ["status", "현황"]] as [Tab, string][]).map(([key, label]) => (
+        {([["attendance", "출석"], ["detail", "상세"], ["status", "현황"], ["settings", "설정"]] as [Tab, string][]).map(([key, label]) => (
           <button
             key={key}
             onClick={() => setActiveTab(key)}
@@ -454,54 +579,111 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
         {activeTab === "attendance" && (
           <div className="p-4 space-y-3">
             {/* Form generation buttons */}
-            <div className="flex gap-2">
+            <div className="grid grid-cols-2 gap-2">
               {regFormUrl ? (
-                <div className="flex-1 bg-green-50 border border-green-200 rounded-lg p-2">
+                <div className="bg-green-50 border border-green-200 rounded-lg p-2 overflow-hidden">
                   <p className="text-[10px] text-green-600 mb-1">신청폼</p>
                   <div className="flex gap-1">
-                    <input value={regFormUrl} readOnly className="flex-1 text-[10px] border border-green-200 rounded px-1.5 py-1 bg-white min-w-0" />
-                    <button onClick={() => { navigator.clipboard.writeText(regFormUrl); alert("복사!"); }} className="text-[10px] bg-green-600 text-white px-2 py-1 rounded shrink-0">복사</button>
+                    <button onClick={() => { navigator.clipboard.writeText(regFormUrl); alert("복사!"); }}
+                      className="flex-1 text-[10px] bg-green-600 text-white py-1.5 rounded font-medium">복사</button>
+                    <button onClick={() => { if (regFields.length === 0) setRegFields([...defaultRegFields]); setShowRegGen(true); }}
+                      className="text-[10px] bg-green-100 text-green-700 py-1.5 px-2 rounded font-medium">수정</button>
                   </div>
                 </div>
               ) : (
-                <button onClick={() => setShowRegGen(true)} className="flex-1 text-xs bg-green-600 text-white py-2.5 rounded-lg font-medium">신청폼 생성</button>
+                <button onClick={() => { if (regFields.length === 0) setRegFields([...defaultRegFields]); setShowRegGen(true); }} className="text-xs bg-green-600 text-white py-2.5 rounded-lg font-medium">신청폼 생성</button>
               )}
               {checkinFormUrl ? (
-                <div className="flex-1 bg-orange-50 border border-orange-200 rounded-lg p-2">
+                <div className="bg-orange-50 border border-orange-200 rounded-lg p-2 overflow-hidden">
                   <p className="text-[10px] text-orange-600 mb-1">출석체크</p>
                   <div className="flex gap-1">
-                    <input value={checkinFormUrl} readOnly className="flex-1 text-[10px] border border-orange-200 rounded px-1.5 py-1 bg-white min-w-0" />
-                    <button onClick={() => { navigator.clipboard.writeText(checkinFormUrl); alert("복사!"); }} className="text-[10px] bg-orange-600 text-white px-2 py-1 rounded shrink-0">복사</button>
+                    <button onClick={() => { navigator.clipboard.writeText(checkinFormUrl); alert("복사!"); }}
+                      className="flex-1 text-[10px] bg-orange-600 text-white py-1.5 rounded font-medium">복사</button>
+                    <button onClick={() => setShowCheckinGen(true)}
+                      className="text-[10px] bg-orange-100 text-orange-700 py-1.5 px-2 rounded font-medium">수정</button>
                   </div>
                 </div>
               ) : (
-                <button onClick={() => setShowCheckinGen(true)} className="flex-1 text-xs bg-orange-500 text-white py-2.5 rounded-lg font-medium">출석체크 생성</button>
+                <button onClick={() => setShowCheckinGen(true)} className="text-xs bg-orange-500 text-white py-2.5 rounded-lg font-medium">출석체크 생성</button>
               )}
             </div>
 
-            {/* Club: week selector */}
-            {event.type === "club" && (
+            {/* Club weekly: 주차별 드롭다운 */}
+            {event.type === "club" && event.club_unit === "weekly" && (
               <div className="flex items-center gap-2">
-                <button onClick={() => setClubWeek((w) => Math.max(1, w - 1))} className="text-gray-400 px-2 py-1 rounded hover:bg-gray-100">&lt;</button>
-                <span className="text-sm font-medium">{clubWeek}주차</span>
-                <button onClick={() => setClubWeek((w) => w + 1)} className="text-gray-400 px-2 py-1 rounded hover:bg-gray-100">&gt;</button>
+                <select
+                  value={selectedSession}
+                  onChange={(e) => setSelectedSession(e.target.value)}
+                  className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400"
+                >
+                  <option value="all">전체 주차</option>
+                  {(() => {
+                    // 출석 기록에서 주차 자동 계산
+                    const dates = [...new Set(attendanceRecords.map(r => r.date))].sort();
+                    if (dates.length === 0) return null;
+                    const firstDate = new Date(dates[0]);
+                    const weeks = new Map<number, { start: string; end: string }>();
+                    dates.forEach(d => {
+                      const diff = Math.floor((new Date(d).getTime() - firstDate.getTime()) / (7 * 86400000));
+                      const weekNum = diff + 1;
+                      if (!weeks.has(weekNum)) {
+                        const ws = new Date(firstDate.getTime() + diff * 7 * 86400000);
+                        const we = new Date(ws.getTime() + 6 * 86400000);
+                        weeks.set(weekNum, {
+                          start: `${ws.getMonth()+1}.${ws.getDate()}`,
+                          end: `${we.getMonth()+1}.${we.getDate()}`,
+                        });
+                      }
+                    });
+                    return [...weeks.entries()].sort((a, b) => a[0] - b[0]).map(([num, w]) => (
+                      <option key={num} value={`week_${num}`}>{`${Math.ceil(new Date(dates[0]).getMonth()/1)+1}월 ${num}주차 (${w.start}~${w.end})`}</option>
+                    ));
+                  })()}
+                </select>
                 <button
                   onClick={() => setShowRateModal(true)}
-                  className="ml-auto text-xs text-blue-600 border border-blue-300 rounded-full px-3 py-1 hover:bg-blue-50"
+                  className="text-xs text-blue-600 border border-blue-300 rounded-full px-3 py-1.5 hover:bg-blue-50 whitespace-nowrap"
                 >
                   출석률
                 </button>
               </div>
             )}
 
-            {/* Date selector */}
+            {/* Club daily: 회차별 드롭다운 */}
+            {event.type === "club" && event.club_unit !== "weekly" && sessions.length > 0 && (
+              <div className="flex items-center gap-2">
+                <select
+                  value={selectedSession}
+                  onChange={(e) => {
+                    setSelectedSession(e.target.value);
+                    if (e.target.value !== "all") setSelectedDate(e.target.value);
+                  }}
+                  className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400"
+                >
+                  <option value="all">전체 회차</option>
+                  {sessions.map((s) => (
+                    <option key={s.number} value={s.date}>{s.number}회차 ({new Date(s.date).toLocaleDateString("ko-KR", { month: "numeric", day: "numeric" })})</option>
+                  ))}
+                </select>
+                <button
+                  onClick={() => setShowRateModal(true)}
+                  className="text-xs text-blue-600 border border-blue-300 rounded-full px-3 py-1.5 hover:bg-blue-50 whitespace-nowrap"
+                >
+                  출석률
+                </button>
+              </div>
+            )}
+
+            {/* Date selector (일회성 or 회차 없는 동아리) */}
             <div className="flex items-center gap-2">
-              <input
-                type="date"
-                value={selectedDate}
-                onChange={(e) => setSelectedDate(e.target.value)}
-                className="border border-gray-200 rounded-lg px-3 py-2 text-sm flex-1 focus:outline-none focus:border-blue-400"
-              />
+              {event.type !== "club" && (
+                <input
+                  type="date"
+                  value={selectedDate}
+                  onChange={(e) => setSelectedDate(e.target.value)}
+                  className="border border-gray-200 rounded-lg px-3 py-2 text-sm flex-1 focus:outline-none focus:border-blue-400"
+                />
+              )}
               <button
                 onClick={() => setShowAddModal(true)}
                 className="text-xs text-blue-600 border border-blue-300 rounded-full px-3 py-1.5 hover:bg-blue-50 whitespace-nowrap"
@@ -512,8 +694,8 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
 
             {/* Sort + Group */}
             <div className="space-y-2">
-              <div className="flex gap-1.5 flex-wrap">
-                {([["name", "이름순"], ["year", "학번순"], ["department", "학과순"]] as [SortOption, string][]).map(([val, label]) => (
+              <div className="flex gap-1.5 flex-wrap items-center">
+                {([["name", "이름순"], ["year", "학년순"], ["department", "학과순"]] as [SortOption, string][]).map(([val, label]) => (
                   <button
                     key={val}
                     onClick={() => setSortBy(val)}
@@ -524,15 +706,23 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                     {label}
                   </button>
                 ))}
+                <button
+                  onClick={() => setLifeOnly(!lifeOnly)}
+                  className={`text-xs px-2.5 py-1 rounded-full border transition-colors ml-auto ${
+                    lifeOnly ? "bg-green-600 text-white border-green-600" : "bg-white text-gray-600 border-gray-200"
+                  }`}
+                >
+                  생명만
+                </button>
               </div>
               <div className="flex gap-1.5 flex-wrap">
                 {([
                   ["default", "기본"],
                   ["team", "팀별"],
                   ["manager", "관리자별"],
-                  ["lifeOnly", "생명만"],
                   ["attendance", "출석별"],
-                ] as [GroupOption, string][]).map(([val, label]) => (
+                  ...customGroupOptions.map((o) => [o.value, o.label] as [string, string]),
+                ]).map(([val, label]) => (
                   <button
                     key={val}
                     onClick={() => setGroupBy(val)}
@@ -546,8 +736,70 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
               </div>
             </div>
 
-            {/* Attendee list */}
-            {groupAttendees(attendees).map((group, gi) => (
+            {/* 러닝 주차별 표 뷰 */}
+            {event?.type === "club" && event?.club_unit === "weekly" && selectedSession !== "all" && selectedSession.startsWith("week_") && (() => {
+              const weekDates = getWeekDates(selectedSession);
+              const dayLabels = ["일", "월", "화", "수", "목", "금", "토"];
+
+              const dayGroups = weekDates.map(d => {
+                const dayRecords = attendanceRecords.filter(r => r.date === d && r.present);
+                const teamMap = new Map<string, string[]>();
+                dayRecords.forEach(r => {
+                  const gid = r.check_group || "solo";
+                  const att = attendees.find(a => a.id === r.attendee_id);
+                  if (att) {
+                    if (!teamMap.has(gid)) teamMap.set(gid, []);
+                    teamMap.get(gid)!.push(att.name);
+                  }
+                });
+                const dateObj = new Date(d);
+                return {
+                  date: d,
+                  dayLabel: `${dayLabels[dateObj.getDay()]}(${dateObj.getMonth()+1}/${dateObj.getDate()})`,
+                  teams: [...teamMap.entries()].map(([gid, names]) => ({ groupId: gid, names })),
+                };
+              });
+
+              const attendedIds = new Set(
+                attendanceRecords.filter(r => weekDates.includes(r.date) && r.present).map(r => r.attendee_id)
+              );
+              const filtered = lifeOnly ? attendees.filter(a => !a.is_member) : attendees;
+              const notAttended = filtered.filter(a => !attendedIds.has(a.id));
+
+              return (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                    {dayGroups.map(dg => (
+                      <div key={dg.date}>
+                        <p className="text-xs font-semibold text-gray-600 mb-1">{dg.dayLabel}</p>
+                        {dg.teams.length === 0 ? (
+                          <div className="bg-gray-50 rounded-lg border border-gray-200 p-2">
+                            <p className="text-[10px] text-gray-300 text-center">출석 없음</p>
+                          </div>
+                        ) : dg.teams.map((team, ti) => (
+                          <div key={ti} className="bg-white rounded-lg border border-gray-200 p-2 mb-1">
+                            {dg.teams.length > 1 && <p className="text-[10px] text-blue-500 font-medium mb-1">{ti+1}팀</p>}
+                            {team.names.map(n => (
+                              <p key={n} className="text-xs text-gray-700">{n}</p>
+                            ))}
+                          </div>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                  {notAttended.length > 0 && (
+                    <div className="bg-red-50 rounded-lg border border-red-200 p-3">
+                      <p className="text-xs font-medium text-red-600 mb-1">미참여 ({notAttended.length}명)</p>
+                      <p className="text-xs text-red-500">{notAttended.map(a => a.name).join(", ")}</p>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
+            {/* Attendee list (기본 뷰) */}
+            {!(event?.type === "club" && event?.club_unit === "weekly" && selectedSession !== "all" && selectedSession.startsWith("week_")) &&
+            groupAttendees(attendees).map((group, gi) => (
               <div key={gi}>
                 {group.label && <p className="text-xs font-semibold text-gray-500 mt-3 mb-1">{group.label}</p>}
                 <div className="bg-white rounded-lg border border-gray-200 divide-y divide-gray-100">
@@ -556,6 +808,20 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                   )}
                   {group.items.map((a) => (
                     <div key={a.id} className="flex items-center px-3 py-2.5">
+                      {/* 주차별 보기일 때는 체크 비활성, 출석 횟수 표시 */}
+                      {selectedSession.startsWith("week_") ? (
+                        <div className={`w-6 h-6 rounded border-2 flex items-center justify-center mr-3 shrink-0 text-xs font-bold ${
+                          isPresentForView(a.id) ? "bg-blue-600 border-blue-600 text-white" : "border-gray-300 text-gray-300"
+                        }`}>
+                          {getWeekDates(selectedSession).filter(d => isPresent(a.id, d)).length || ""}
+                        </div>
+                      ) : selectedSession === "all" && event?.type === "club" && event?.club_unit === "weekly" ? (
+                        <div className={`w-6 h-6 rounded border-2 flex items-center justify-center mr-3 shrink-0 text-xs font-bold ${
+                          isPresentForView(a.id) ? "bg-blue-600 border-blue-600 text-white" : "border-gray-300 text-gray-300"
+                        }`}>
+                          {attendanceRecords.filter(r => r.attendee_id === a.id && r.present).length || ""}
+                        </div>
+                      ) : (
                       <button
                         onClick={() => toggleAttendance(a.id, selectedDate)}
                         className={`w-6 h-6 rounded border-2 flex items-center justify-center mr-3 shrink-0 transition-colors ${
@@ -566,6 +832,7 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                       >
                         ✓
                       </button>
+                      )}
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-1.5">
                           <span className="text-sm font-medium truncate">{a.name}</span>
@@ -575,7 +842,7 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                         </div>
                         <div className="flex items-center gap-2 text-xs text-gray-400 mt-0.5">
                           {a.team && <span>{a.team}</span>}
-                          {a.year && <span>{a.year}학번</span>}
+                          {a.year && <span>{formatYear(a.year)}</span>}
                           {a.department && <span>{a.department}</span>}
                         </div>
                       </div>
@@ -590,7 +857,37 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
         {/* ===== 상세 Tab ===== */}
         {activeTab === "detail" && (
           <div className="p-4 space-y-3">
-            {/* Mode toggle */}
+            {/* 중복 의심 알림 */}
+            {(() => {
+              const dups: { a: Attendee; b: Attendee; reason: string }[] = [];
+              for (let i = 0; i < attendees.length; i++) {
+                for (let j = i + 1; j < attendees.length; j++) {
+                  const a = attendees[i], b = attendees[j];
+                  if (a.name === b.name) dups.push({ a, b, reason: "이름 동일" });
+                  else if (a.phone && a.phone === b.phone) dups.push({ a, b, reason: "전화번호 동일" });
+                }
+              }
+              if (dups.length === 0) return null;
+              return (
+                <div className="bg-yellow-50 border border-yellow-300 rounded-lg p-3">
+                  <p className="text-xs font-medium text-yellow-800 mb-2">중복 의심 ({dups.length}건)</p>
+                  {dups.map((d, i) => (
+                    <div key={i} className="flex items-center justify-between text-xs text-yellow-700 py-1 border-t border-yellow-200 first:border-0">
+                      <span>{d.a.name} ↔ {d.b.name} ({d.reason})</span>
+                      <button onClick={async () => {
+                        if (!confirm(`"${d.b.name}"을 삭제하고 "${d.a.name}"에 병합하시겠습니까?`)) return;
+                        await supabase.from("event_attendance").delete().eq("attendee_id", d.b.id);
+                        await supabase.from("event_attendees").delete().eq("id", d.b.id);
+                        setAttendees(attendees.filter((x) => x.id !== d.b.id));
+                      }} className="text-yellow-600 hover:text-red-500 font-medium">병합</button>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
+
+            {/* Mode toggle (일회성만) */}
+            {event?.type !== "club" && (
             <div className="flex bg-gray-200 rounded-lg p-0.5">
               <button
                 onClick={() => setDetailMode("before")}
@@ -609,11 +906,12 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                 행사 후
               </button>
             </div>
+            )}
 
             {/* Sort + Group (same as attendance + friend) */}
             <div className="space-y-2">
               <div className="flex gap-1.5 flex-wrap">
-                {([["name", "이름순"], ["year", "학번순"], ["department", "학과순"]] as [SortOption, string][]).map(([val, label]) => (
+                {([["name", "이름순"], ["year", "학년순"], ["department", "학과순"]] as [SortOption, string][]).map(([val, label]) => (
                   <button
                     key={val}
                     onClick={() => setSortBy(val)}
@@ -624,16 +922,24 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                     {label}
                   </button>
                 ))}
+                <button
+                  onClick={() => setLifeOnly(!lifeOnly)}
+                  className={`text-xs px-2.5 py-1 rounded-full border transition-colors ml-auto ${
+                    lifeOnly ? "bg-green-600 text-white border-green-600" : "bg-white text-gray-600 border-gray-200"
+                  }`}
+                >
+                  생명만
+                </button>
               </div>
               <div className="flex gap-1.5 flex-wrap">
                 {([
                   ["default", "기본"],
                   ["team", "팀별"],
                   ["manager", "관리자별"],
-                  ["lifeOnly", "생명만"],
                   ["attendance", "출석별"],
                   ["friend", "친구별"],
-                ] as [GroupOption, string][]).map(([val, label]) => (
+                  ...customGroupOptions.map((o) => [o.value, o.label] as [string, string]),
+                ]).map(([val, label]) => (
                   <button
                     key={val}
                     onClick={() => setGroupBy(val)}
@@ -657,7 +963,13 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                     return (
                       <div key={a.id} className="bg-white rounded-lg border border-gray-200 p-3">
                         <button
-                          onClick={() => setExpandedAttendee(isExpanded ? null : a.id)}
+                          onClick={() => {
+                            if (event?.type === "club" && event?.club_unit === "weekly") {
+                              router.push(`${basePath}/event/${eventId}/attendee/${a.id}`);
+                            } else {
+                              setExpandedAttendee(isExpanded ? null : a.id);
+                            }
+                          }}
                           className="w-full text-left"
                         >
                           <div className="flex items-center gap-2">
@@ -675,7 +987,7 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                           </div>
                           <div className="flex items-center gap-2 text-xs text-gray-400 mt-1">
                             {a.department && <span>{a.department}</span>}
-                            {a.year && <span>{a.year}학번</span>}
+                            {a.year && <span>{formatYear(a.year)}</span>}
                             {a.friend_group && <span>친구: {a.friend_group}</span>}
                             {a.memo && <span>메모: {a.memo}</span>}
                           </div>
@@ -725,46 +1037,64 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                                 <input type="text" value={a.friend_group || ""} onChange={(e) => updateAttendeeField(a.id, "friend_group", e.target.value || null)}
                                   placeholder="함께 신청한 친구" className="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:border-blue-400" />
                               </div>
-                              {a.custom_data && Object.entries(a.custom_data).map(([key, val]) => (
-                                val && <div key={key} className="text-xs text-gray-500">{key}: {val}</div>
+                              <div>
+                                <label className="flex items-center gap-1.5 text-xs text-gray-500">
+                                  <input type="checkbox" checked={a.is_member} onChange={(e) => updateAttendeeField(a.id, "is_member", e.target.checked)}
+                                    className="w-3.5 h-3.5" />
+                                  섭리회원
+                                </label>
+                              </div>
+                              {a.custom_data && Object.entries(a.custom_data).map(([key]) => (
+                                <div key={key}>
+                                  <span className="text-[10px] text-gray-400">{key}</span>
+                                  <input type="text" value={a.custom_data?.[key] || ""} onChange={(e) => {
+                                    const updated = { ...(a.custom_data || {}), [key]: e.target.value };
+                                    updateAttendeeField(a.id, "custom_data", updated);
+                                  }} placeholder={key} className="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:border-blue-400" />
+                                </div>
                               ))}
                             </div>
                           </div>
                         )}
 
                         {/* Before mode: team + manager assignment */}
-                        {detailMode === "before" && (
-                          <div className="mt-2 pt-2 border-t border-gray-100 flex gap-2">
-                            <select
-                              value={a.team || ""}
-                              onChange={(e) => updateAttendeeField(a.id, "team", e.target.value || null)}
-                              className="flex-1 text-xs border border-gray-200 rounded px-2 py-1.5 focus:outline-none focus:border-blue-400"
-                            >
-                              <option value="">팀 미배정</option>
-                              {(() => {
-                                const existingTeams = [...new Set(attendees.map(x => x.team).filter((t): t is string => !!t))].sort();
-                                const maxNum = existingTeams.reduce((max, t) => { const m = t.match(/^(\d+)팀$/); return m ? Math.max(max, parseInt(m[1])) : max; }, 0);
-                                const nextTeam = `${maxNum + 1}팀`;
-                                const allTeams = existingTeams.includes(nextTeam) ? existingTeams : [...existingTeams, nextTeam];
-                                return allTeams.map((t) => <option key={t} value={t}>{t}</option>);
-                              })()}
-                            </select>
-                            <select
-                              value={a.manager_id || ""}
-                              onChange={(e) => updateAttendeeField(a.id, "manager_id", e.target.value || null)}
-                              className="flex-1 text-xs border border-gray-200 rounded px-2 py-1.5 focus:outline-none focus:border-blue-400"
-                            >
-                              <option value="">관리자 미배정</option>
-                              {members.map((m) => (
-                                <option key={m.user_id} value={m.user_id}>{m.display_name}</option>
-                              ))}
-                            </select>
+                        {(detailMode === "before" || event?.type === "club") && (
+                          <div className="mt-2 pt-2 border-t border-gray-100 space-y-2">
+                            <div className="flex gap-2">
+                              {/* 팀 배정: 러닝(주차별 동아리)은 팀출석으로 자동 관리되므로 숨김 */}
+                              {!(event?.type === "club" && event?.club_unit === "weekly") && (
+                              <select
+                                value={a.team || ""}
+                                onChange={(e) => updateAttendeeField(a.id, "team", e.target.value || null)}
+                                className="flex-1 text-xs border border-gray-200 rounded px-2 py-1.5 focus:outline-none focus:border-blue-400"
+                              >
+                                <option value="">팀 미배정</option>
+                                {(() => {
+                                  const existingTeams = [...new Set(attendees.map(x => x.team).filter((t): t is string => !!t))].sort();
+                                  const maxNum = existingTeams.reduce((max, t) => { const m = t.match(/^(\d+)팀$/); return m ? Math.max(max, parseInt(m[1])) : max; }, 0);
+                                  const nextTeam = `${maxNum + 1}팀`;
+                                  const allTeams = existingTeams.includes(nextTeam) ? existingTeams : [...existingTeams, nextTeam];
+                                  return allTeams.map((t) => <option key={t} value={t}>{t}</option>);
+                                })()}
+                              </select>
+                              )}
+                              <select
+                                value={a.manager_id || ""}
+                                onChange={(e) => updateAttendeeField(a.id, "manager_id", e.target.value || null)}
+                                className="flex-1 text-xs border border-gray-200 rounded px-2 py-1.5 focus:outline-none focus:border-blue-400"
+                              >
+                                <option value="">관리자 미배정</option>
+                                {members.map((m) => (
+                                  <option key={m.user_id} value={m.user_id}>{m.display_name}</option>
+                                ))}
+                              </select>
+                            </div>
                           </div>
                         )}
 
-                        {/* After mode: feedback + 생명 전환 */}
+                        {/* After mode: feedback only */}
                         {detailMode === "after" && (
-                          <div className="mt-2 pt-2 border-t border-gray-100 space-y-2">
+                          <div className="mt-2 pt-2 border-t border-gray-100">
                             <textarea
                               value={feedbackMap[a.id] || a.memo || ""}
                               onChange={(e) => setFeedbackMap((prev) => ({ ...prev, [a.id]: e.target.value }))}
@@ -777,8 +1107,25 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                               rows={2}
                               className="w-full text-xs border border-gray-200 rounded px-2 py-1.5 resize-none focus:outline-none focus:border-blue-400"
                             />
-                            {a.life_id ? (
-                              <div className="text-xs text-green-600 font-medium">생명 전환 완료</div>
+                          </div>
+                        )}
+
+                        {/* 삭제 + 생명 전환 */}
+                        <div className="flex gap-2 mt-1">
+                          <button
+                            onClick={async () => {
+                              if (!confirm(`"${a.name}" 참가자를 삭제하시겠습니까?`)) return;
+                              await supabase.from("event_attendance").delete().eq("attendee_id", a.id);
+                              await supabase.from("event_attendees").delete().eq("id", a.id);
+                              setAttendees(attendees.filter((x) => x.id !== a.id));
+                            }}
+                            className="text-xs text-red-400 hover:text-red-600"
+                          >
+                            참가자 삭제
+                          </button>
+                          {!a.is_member && (
+                            a.life_id ? (
+                              <span className="text-xs text-green-600 font-medium ml-auto">생명 전환 완료</span>
                             ) : (
                               <button
                                 onClick={async () => {
@@ -786,43 +1133,23 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                                   if (!target) return;
                                   const member = members.find(m => m.display_name === target.trim());
                                   if (!member) { alert("해당 섭리회원을 찾을 수 없습니다."); return; }
-                                  // 생명 등록
                                   const { data: life } = await supabase.from("lives").insert({
-                                    name: a.name,
-                                    stage: "first_meeting",
-                                    department: a.department,
+                                    name: a.name, stage: "first_meeting", department: a.department,
                                     age: a.year ? new Date().getFullYear() - (2000 + a.year) + 1 : null,
-                                    gender: a.gender,
-                                    phone: a.phone,
-                                    note: `[${event?.name}] 참여`,
+                                    gender: a.gender, phone: a.phone, note: `[${event?.name}] 참여`,
                                   }).select("id").single();
                                   if (!life) { alert("생명 등록 실패"); return; }
-                                  // user_lives 연결
                                   await supabase.from("user_lives").insert({ user_id: member.user_id, life_id: life.id, role_in_life: "evangelist" });
-                                  // attendee에 life_id 연결
                                   await supabase.from("event_attendees").update({ life_id: life.id }).eq("id", a.id);
                                   setAttendees(attendees.map(x => x.id === a.id ? { ...x, life_id: life.id } : x));
                                 }}
-                                className="w-full text-xs py-1.5 rounded font-medium bg-blue-50 text-blue-600 border border-blue-300 hover:bg-blue-100 transition-colors"
+                                className="text-xs text-blue-500 hover:text-blue-700 ml-auto"
                               >
                                 생명 전환
                               </button>
-                            )}
-                          </div>
-                        )}
-
-                        {/* 삭제 */}
-                        <button
-                          onClick={async () => {
-                            if (!confirm(`"${a.name}" 참가자를 삭제하시겠습니까?`)) return;
-                            await supabase.from("event_attendance").delete().eq("attendee_id", a.id);
-                            await supabase.from("event_attendees").delete().eq("id", a.id);
-                            setAttendees(attendees.filter((x) => x.id !== a.id));
-                          }}
-                          className="text-xs text-red-400 hover:text-red-600 mt-1"
-                        >
-                          참가자 삭제
-                        </button>
+                            )
+                          )}
+                        </div>
                       </div>
                     );
                   })}
@@ -997,43 +1324,228 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
             </div>
           </div>
         )}
+
+        {/* ===== 설정 Tab ===== */}
+        {activeTab === "settings" && (
+          <div className="p-4 space-y-4">
+            {/* 행사명 수정 */}
+            <div className="bg-white rounded-lg border border-gray-200 p-4">
+              <p className="text-sm font-medium text-gray-700 mb-3">행사 정보</p>
+              <div className="space-y-2">
+                <div>
+                  <span className="text-[10px] text-gray-400">행사명</span>
+                  <input type="text" value={event?.name || ""} onChange={(e) => setEvent(event ? { ...event, name: e.target.value } : null)}
+                    className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-blue-400" />
+                </div>
+                <button onClick={async () => {
+                  if (!event) return;
+                  await supabase.from("events").update({ name: event.name }).eq("id", eventId);
+                  alert("저장되었습니다.");
+                }} className="w-full bg-blue-600 text-white rounded-lg py-2 text-sm font-medium">행사명 저장</button>
+              </div>
+            </div>
+
+            {/* 회차 설정 (주차별 동아리 제외) */}
+            {!(event?.type === "club" && event.club_unit === "weekly") && (
+            <div className="bg-white rounded-lg border border-gray-200 p-4">
+              <p className="text-sm font-medium text-gray-700 mb-3">회차 설정</p>
+              <p className="text-xs text-gray-500 mb-3">각 회차 날짜를 입력하세요</p>
+              <div className="space-y-2">
+                {sessions.map((s, i) => (
+                  <div key={i} className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-gray-600 w-16 shrink-0">{s.number}회차</span>
+                    <input
+                      type="date"
+                      value={s.date}
+                      onChange={(e) => {
+                        const arr = [...sessions];
+                        arr[i] = { ...arr[i], date: e.target.value };
+                        setSessions(arr);
+                      }}
+                      className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400"
+                    />
+                    <button
+                      onClick={() => setSessions(sessions.filter((_, j) => j !== i).map((s, j) => ({ ...s, number: j + 1 })))}
+                      className="text-gray-300 hover:text-red-400 text-sm px-1"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <button
+                onClick={() => setSessions([...sessions, { number: sessions.length + 1, date: new Date().toISOString().split("T")[0] }])}
+                className="w-full mt-3 border-2 border-dashed border-gray-300 rounded-lg py-2 text-sm text-gray-500 hover:border-blue-400 hover:text-blue-500"
+              >
+                + 회차 추가
+              </button>
+              <button
+                onClick={async () => {
+                  // settings 폼에 저장
+                  const { data: existing } = await supabase.from("event_forms").select("id").eq("event_id", eventId).eq("type", "settings").limit(1);
+                  if (existing && existing.length > 0) {
+                    await supabase.from("event_forms").update({ config: { sessions } }).eq("id", existing[0].id);
+                  } else {
+                    await supabase.from("event_forms").insert({ event_id: eventId, type: "settings", config: { sessions }, created_by: getUser()?.id });
+                  }
+                  alert("저장되었습니다.");
+                }}
+                className="w-full mt-2 bg-blue-600 text-white rounded-lg py-2.5 text-sm font-medium"
+              >
+                저장
+              </button>
+            </div>
+            )}
+
+            {/* 행사 삭제 */}
+            <div className="bg-white rounded-lg border border-red-200 p-4">
+              <p className="text-sm font-medium text-red-600 mb-2">행사 삭제</p>
+              <p className="text-xs text-gray-500 mb-3">행사를 삭제하면 모든 참석자, 출석, 피드백 데이터가 영구 삭제됩니다.</p>
+              <button onClick={async () => {
+                if (!confirm(`"${event?.name}" 행사를 완전히 삭제하시겠습니까?\n모든 데이터가 삭제되며 복구할 수 없습니다.`)) return;
+                await supabase.from("events").delete().eq("id", eventId);
+                router.push(basePath);
+              }} className="w-full bg-red-500 text-white rounded-lg py-2 text-sm font-medium">행사 삭제</button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ===== Modals ===== */}
 
-      {/* Registration form generation modal */}
+      {/* Registration form builder modal */}
       {showRegGen && (
         <div className="fixed inset-0 bg-black/50 flex items-end justify-center z-50" onClick={() => setShowRegGen(false)}>
-          <div className="bg-white w-full max-w-lg rounded-t-2xl p-4 space-y-3" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-sm font-bold">행사 신청폼 생성</h3>
-            <p className="text-xs text-gray-500">기본: 이름, 성별, 학년, 학과, 연락처, 함께 신청한 친구</p>
-            <div>
-              <p className="text-xs text-gray-500 mb-2">추가 항목 (텍스트)</p>
-              <div className="space-y-2">
-                {regCustomFields.map((f, i) => (
-                  <div key={i} className="flex items-center gap-2">
-                    <span className="flex-1 text-sm bg-gray-50 rounded-lg px-3 py-2">{f}</span>
-                    <button onClick={() => setRegCustomFields(regCustomFields.filter((_, j) => j !== i))} className="text-gray-300 hover:text-red-400">✕</button>
+          <div className="bg-white w-full max-w-lg rounded-t-2xl p-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-bold">{regPreview ? "미리보기" : "신청폼 만들기"}</h3>
+              <div className="flex gap-2">
+                <button onClick={() => setRegPreview(!regPreview)} className="text-xs text-blue-600 hover:underline">
+                  {regPreview ? "편집" : "미리보기"}
+                </button>
+                <button onClick={() => setShowRegGen(false)} className="text-xs text-gray-400">닫기</button>
+              </div>
+            </div>
+
+            {regPreview ? (
+              /* 미리보기 */
+              <div className="space-y-3 border border-gray-200 rounded-lg p-4 bg-gray-50">
+                {regFields.map((f) => (
+                  <div key={f.id}>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">{f.label}{f.required && " *"}</label>
+                    {f.type === "text" && <input disabled placeholder={f.label} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm bg-white" />}
+                    {f.type === "textarea" && <textarea disabled placeholder={f.label} rows={3} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm bg-white resize-none" />}
+                    {f.type === "dropdown" && (
+                      <select disabled className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm bg-white">
+                        <option>선택</option>
+                        {f.options?.map(o => <option key={o}>{o}</option>)}
+                      </select>
+                    )}
+                    {f.type === "checkbox" && (
+                      <div className="flex flex-wrap gap-2">
+                        {f.options?.map(o => (
+                          <label key={o} className="flex items-center gap-1 text-sm text-gray-600">
+                            <input type="checkbox" disabled /> {o}
+                          </label>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
-              <div className="flex gap-2 mt-2">
-                <input value={regNewField} onChange={(e) => setRegNewField(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); if (regNewField.trim()) { setRegCustomFields([...regCustomFields, regNewField.trim()]); setRegNewField(""); } } }}
-                  placeholder="항목 이름" className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm" />
-                <button onClick={() => { if (regNewField.trim()) { setRegCustomFields([...regCustomFields, regNewField.trim()]); setRegNewField(""); } }}
-                  className="text-sm bg-gray-200 px-3 py-2 rounded-lg">추가</button>
+            ) : (
+              /* 편집 */
+              <div className="space-y-3">
+                {/* 필드 목록 */}
+                {regFields.map((f, i) => (
+                  <div key={f.id} className="bg-gray-50 rounded-lg p-3 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        {/* 순서 이동 */}
+                        <div className="flex flex-col">
+                          <button onClick={() => { if (i === 0) return; const arr = [...regFields]; [arr[i-1], arr[i]] = [arr[i], arr[i-1]]; setRegFields(arr); }}
+                            className="text-gray-300 hover:text-gray-500 text-[10px] leading-none">▲</button>
+                          <button onClick={() => { if (i === regFields.length - 1) return; const arr = [...regFields]; [arr[i], arr[i+1]] = [arr[i+1], arr[i]]; setRegFields(arr); }}
+                            className="text-gray-300 hover:text-gray-500 text-[10px] leading-none">▼</button>
+                        </div>
+                        <span className="text-sm font-medium">{f.label}</span>
+                        <span className="text-[10px] text-gray-400 bg-gray-200 px-1.5 py-0.5 rounded">
+                          {f.type === "text" ? "텍스트" : f.type === "textarea" ? "긴 텍스트" : f.type === "dropdown" ? "드롭다운" : "체크박스"}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <label className="flex items-center gap-1 text-[10px] text-gray-500">
+                          <input type="checkbox" checked={f.required}
+                            onChange={(e) => { const arr = [...regFields]; arr[i] = { ...arr[i], required: e.target.checked }; setRegFields(arr); }}
+                            className="w-3 h-3" />
+                          필수
+                        </label>
+                        {f.id !== "name" && (
+                          <button onClick={() => setRegFields(regFields.filter((_, j) => j !== i))} className="text-gray-300 hover:text-red-400 text-xs">✕</button>
+                        )}
+                      </div>
+                    </div>
+                    {/* 드롭다운/체크박스 옵션 편집 */}
+                    {(f.type === "dropdown" || f.type === "checkbox") && (
+                      <div>
+                        <p className="text-[10px] text-gray-400 mb-1">옵션 (쉼표로 구분)</p>
+                        <input value={f.options?.join(", ") || ""} onChange={(e) => {
+                          const arr = [...regFields]; arr[i] = { ...arr[i], options: e.target.value.split(",").map(s => s.trim()).filter(Boolean) }; setRegFields(arr);
+                        }} className="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:border-blue-400" />
+                      </div>
+                    )}
+                  </div>
+                ))}
+
+                {/* 새 항목 추가 */}
+                <div className="border-2 border-dashed border-gray-200 rounded-lg p-3 space-y-2">
+                  <p className="text-xs text-gray-500 font-medium">항목 추가</p>
+                  <input value={regNewLabel} onChange={(e) => setRegNewLabel(e.target.value)} placeholder="항목 이름"
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400" />
+                  <div className="flex gap-2">
+                    {(["text", "textarea", "dropdown", "checkbox"] as const).map(t => (
+                      <button key={t} onClick={() => setRegNewType(t)}
+                        className={`flex-1 text-[10px] py-1.5 rounded-lg border font-medium ${regNewType === t ? "bg-blue-600 text-white border-blue-600" : "border-gray-300 text-gray-500"}`}>
+                        {t === "text" ? "텍스트" : t === "textarea" ? "긴 텍스트" : t === "dropdown" ? "드롭다운" : "체크박스"}
+                      </button>
+                    ))}
+                  </div>
+                  {(regNewType === "dropdown" || regNewType === "checkbox") && (
+                    <input value={regNewOptions} onChange={(e) => setRegNewOptions(e.target.value)} placeholder="옵션 (쉼표로 구분)"
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400" />
+                  )}
+                  <button onClick={() => {
+                    if (!regNewLabel.trim()) return;
+                    const opts = regNewOptions.split(",").map(s => s.trim()).filter(Boolean);
+                    setRegFields([...regFields, {
+                      id: `custom_${Date.now()}`, label: regNewLabel.trim(), type: regNewType, required: false,
+                      ...(opts.length > 0 ? { options: opts } : {}),
+                    }]);
+                    setRegNewLabel(""); setRegNewOptions("");
+                  }} disabled={!regNewLabel.trim()}
+                    className="w-full bg-gray-200 text-gray-700 rounded-lg py-2 text-sm font-medium disabled:opacity-50">
+                    + 추가
+                  </button>
+                </div>
               </div>
-            </div>
+            )}
+
             <button onClick={async () => {
-              const { data } = await supabase.from("event_forms").insert({
-                event_id: eventId, type: "registration",
-                config: { custom_fields: regCustomFields },
-                created_by: getUser()?.id,
-              }).select("id").single();
-              if (data) setRegFormUrl(`${window.location.origin}/register/${data.id}`);
+              if (regFormUrl) {
+                // 수정: 기존 폼 업데이트
+                const formId = regFormUrl.split("/register/")[1];
+                await supabase.from("event_forms").update({ config: { fields: regFields } }).eq("id", formId);
+              } else {
+                // 생성
+                const { data } = await supabase.from("event_forms").insert({
+                  event_id: eventId, type: "registration",
+                  config: { fields: regFields },
+                  created_by: getUser()?.id,
+                }).select("id").single();
+                if (data) setRegFormUrl(`${window.location.origin}/register/${data.id}`);
+              }
               setShowRegGen(false);
-            }} className="w-full bg-green-600 text-white rounded-lg py-2.5 text-sm font-medium">생성하기</button>
+            }} className="w-full bg-green-600 text-white rounded-lg py-2.5 text-sm font-medium mt-3">{regFormUrl ? "저장" : "생성하기"}</button>
           </div>
         </div>
       )}
@@ -1064,7 +1576,18 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                 <div>
                   <p className="text-xs text-gray-500 mb-1">팝업에 표시할 정보</p>
                   <div className="flex flex-wrap gap-2">
-                    {[["department","학과"],["team","팀"],["year","학번"],["gender","성별"]].map(([key, label]) => (
+                    {(() => {
+                      const builtinOptions: [string, string][] = [
+                        ["gender", "성별"], ["year", "학년"], ["department", "학과"], ["phone", "연락처"], ["friend_group", "친구"], ["team", "팀"],
+                      ];
+                      const activeBuiltins = builtinOptions.filter(([key]) =>
+                        key === "team" || regFields.some(f => f.id === key)
+                      );
+                      const customOptions: [string, string][] = regFields
+                        .filter(f => !f.builtin)
+                        .map(f => [`custom_data.${f.label}`, f.label]);
+                      return [...activeBuiltins, ...customOptions];
+                    })().map(([key, label]) => (
                       <button key={key} onClick={() => setCheckinShowFields(prev => prev.includes(key) ? prev.filter(f => f !== key) : [...prev, key])}
                         className={`text-xs px-3 py-1.5 rounded-full border ${checkinShowFields.includes(key) ? "bg-blue-600 text-white border-blue-600" : "border-gray-300 text-gray-600"}`}>
                         {label}
@@ -1081,12 +1604,19 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
 
             <button onClick={async () => {
               if (checkinType === "individual") {
-                const { data } = await supabase.from("event_forms").insert({
-                  event_id: eventId, type: "checkin_individual",
-                  config: { popup_text: checkinPopupText, show_fields: checkinShowFields },
-                  created_by: getUser()?.id,
-                }).select("id").single();
-                if (data) setCheckinFormUrl(`${window.location.origin}/checkin/${data.id}`);
+                if (checkinFormUrl && checkinFormUrl.includes("/checkin/")) {
+                  // 수정
+                  const formId = checkinFormUrl.split("/checkin/")[1];
+                  await supabase.from("event_forms").update({ config: { popup_text: checkinPopupText, show_fields: checkinShowFields } }).eq("id", formId);
+                } else {
+                  // 생성
+                  const { data } = await supabase.from("event_forms").insert({
+                    event_id: eventId, type: "checkin_individual",
+                    config: { popup_text: checkinPopupText, show_fields: checkinShowFields },
+                    created_by: getUser()?.id,
+                  }).select("id").single();
+                  if (data) setCheckinFormUrl(`${window.location.origin}/checkin/${data.id}`);
+                }
               } else {
                 // 팀별: slug 확인/생성
                 let slug = event?.slug;
@@ -1101,7 +1631,7 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                 setCheckinFormUrl(`${window.location.origin}/check/${encodeURIComponent(slug)}`);
               }
               setShowCheckinGen(false);
-            }} className="w-full bg-orange-500 text-white rounded-lg py-2.5 text-sm font-medium">생성하기</button>
+            }} className="w-full bg-orange-500 text-white rounded-lg py-2.5 text-sm font-medium">{checkinFormUrl ? "저장" : "생성하기"}</button>
           </div>
         </div>
       )}

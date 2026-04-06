@@ -68,7 +68,7 @@ export default function LoginPage() {
           CNUcare
         </h1>
         <p className="text-center text-sm text-gray-500 mb-8">
-          선교 관리 서비스
+          충남대 종합 관리 시스템
         </p>
 
         <form onSubmit={handleLogin} className="space-y-4">

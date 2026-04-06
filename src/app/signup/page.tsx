@@ -50,6 +50,20 @@ export default function SignupPage() {
       return;
     }
 
+    // 이름+전화번호 중복 확인
+    const { data: dupUser } = await supabase
+      .from("users")
+      .select("id, display_name, phone")
+      .eq("name", form.name)
+      .eq("phone", form.phone)
+      .limit(1);
+
+    if (dupUser && dupUser.length > 0) {
+      setError(`동일한 이름과 전화번호로 가입된 계정이 있습니다. (${dupUser[0].display_name})`);
+      setLoading(false);
+      return;
+    }
+
     const displayName = form.name;
 
     const { error: insertError } = await supabase.from("users").insert({
