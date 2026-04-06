@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { getUser } from "@/lib/auth";
+import * as XLSX from "xlsx";
 
 const YEAR_LABELS: Record<number, string> = { 1: "1학년", 2: "2학년", 3: "3학년", 4: "4학년", 0: "졸업유예" };
 const formatYear = (y: number | null) => y != null ? YEAR_LABELS[y] || `${y}` : "";
@@ -134,6 +135,13 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
   const [checkinType, setCheckinType] = useState<"individual" | "team">("individual");
   const [checkinPopupText, setCheckinPopupText] = useState("");
   const [checkinShowFields, setCheckinShowFields] = useState<string[]>([]);
+
+  // Excel upload
+  const [showExcelModal, setShowExcelModal] = useState(false);
+  const [excelPreview, setExcelPreview] = useState<Record<string, string>[]>([]);
+  const [excelHeaders, setExcelHeaders] = useState<string[]>([]);
+  const [excelMapping, setExcelMapping] = useState<Record<string, string>>({});
+  const [excelUploading, setExcelUploading] = useState(false);
 
   // Sessions (동아리 회차)
   const [sessions, setSessions] = useState<{ number: number; date: string }[]>([]);
@@ -1706,7 +1714,10 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
           <div className="bg-white w-full max-w-lg rounded-t-2xl p-4" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-bold">참석자 추가</h3>
-              <button onClick={() => setShowAddModal(false)} className="text-xs text-gray-400">닫기</button>
+              <div className="flex gap-2">
+                <button onClick={() => { setShowAddModal(false); setShowExcelModal(true); }} className="text-xs text-green-600 hover:underline">엑셀 업로드</button>
+                <button onClick={() => setShowAddModal(false)} className="text-xs text-gray-400">닫기</button>
+              </div>
             </div>
             <div className="space-y-2">
               <input type="text" value={newAttendeeName} onChange={(e) => setNewAttendeeName(e.target.value)}
@@ -1739,6 +1750,196 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                 추가
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Excel upload modal */}
+      {showExcelModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-end justify-center z-50" onClick={() => { setShowExcelModal(false); setExcelPreview([]); setExcelHeaders([]); }}>
+          <div className="bg-white w-full max-w-lg rounded-t-2xl p-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-bold">엑셀/CSV 업로드</h3>
+              <button onClick={() => { setShowExcelModal(false); setExcelPreview([]); setExcelHeaders([]); }} className="text-xs text-gray-400">닫기</button>
+            </div>
+
+            {excelPreview.length === 0 ? (
+              <div className="space-y-3">
+                <p className="text-xs text-gray-500">엑셀(.xlsx) 또는 CSV(.csv) 파일을 선택하세요. 첫 번째 행은 헤더로 인식됩니다.</p>
+                <a href="/참석자_양식.xlsx" download className="text-xs text-blue-600 hover:underline">양식 다운로드</a>
+                <input
+                  type="file"
+                  accept=".csv,.xlsx,.xls"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+
+                    let headers: string[] = [];
+                    let rows: Record<string, string>[] = [];
+
+                    const ext = file.name.split(".").pop()?.toLowerCase();
+
+                    if (ext === "xlsx" || ext === "xls") {
+                      // 엑셀 파싱
+                      const buffer = await file.arrayBuffer();
+                      const wb = XLSX.read(buffer, { type: "array" });
+                      const ws = wb.Sheets[wb.SheetNames[0]];
+                      const jsonData = XLSX.utils.sheet_to_json<Record<string, any>>(ws, { defval: "" });
+                      if (jsonData.length === 0) { alert("데이터가 없습니다."); return; }
+                      headers = Object.keys(jsonData[0]);
+                      rows = jsonData.map(r => {
+                        const row: Record<string, string> = {};
+                        headers.forEach(h => { row[h] = String(r[h] ?? "").trim(); });
+                        return row;
+                      });
+                    } else {
+                      // CSV 파싱
+                      const text = await file.text();
+                      const delimiter = text.includes("\t") ? "\t" : ",";
+                      const lines = text.split("\n").map(l => l.trim()).filter(Boolean);
+                      if (lines.length < 2) { alert("데이터가 없습니다."); return; }
+                      headers = lines[0].split(delimiter).map(h => h.replace(/"/g, "").trim());
+                      rows = lines.slice(1).map(line => {
+                        const cols = line.split(delimiter).map(c => c.replace(/"/g, "").trim());
+                        const row: Record<string, string> = {};
+                        headers.forEach((h, i) => { row[h] = cols[i] || ""; });
+                        return row;
+                      });
+                    }
+
+                    rows = rows.filter(row => Object.values(row).some(v => v));
+
+                    setExcelHeaders(headers);
+                    setExcelPreview(rows);
+
+                    // 자동 매핑 추측
+                    const autoMap: Record<string, string> = {};
+                    const fieldGuess: Record<string, string[]> = {
+                      name: ["이름", "name", "성명"],
+                      gender: ["성별", "gender"],
+                      department: ["학과", "department", "전공"],
+                      year: ["학년", "학번", "year", "grade"],
+                      phone: ["전화", "연락처", "phone", "핸드폰", "휴대폰"],
+                      friend_group: ["친구", "함께", "friend"],
+                      memo: ["메모", "비고", "memo", "note"],
+                    };
+                    headers.forEach(h => {
+                      const lower = h.toLowerCase();
+                      for (const [field, guesses] of Object.entries(fieldGuess)) {
+                        if (guesses.some(g => lower.includes(g))) {
+                          autoMap[h] = field;
+                          break;
+                        }
+                      }
+                    });
+                    setExcelMapping(autoMap);
+                  }}
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
+                />
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {/* 컬럼 매핑 */}
+                <div>
+                  <p className="text-xs text-gray-500 mb-2">컬럼 매핑 (엑셀 헤더 → 필드)</p>
+                  <div className="space-y-1.5">
+                    {excelHeaders.map(h => (
+                      <div key={h} className="flex items-center gap-2">
+                        <span className="text-xs text-gray-600 w-24 truncate shrink-0">{h}</span>
+                        <span className="text-xs text-gray-400">→</span>
+                        <select
+                          value={excelMapping[h] || ""}
+                          onChange={(e) => setExcelMapping(prev => ({ ...prev, [h]: e.target.value }))}
+                          className="flex-1 text-xs border border-gray-200 rounded px-2 py-1.5"
+                        >
+                          <option value="">무시</option>
+                          <option value="name">이름</option>
+                          <option value="gender">성별</option>
+                          <option value="department">학과</option>
+                          <option value="year">학년</option>
+                          <option value="phone">연락처</option>
+                          <option value="friend_group">친구</option>
+                          <option value="memo">메모</option>
+                        </select>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 미리보기 */}
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">미리보기 ({excelPreview.length}명)</p>
+                  <div className="max-h-40 overflow-y-auto border border-gray-200 rounded-lg">
+                    {excelPreview.slice(0, 10).map((row, i) => {
+                      const nameCol = Object.entries(excelMapping).find(([, v]) => v === "name")?.[0];
+                      const deptCol = Object.entries(excelMapping).find(([, v]) => v === "department")?.[0];
+                      return (
+                        <div key={i} className="px-3 py-1.5 text-xs border-b border-gray-100 last:border-0">
+                          <span className="font-medium">{nameCol ? row[nameCol] : "이름 미매핑"}</span>
+                          {deptCol && row[deptCol] && <span className="text-gray-400 ml-2">{row[deptCol]}</span>}
+                        </div>
+                      );
+                    })}
+                    {excelPreview.length > 10 && <p className="text-[10px] text-gray-400 text-center py-1">... 외 {excelPreview.length - 10}명</p>}
+                  </div>
+                </div>
+
+                {/* 업로드 */}
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => { setExcelPreview([]); setExcelHeaders([]); setExcelMapping({}); }}
+                    className="flex-1 bg-gray-100 text-gray-600 rounded-lg py-2.5 text-sm"
+                  >
+                    다시 선택
+                  </button>
+                  <button
+                    disabled={!Object.values(excelMapping).includes("name") || excelUploading}
+                    onClick={async () => {
+                      setExcelUploading(true);
+                      const yearMap: Record<string, number> = { "1학년": 1, "2학년": 2, "3학년": 3, "4학년": 4, "졸업유예": 0 };
+                      let added = 0, skipped = 0;
+
+                      for (const row of excelPreview) {
+                        const mapped: Record<string, any> = { event_id: eventId, is_member: false, status: "pending" };
+
+                        for (const [header, field] of Object.entries(excelMapping)) {
+                          if (!field || !row[header]) continue;
+                          if (field === "year") {
+                            const val = row[header].trim();
+                            mapped.year = yearMap[val] ?? (parseInt(val) || null);
+                          } else {
+                            mapped[field] = row[header].trim();
+                          }
+                        }
+
+                        if (!mapped.name) { skipped++; continue; }
+
+                        // 섭리회원 자동 판별
+                        const { data: matchedUser } = await supabase
+                          .from("users").select("id").eq("display_name", mapped.name).limit(1);
+                        if (matchedUser && matchedUser.length > 0) mapped.is_member = true;
+
+                        const { error } = await supabase.from("event_attendees").upsert(mapped, { onConflict: "event_id,name" });
+                        if (!error) added++; else skipped++;
+                      }
+
+                      alert(`${added}명 추가, ${skipped}명 스킵`);
+                      setShowExcelModal(false);
+                      setExcelPreview([]);
+                      setExcelHeaders([]);
+                      setExcelMapping({});
+                      setExcelUploading(false);
+                      // 참석자 목록 새로고침
+                      const { data: refreshed } = await supabase.from("event_attendees").select("*").eq("event_id", eventId).order("name");
+                      if (refreshed) setAttendees(refreshed as Attendee[]);
+                    }}
+                    className="flex-1 bg-blue-600 text-white rounded-lg py-2.5 text-sm font-medium disabled:opacity-50"
+                  >
+                    {excelUploading ? "추가 중..." : `${excelPreview.length}명 추가`}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
