@@ -48,6 +48,27 @@ export default function StudentPage() {
       const lifeList = data
         .map((ul: any) => ul.lives as Life)
         .filter(Boolean);
+
+      // 최신 일지 날짜 조회
+      const lifeIds = lifeList.map(l => l.id);
+      if (lifeIds.length > 0) {
+        const { data: journals } = await supabase
+          .from("journals")
+          .select("life_id, met_date")
+          .in("life_id", lifeIds)
+          .is("deleted_at", null)
+          .order("met_date", { ascending: false });
+
+        const lastJournal = new Map<string, string>();
+        (journals || []).forEach((j: any) => {
+          if (!lastJournal.has(j.life_id)) lastJournal.set(j.life_id, j.met_date);
+        });
+
+        lifeList.forEach(l => {
+          if (lastJournal.has(l.id)) (l as any).last_date = lastJournal.get(l.id);
+        });
+      }
+
       setLives(lifeList);
     }
     setLoading(false);
@@ -265,7 +286,7 @@ export default function StudentPage() {
                   </span>
                 </div>
                 <p className="text-xs text-gray-400 mt-1">
-                  {new Date(life.updated_at).toLocaleDateString("ko-KR")}
+                  {new Date((life as any).last_date || life.updated_at).toLocaleDateString("ko-KR")}
                 </p>
               </button>
               <button
