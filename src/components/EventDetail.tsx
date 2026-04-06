@@ -1141,12 +1141,12 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                                   if (!target) return;
                                   const member = members.find(m => m.display_name === target.trim());
                                   if (!member) { alert("해당 섭리회원을 찾을 수 없습니다."); return; }
-                                  const { data: life } = await supabase.from("lives").insert({
-                                    name: a.name, stage: "first_meeting", department: a.department,
+                                  const { data: life, error: lifeErr } = await supabase.from("lives").insert({
+                                    name: a.name, stage: "first_meeting", department: a.department || null,
                                     age: a.year ? new Date().getFullYear() - (2000 + a.year) + 1 : null,
-                                    gender: a.gender, phone: a.phone, note: `[${event?.name}] 참여`,
+                                    characteristics: `[${event?.name}] 참여`,
                                   }).select("id").single();
-                                  if (!life) { alert("생명 등록 실패"); return; }
+                                  if (!life || lifeErr) { alert("생명 등록 실패: " + (lifeErr?.message || "")); return; }
                                   await supabase.from("user_lives").insert({ user_id: member.user_id, life_id: life.id, role_in_life: "evangelist" });
                                   await supabase.from("event_attendees").update({ life_id: life.id }).eq("id", a.id);
                                   setAttendees(attendees.map(x => x.id === a.id ? { ...x, life_id: life.id } : x));
