@@ -105,7 +105,7 @@ export default function InstructorPage() {
       <AdminViewBanner />
       <header className="bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between shrink-0">
         <div>
-          <h1 className="text-lg font-bold">CNUcare</h1>
+          <h1 className="text-lg font-bold cursor-pointer" onClick={() => window.location.reload()}>CNUcare</h1>
           <p className="text-xs text-gray-500">{user?.display_name} (강사)</p>
         </div>
         <button onClick={logout} className="text-sm text-gray-400 hover:text-gray-600">로그아웃</button>

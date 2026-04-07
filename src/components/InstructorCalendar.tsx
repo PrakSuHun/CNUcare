@@ -54,7 +54,7 @@ export default function InstructorCalendar({ basePath }: { basePath: string }) {
   const [allGroups, setAllGroups] = useState<{ id: string; name: string }[]>([]);
   const [viewingEvent, setViewingEvent] = useState<CalEvent | null>(null);
   const [editingEvent, setEditingEvent] = useState(false);
-  const [editForm, setEditForm] = useState({ title: "", date: "", time: "", location: "", memo: "" });
+  const [editForm, setEditForm] = useState({ title: "", date: "", time: "", location: "", memo: "", shared_with: [] as string[], share_input: "" });
   const [showGroupManager, setShowGroupManager] = useState(false);
   const [groupSearch, setGroupSearch] = useState("");
   const [searchedGroups, setSearchedGroups] = useState<{ id: string; name: string }[]>([]);
@@ -231,7 +231,7 @@ export default function InstructorCalendar({ basePath }: { basePath: string }) {
   const openEventDetail = (e: CalEvent) => {
     setViewingEvent(e);
     setEditingEvent(false);
-    setEditForm({ title: e.title, date: e.date, time: e.time || "", location: e.location || "", memo: e.memo || "" });
+    setEditForm({ title: e.title, date: e.date, time: e.time || "", location: e.location || "", memo: e.memo || "", shared_with: [], share_input: "" });
   };
 
   const handleEditSave = async () => {
@@ -243,9 +243,9 @@ export default function InstructorCalendar({ basePath }: { basePath: string }) {
     };
 
     if (viewingEvent.type === "appointment") {
-      await supabase.from("appointments").update({ ...updateData, note: editForm.memo || null }).eq("id", viewingEvent.id);
+      await supabase.from("appointments").update({ ...updateData, note: editForm.memo || null, shared_with: editForm.shared_with }).eq("id", viewingEvent.id);
     } else if (viewingEvent.type === "personal") {
-      await supabase.from("personal_events").update({ ...updateData, memo: editForm.memo || null }).eq("id", viewingEvent.id);
+      await supabase.from("personal_events").update({ ...updateData, memo: editForm.memo || null, shared_with: editForm.shared_with }).eq("id", viewingEvent.id);
     } else if (viewingEvent.type === "group") {
       await supabase.from("group_events").update({ ...updateData, memo: editForm.memo || null }).eq("id", viewingEvent.id);
     }
@@ -641,7 +641,17 @@ export default function InstructorCalendar({ basePath }: { basePath: string }) {
                 </div>
 
                 <div className="flex gap-2 mt-4">
-                  <button onClick={() => setEditingEvent(true)}
+                  <button onClick={async () => {
+                    // 기존 shared_with 로드
+                    if (viewingEvent?.type === "appointment") {
+                      const { data } = await supabase.from("appointments").select("shared_with").eq("id", viewingEvent.id).single();
+                      setEditForm(f => ({ ...f, shared_with: data?.shared_with || [], share_input: "" }));
+                    } else if (viewingEvent?.type === "personal") {
+                      const { data } = await supabase.from("personal_events").select("shared_with").eq("id", viewingEvent.id).single();
+                      setEditForm(f => ({ ...f, shared_with: data?.shared_with || [], share_input: "" }));
+                    }
+                    setEditingEvent(true);
+                  }}
                     className="flex-1 rounded-lg border border-blue-300 py-2.5 text-sm font-medium text-blue-600 hover:bg-blue-50">수정</button>
                   <button onClick={() => { handleDelete(viewingEvent); setViewingEvent(null); }}
                     className="rounded-lg border border-red-200 px-4 py-2.5 text-sm text-red-400 hover:bg-red-50">삭제</button>
@@ -667,6 +677,38 @@ export default function InstructorCalendar({ basePath }: { basePath: string }) {
                     className="w-full rounded-lg border border-gray-300 px-3 py-3 text-base focus:border-blue-500 focus:outline-none" />
                   <textarea placeholder="메모 (선택)" value={editForm.memo} onChange={(e) => setEditForm((f) => ({ ...f, memo: e.target.value }))} rows={2}
                     className="w-full rounded-lg border border-gray-300 px-3 py-3 text-base focus:border-blue-500 focus:outline-none resize-none" />
+                  {/* 공유 대상 */}
+                  {(viewingEvent?.type === "appointment" || viewingEvent?.type === "personal") && (
+                    <div>
+                      <p className="text-xs text-gray-500 mb-1">공유 대상</p>
+                      {editForm.shared_with.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mb-2">
+                          {editForm.shared_with.map((name) => (
+                            <span key={name} className="bg-blue-100 text-blue-700 text-xs px-2 py-0.5 rounded-full flex items-center gap-1">
+                              {name}
+                              <button onClick={() => setEditForm(f => ({ ...f, shared_with: f.shared_with.filter(n => n !== name) }))} className="text-blue-400">✕</button>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      <div className="flex gap-2">
+                        <input type="text" placeholder="이름 입력" value={editForm.share_input}
+                          onChange={(e) => setEditForm(f => ({ ...f, share_input: e.target.value }))}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              const v = editForm.share_input.trim();
+                              if (v && !editForm.shared_with.includes(v)) setEditForm(f => ({ ...f, shared_with: [...f.shared_with, v], share_input: "" }));
+                            }
+                          }}
+                          className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none" />
+                        <button onClick={() => {
+                          const v = editForm.share_input.trim();
+                          if (v && !editForm.shared_with.includes(v)) setEditForm(f => ({ ...f, shared_with: [...f.shared_with, v], share_input: "" }));
+                        }} className="text-sm bg-gray-200 px-3 py-2 rounded-lg">추가</button>
+                      </div>
+                    </div>
+                  )}
                   <div className="flex gap-2">
                     <button onClick={handleEditSave} disabled={saving}
                       className="flex-1 rounded-lg bg-blue-600 py-2.5 text-sm font-semibold text-white disabled:opacity-50">
