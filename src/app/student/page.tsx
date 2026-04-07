@@ -130,7 +130,6 @@ export default function StudentPage() {
         .from("appointments")
         .select("id, life_id, date, time, created_by")
         .in("life_id", lifeIds)
-        .eq("created_by", user.id)
         .order("date", { ascending: false });
 
       if (!appts) return;

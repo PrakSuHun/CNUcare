@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getUser, logout, User } from "@/lib/auth";
+import { supabase } from "@/lib/supabase";
 import OrgChart from "@/components/OrgChart";
 import Dashboard from "@/components/Dashboard";
 import AnalysisPage from "@/components/AnalysisPage";
@@ -28,6 +29,57 @@ export default function ManagerPage() {
     fetch("/api/process-queue").catch(() => {});
     fetch("/api/process-reports").catch(() => {});
   }, [router]);
+
+  // 지난 약속 알림
+  const [pastApptAlerts, setPastApptAlerts] = useState<{ apptId: string; lifeId: string; lifeName: string; date: string }[]>([]);
+
+  useEffect(() => {
+    if (!user) return;
+    const fetchAlerts = async () => {
+      // 관리자가 연결된 생명 조회
+      const { data: uls } = await supabase.from("user_lives").select("life_id, lives(id, name, is_failed)").eq("user_id", user.id);
+      if (!uls) return;
+      const lifeIds = uls.map((ul: any) => ul.life_id);
+      const lifeMap = new Map(uls.map((ul: any) => [ul.life_id, ul.lives]));
+      if (lifeIds.length === 0) return;
+
+      const now = new Date();
+      const today = now.toISOString().split("T")[0];
+      const currentTime = now.toTimeString().slice(0, 5);
+
+      const { data: appts } = await supabase.from("appointments").select("id, life_id, date, time")
+        .in("life_id", lifeIds).order("date", { ascending: false });
+      if (!appts) return;
+
+      const pastAppts = appts.filter((a: any) => {
+        if (a.date < today) return true;
+        if (a.date === today && a.time && a.time <= currentTime) return true;
+        if (a.date === today && !a.time) return true;
+        return false;
+      });
+
+      const { data: journals } = await supabase.from("journals").select("life_id, met_date")
+        .in("life_id", lifeIds).is("deleted_at", null);
+
+      const alerts: typeof pastApptAlerts = [];
+      for (const appt of pastAppts) {
+        const hasJournal = (journals || []).some((j: any) => j.life_id === appt.life_id && j.met_date >= appt.date);
+        if (!hasJournal) {
+          const life = lifeMap.get(appt.life_id) as any;
+          if (life && !life.is_failed && !alerts.some(a => a.lifeId === appt.life_id)) {
+            alerts.push({ apptId: appt.id, lifeId: appt.life_id, lifeName: life.name, date: appt.date });
+          }
+        }
+      }
+      setPastApptAlerts(alerts);
+    };
+    fetchAlerts();
+  }, [user]);
+
+  const dismissApptAlert = async (apptId: string) => {
+    await supabase.from("appointments").delete().eq("id", apptId);
+    setPastApptAlerts((prev) => prev.filter((a) => a.apptId !== apptId));
+  };
 
   if (!user) return null;
 
@@ -76,6 +128,20 @@ export default function ManagerPage() {
       </div>
 
       <div className="flex-1 overflow-y-auto p-4">
+        {/* 약속 알림 */}
+        {pastApptAlerts.map((alert) => (
+          <div key={alert.apptId} className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-3">
+            <p className="text-sm text-blue-800 font-medium">
+              {new Date(alert.date).toLocaleDateString("ko-KR", { month: "numeric", day: "numeric" })} {alert.lifeName}과 잘 만나셨나요?
+            </p>
+            <div className="flex gap-2 mt-2">
+              <button onClick={() => router.push(`/manager/life/${alert.lifeId}/journal/new`)}
+                className="flex-1 bg-blue-600 text-white rounded-lg py-2 text-sm font-medium">일지 쓰기</button>
+              <button onClick={() => dismissApptAlert(alert.apptId)}
+                className="flex-1 bg-white text-gray-500 border border-gray-300 rounded-lg py-2 text-sm">만나지 못했어요</button>
+            </div>
+          </div>
+        ))}
         {tab === "org" && <OrgChart userRole="manager" userId={user.id} basePath="/manager" editMode={editMode} />}
         {tab === "mylives" && <MyLives userId={user.id} basePath="/manager" />}
         {tab === "calendar" && <InstructorCalendar basePath="/manager" />}
