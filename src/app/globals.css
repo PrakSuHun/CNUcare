@@ -7,10 +7,13 @@ html, body {
   overflow-x: hidden;
 }
 
-/* 모바일 date input 너비 고정 */
-input[type="date"] {
+/* 모바일 date/time input 너비 고정 */
+input[type="date"],
+input[type="time"] {
   -webkit-appearance: none;
   -moz-appearance: none;
   appearance: none;
   min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
 }
