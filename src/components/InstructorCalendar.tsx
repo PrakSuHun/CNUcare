@@ -251,7 +251,12 @@ export default function InstructorCalendar({ basePath }: { basePath: string }) {
     if (viewingEvent.type === "appointment") {
       await supabase.from("appointments").update({
         ...updateData, note: editForm.memo || null, shared_with: editForm.shared_with,
-        purpose: editForm.purpose || null, instructor_name: editForm.instructor_name || null,
+        purpose: editForm.purpose || null,
+        instructor_name: editForm.purpose === "lecture" ? (editForm.instructor_name || null)
+          : editForm.pre_visit_type === "self" ? (getUser()?.display_name || null)
+          : editForm.pre_visit_type === "other" ? (editForm.other_name || null)
+          : editForm.pre_visit_type === "manager" ? (editForm.instructor_name || null)
+          : (editForm.instructor_name || null),
       }).eq("id", viewingEvent.id);
     } else if (viewingEvent.type === "personal") {
       await supabase.from("personal_events").update({ ...updateData, memo: editForm.memo || null, shared_with: editForm.shared_with }).eq("id", viewingEvent.id);
@@ -677,8 +682,49 @@ export default function InstructorCalendar({ basePath }: { basePath: string }) {
               <>
                 <h3 className="text-base font-bold mb-3">일정 수정</h3>
                 <div className="space-y-3">
-                  <input type="text" value={editForm.title} onChange={(e) => setEditForm((f) => ({ ...f, title: e.target.value }))}
-                    className="w-full rounded-lg border border-gray-300 px-3 py-3 text-base focus:border-blue-500 focus:outline-none" />
+                  {/* 약속: 목적 버튼 (제목 대신) */}
+                  {viewingEvent?.type === "appointment" ? (
+                    <div className="space-y-3">
+                      <div>
+                        <p className="text-xs text-gray-500 mb-1">목적</p>
+                        <div className="grid grid-cols-3 gap-2">
+                          {[["pre_visit", "전초"], ["management", "관리"], ["lecture", "강의"]].map(([val, label]) => (
+                            <button key={val} type="button" onClick={() => setEditForm(f => ({ ...f, purpose: val, instructor_name: val !== f.purpose ? "" : f.instructor_name, pre_visit_type: "", other_name: "" }))}
+                              className={`py-2 rounded-lg border text-sm font-medium ${editForm.purpose === val ? "bg-blue-600 text-white border-blue-600" : "bg-white text-gray-600 border-gray-300"}`}>
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      {(editForm.purpose === "pre_visit" || editForm.purpose === "management") && (
+                        <div>
+                          <p className="text-xs text-gray-500 mb-1">담당</p>
+                          <div className="grid grid-cols-3 gap-2">
+                            {[["manager", "관리자 연결"], ["self", "직접"], ["other", "다른 사람"]].map(([key, label]) => (
+                              <button key={key} type="button" onClick={() => setEditForm(f => ({ ...f, pre_visit_type: key }))}
+                                className={`py-2 rounded-lg border text-xs font-medium ${editForm.pre_visit_type === key ? "border-blue-400 bg-blue-50" : "border-gray-200"}`}>
+                                {label}
+                              </button>
+                            ))}
+                          </div>
+                          {editForm.pre_visit_type === "other" && (
+                            <input type="text" placeholder="이름 입력" value={editForm.other_name} onChange={(e) => setEditForm(f => ({ ...f, other_name: e.target.value }))}
+                              className="w-full mt-2 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none" />
+                          )}
+                        </div>
+                      )}
+                      {editForm.purpose === "lecture" && (
+                        <div>
+                          <p className="text-xs text-gray-500 mb-1">강의자</p>
+                          <input type="text" value={editForm.instructor_name} onChange={(e) => setEditForm(f => ({ ...f, instructor_name: e.target.value }))}
+                            placeholder="강의자 이름" className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none" />
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <input type="text" value={editForm.title} onChange={(e) => setEditForm((f) => ({ ...f, title: e.target.value }))}
+                      placeholder="제목" className="w-full rounded-lg border border-gray-300 px-3 py-3 text-base focus:border-blue-500 focus:outline-none" />
+                  )}
                   <div>
                     <label className="block text-xs text-gray-500 mb-1">날짜</label>
                     <input type="date" value={editForm.date} onChange={(e) => setEditForm((f) => ({ ...f, date: e.target.value }))}
@@ -693,36 +739,6 @@ export default function InstructorCalendar({ basePath }: { basePath: string }) {
                     className="w-full rounded-lg border border-gray-300 px-3 py-3 text-base focus:border-blue-500 focus:outline-none" />
                   <textarea placeholder="메모 (선택)" value={editForm.memo} onChange={(e) => setEditForm((f) => ({ ...f, memo: e.target.value }))} rows={2}
                     className="w-full rounded-lg border border-gray-300 px-3 py-3 text-base focus:border-blue-500 focus:outline-none resize-none" />
-                  {/* 약속: 목적 + 강사/담당자 수정 */}
-                  {viewingEvent?.type === "appointment" && (
-                    <div className="space-y-2">
-                      <div>
-                        <p className="text-xs text-gray-500 mb-1">목적</p>
-                        <div className="grid grid-cols-3 gap-2">
-                          {[["pre_visit", "전초"], ["management", "관리"], ["lecture", "강의"]].map(([val, label]) => (
-                            <button key={val} type="button" onClick={() => setEditForm(f => ({ ...f, purpose: val, instructor_name: val !== f.purpose ? "" : f.instructor_name }))}
-                              className={`py-2 rounded-lg border text-sm font-medium ${editForm.purpose === val ? "bg-blue-600 text-white border-blue-600" : "bg-white text-gray-600 border-gray-300"}`}>
-                              {label}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                      {editForm.purpose === "lecture" && (
-                        <div>
-                          <p className="text-xs text-gray-500 mb-1">강의자</p>
-                          <input type="text" value={editForm.instructor_name} onChange={(e) => setEditForm(f => ({ ...f, instructor_name: e.target.value }))}
-                            placeholder="강의자 이름" className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none" />
-                        </div>
-                      )}
-                      {(editForm.purpose === "pre_visit" || editForm.purpose === "management") && (
-                        <div>
-                          <p className="text-xs text-gray-500 mb-1">담당자</p>
-                          <input type="text" value={editForm.instructor_name} onChange={(e) => setEditForm(f => ({ ...f, instructor_name: e.target.value }))}
-                            placeholder="담당자 이름" className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none" />
-                        </div>
-                      )}
-                    </div>
-                  )}
 
                   {/* 공유 대상 */}
                   {(viewingEvent?.type === "appointment" || viewingEvent?.type === "personal") && (
