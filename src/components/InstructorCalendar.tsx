@@ -16,6 +16,7 @@ interface CalEvent {
   life_name?: string;
   life_id?: string;
   group_name?: string;
+  instructor_name?: string | null;
   memo?: string | null;
 }
 
@@ -54,7 +55,11 @@ export default function InstructorCalendar({ basePath }: { basePath: string }) {
   const [allGroups, setAllGroups] = useState<{ id: string; name: string }[]>([]);
   const [viewingEvent, setViewingEvent] = useState<CalEvent | null>(null);
   const [editingEvent, setEditingEvent] = useState(false);
-  const [editForm, setEditForm] = useState({ title: "", date: "", time: "", location: "", memo: "", shared_with: [] as string[], share_input: "" });
+  const [editForm, setEditForm] = useState({
+    title: "", date: "", time: "", location: "", memo: "",
+    shared_with: [] as string[], share_input: "",
+    purpose: "", instructor_name: "", pre_visit_type: "", other_name: "",
+  });
   const [showGroupManager, setShowGroupManager] = useState(false);
   const [groupSearch, setGroupSearch] = useState("");
   const [searchedGroups, setSearchedGroups] = useState<{ id: string; name: string }[]>([]);
@@ -118,7 +123,7 @@ export default function InstructorCalendar({ basePath }: { basePath: string }) {
     }).map((a: any) => ({
       id: a.id, type: "appointment" as const, title: a.title,
       date: a.date, time: a.time, location: a.location,
-      purpose: a.purpose, life_name: a.life?.name, life_id: a.life_id, memo: a.note,
+      purpose: a.purpose, life_name: a.life?.name, life_id: a.life_id, instructor_name: a.instructor_name, memo: a.note,
     }));
 
     // 개인일정 (내꺼 + 나에게 공유된 것)
@@ -231,7 +236,8 @@ export default function InstructorCalendar({ basePath }: { basePath: string }) {
   const openEventDetail = (e: CalEvent) => {
     setViewingEvent(e);
     setEditingEvent(false);
-    setEditForm({ title: e.title, date: e.date, time: e.time || "", location: e.location || "", memo: e.memo || "", shared_with: [], share_input: "" });
+    setEditForm({ title: e.title, date: e.date, time: e.time || "", location: e.location || "", memo: e.memo || "",
+      shared_with: [], share_input: "", purpose: e.purpose || "", instructor_name: "", pre_visit_type: "", other_name: "" });
   };
 
   const handleEditSave = async () => {
@@ -243,7 +249,10 @@ export default function InstructorCalendar({ basePath }: { basePath: string }) {
     };
 
     if (viewingEvent.type === "appointment") {
-      await supabase.from("appointments").update({ ...updateData, note: editForm.memo || null, shared_with: editForm.shared_with }).eq("id", viewingEvent.id);
+      await supabase.from("appointments").update({
+        ...updateData, note: editForm.memo || null, shared_with: editForm.shared_with,
+        purpose: editForm.purpose || null, instructor_name: editForm.instructor_name || null,
+      }).eq("id", viewingEvent.id);
     } else if (viewingEvent.type === "personal") {
       await supabase.from("personal_events").update({ ...updateData, memo: editForm.memo || null, shared_with: editForm.shared_with }).eq("id", viewingEvent.id);
     } else if (viewingEvent.type === "group") {
@@ -351,7 +360,11 @@ export default function InstructorCalendar({ basePath }: { basePath: string }) {
 
             const getEventLabel = (e: CalEvent) => {
               const time = formatTime(e.time);
-              if (e.type === "appointment") return `${time} ${e.life_name || ""} ${PURPOSE_LABELS[e.purpose || ""] || ""}`.trim();
+              if (e.type === "appointment") {
+                const purposeLabel = PURPOSE_LABELS[e.purpose || ""] || "";
+                const instrLabel = e.purpose === "lecture" && e.instructor_name ? `(${e.instructor_name})` : "";
+                return `${time} ${e.life_name || ""} ${purposeLabel}${instrLabel}`.trim();
+              }
               if (e.type === "group") return `${time} ${e.title}`.trim();
               return `${time} ${e.title}`.trim();
             };
@@ -642,10 +655,13 @@ export default function InstructorCalendar({ basePath }: { basePath: string }) {
 
                 <div className="flex gap-2 mt-4">
                   <button onClick={async () => {
-                    // 기존 shared_with 로드
                     if (viewingEvent?.type === "appointment") {
-                      const { data } = await supabase.from("appointments").select("shared_with").eq("id", viewingEvent.id).single();
-                      setEditForm(f => ({ ...f, shared_with: data?.shared_with || [], share_input: "" }));
+                      const { data } = await supabase.from("appointments").select("shared_with, instructor_name, purpose").eq("id", viewingEvent.id).single();
+                      setEditForm(f => ({
+                        ...f, shared_with: data?.shared_with || [], share_input: "",
+                        purpose: data?.purpose || "", instructor_name: data?.instructor_name || "",
+                        pre_visit_type: "", other_name: "",
+                      }));
                     } else if (viewingEvent?.type === "personal") {
                       const { data } = await supabase.from("personal_events").select("shared_with").eq("id", viewingEvent.id).single();
                       setEditForm(f => ({ ...f, shared_with: data?.shared_with || [], share_input: "" }));
@@ -677,6 +693,37 @@ export default function InstructorCalendar({ basePath }: { basePath: string }) {
                     className="w-full rounded-lg border border-gray-300 px-3 py-3 text-base focus:border-blue-500 focus:outline-none" />
                   <textarea placeholder="메모 (선택)" value={editForm.memo} onChange={(e) => setEditForm((f) => ({ ...f, memo: e.target.value }))} rows={2}
                     className="w-full rounded-lg border border-gray-300 px-3 py-3 text-base focus:border-blue-500 focus:outline-none resize-none" />
+                  {/* 약속: 목적 + 강사/담당자 수정 */}
+                  {viewingEvent?.type === "appointment" && (
+                    <div className="space-y-2">
+                      <div>
+                        <p className="text-xs text-gray-500 mb-1">목적</p>
+                        <div className="grid grid-cols-3 gap-2">
+                          {[["pre_visit", "전초"], ["management", "관리"], ["lecture", "강의"]].map(([val, label]) => (
+                            <button key={val} type="button" onClick={() => setEditForm(f => ({ ...f, purpose: val, instructor_name: val !== f.purpose ? "" : f.instructor_name }))}
+                              className={`py-2 rounded-lg border text-sm font-medium ${editForm.purpose === val ? "bg-blue-600 text-white border-blue-600" : "bg-white text-gray-600 border-gray-300"}`}>
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      {editForm.purpose === "lecture" && (
+                        <div>
+                          <p className="text-xs text-gray-500 mb-1">강의자</p>
+                          <input type="text" value={editForm.instructor_name} onChange={(e) => setEditForm(f => ({ ...f, instructor_name: e.target.value }))}
+                            placeholder="강의자 이름" className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none" />
+                        </div>
+                      )}
+                      {(editForm.purpose === "pre_visit" || editForm.purpose === "management") && (
+                        <div>
+                          <p className="text-xs text-gray-500 mb-1">담당자</p>
+                          <input type="text" value={editForm.instructor_name} onChange={(e) => setEditForm(f => ({ ...f, instructor_name: e.target.value }))}
+                            placeholder="담당자 이름" className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none" />
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   {/* 공유 대상 */}
                   {(viewingEvent?.type === "appointment" || viewingEvent?.type === "personal") && (
                     <div>
