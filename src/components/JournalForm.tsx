@@ -67,6 +67,20 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const waveHistoryRef = useRef<number[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const wakeLockRef = useRef<WakeLockSentinel | null>(null);
+  const discardRef = useRef(false);
+
+  const requestWakeLock = async () => {
+    try {
+      if ("wakeLock" in navigator) {
+        wakeLockRef.current = await (navigator as Navigator & { wakeLock: { request: (t: "screen") => Promise<WakeLockSentinel> } }).wakeLock.request("screen");
+      }
+    } catch {}
+  };
+  const releaseWakeLock = async () => {
+    try { await wakeLockRef.current?.release(); } catch {}
+    wakeLockRef.current = null;
+  };
 
   useEffect(() => {
     const u = getUser();
@@ -79,8 +93,19 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
+      releaseWakeLock();
     };
   }, []);
+
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === "visible" && recording && !wakeLockRef.current) {
+        requestWakeLock();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [recording]);
 
   const fetchJournal = async () => {
     const { data } = await supabase.from("journals").select("*").eq("id", journalId).single();
@@ -238,6 +263,10 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
         stream.getTracks().forEach((t) => t.stop());
         if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
         audioCtx.close();
+        await releaseWakeLock();
+        const wasDiscarded = discardRef.current;
+        discardRef.current = false;
+        if (wasDiscarded) return;
         const blob = new Blob(chunksRef.current, { type: mediaRecorder.mimeType });
         setShowRecordModal(false);
         // 바로 저장 + 목록 이동
@@ -249,6 +278,7 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
       setRecordingTime(0);
       timerRef.current = setInterval(() => setRecordingTime((t) => t + 1), 1000);
       drawWaveform();
+      requestWakeLock();
     } catch {
       alert("마이크 권한을 허용해주세요.");
     }
@@ -260,6 +290,26 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
       setRecording(false);
       if (timerRef.current) clearInterval(timerRef.current);
     }
+  };
+
+  const restartRecording = () => {
+    if (mediaRecorderRef.current && recording) {
+      discardRef.current = true;
+      mediaRecorderRef.current.stop();
+      setRecording(false);
+      if (timerRef.current) clearInterval(timerRef.current);
+      setTimeout(() => startRecording(), 200);
+    }
+  };
+
+  const cancelRecording = () => {
+    if (mediaRecorderRef.current && recording) {
+      discardRef.current = true;
+      mediaRecorderRef.current.stop();
+      setRecording(false);
+      if (timerRef.current) clearInterval(timerRef.current);
+    }
+    setShowRecordModal(false);
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -576,6 +626,20 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
             >
               녹음 중지 → 저장
             </button>
+            <div className="flex gap-2">
+              <button
+                onClick={restartRecording}
+                className="flex-1 bg-white border border-gray-300 text-gray-700 py-2.5 rounded-xl text-sm font-semibold hover:bg-gray-50 transition-colors"
+              >
+                다시 녹음
+              </button>
+              <button
+                onClick={cancelRecording}
+                className="flex-1 bg-white border border-gray-300 text-gray-700 py-2.5 rounded-xl text-sm font-semibold hover:bg-gray-50 transition-colors"
+              >
+                취소
+              </button>
+            </div>
           </div>
         </div>
       )}
