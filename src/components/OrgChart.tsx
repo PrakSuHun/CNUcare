@@ -544,14 +544,16 @@ export default function OrgChart({ userRole, userId, basePath, editMode: externa
 
       {/* 선택된 생명 이동 대상 선택 모달 */}
       {movingSelectedTo && (
-        <div className="fixed inset-0 bg-black/50 flex items-end justify-center z-50" onClick={() => setMovingSelectedTo(false)}>
-          <div className="bg-white w-full max-w-lg rounded-t-2xl p-4 space-y-3" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 bg-black/50 flex items-end justify-center z-50" onClick={(e) => { if (e.target === e.currentTarget) setMovingSelectedTo(false); }}>
+          <div className="bg-white w-full max-w-lg rounded-t-2xl p-4 space-y-3">
             <h3 className="text-sm font-bold">{selectedLives.size}명을 이동할 대상 선택</h3>
             <div className="space-y-2 max-h-60 overflow-y-auto">
               {allMoveTargets.map((s) => (
                 <button
                   key={s.id}
+                  type="button"
                   onClick={() => moveSelectedToStudent(s.id)}
+                  style={{ touchAction: "manipulation" }}
                   className="w-full text-left rounded-lg border border-gray-200 px-4 py-3 hover:bg-blue-50 hover:border-blue-300 transition-colors"
                 >
                   <span className="text-sm font-medium">{s.display_name}</span>
@@ -568,15 +570,17 @@ export default function OrgChart({ userRole, userId, basePath, editMode: externa
 
       {/* 대학생 이동 모달 */}
       {movingStudent && (
-        <div className="fixed inset-0 bg-black/50 flex items-end justify-center z-50" onClick={() => setMovingStudent(null)}>
-          <div className="bg-white w-full max-w-lg rounded-t-2xl p-4 space-y-3" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 bg-black/50 flex items-end justify-center z-50" onClick={(e) => { if (e.target === e.currentTarget) setMovingStudent(null); }}>
+          <div className="bg-white w-full max-w-lg rounded-t-2xl p-4 space-y-3">
             <h3 className="text-sm font-bold">대학생 이동: {movingStudent.name}</h3>
             <p className="text-xs text-gray-500">어느 관리자 밑으로 이동할까요?</p>
             <div className="space-y-2 max-h-60 overflow-y-auto">
               {tree.filter((m) => m.id !== "unassigned").map((m) => (
                 <button
                   key={m.id}
+                  type="button"
                   onClick={() => moveStudentToManager(movingStudent.id, m.id)}
+                  style={{ touchAction: "manipulation" }}
                   className="w-full text-left rounded-lg border border-gray-200 px-4 py-3 hover:bg-blue-50 hover:border-blue-300 transition-colors"
                 >
                   <span className="text-sm font-medium">{m.display_name}</span>
@@ -591,15 +595,17 @@ export default function OrgChart({ userRole, userId, basePath, editMode: externa
 
       {/* 생명 이동 모달 */}
       {movingLife && (
-        <div className="fixed inset-0 bg-black/50 flex items-end justify-center z-50" onClick={() => setMovingLife(null)}>
-          <div className="bg-white w-full max-w-lg rounded-t-2xl p-4 space-y-3" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 bg-black/50 flex items-end justify-center z-50" onClick={(e) => { if (e.target === e.currentTarget) setMovingLife(null); }}>
+          <div className="bg-white w-full max-w-lg rounded-t-2xl p-4 space-y-3">
             <h3 className="text-sm font-bold">생명 이동: {movingLife.name}</h3>
             <p className="text-xs text-gray-500">누구에게 이동할까요?</p>
             <div className="space-y-2 max-h-60 overflow-y-auto">
               {allMoveTargets.filter((s) => s.id !== movingLife.fromStudentId).map((s) => (
                 <button
                   key={s.id}
+                  type="button"
                   onClick={() => moveLifeToStudent(movingLife.id, movingLife.fromStudentId, s.id)}
+                  style={{ touchAction: "manipulation" }}
                   className="w-full text-left rounded-lg border border-gray-200 px-4 py-3 hover:bg-blue-50 hover:border-blue-300 transition-colors"
                 >
                   <span className="text-sm font-medium">{s.display_name}</span>
