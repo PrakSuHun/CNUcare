@@ -49,6 +49,8 @@ export default function AnalysisPage() {
   const [selectedType, setSelectedType] = useState("");
   const [targets, setTargets] = useState<SelectOption[]>([]);
   const [selectedTarget, setSelectedTarget] = useState("");
+  const [targetSearch, setTargetSearch] = useState("");
+  const [lectureSearch, setLectureSearch] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [reports, setReports] = useState<Report[]>([]);
   const [viewingReport, setViewingReport] = useState<Report | null>(null);
@@ -277,18 +279,29 @@ export default function AnalysisPage() {
           </div>
 
           {selectedType && selectedType !== "overall" && (
-            <select
-              value={selectedTarget}
-              onChange={(e) => setSelectedTarget(e.target.value)}
-              className="w-full rounded-lg border border-gray-300 px-4 py-3 text-base focus:border-blue-500 focus:outline-none"
-            >
-              <option value="">
-                {selectedType === "life" ? "생명 선택" : selectedType === "student" ? "전도자 선택" : "관리자 선택"}
-              </option>
-              {targets.map((t) => (
-                <option key={t.id} value={t.id}>{t.name}</option>
-              ))}
-            </select>
+            <div className="space-y-2">
+              <input
+                type="text"
+                placeholder="이름으로 검색"
+                value={targetSearch}
+                onChange={(e) => setTargetSearch(e.target.value)}
+                className="w-full rounded-lg border border-gray-300 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none"
+              />
+              <select
+                value={selectedTarget}
+                onChange={(e) => setSelectedTarget(e.target.value)}
+                className="w-full rounded-lg border border-gray-300 px-4 py-3 text-base focus:border-blue-500 focus:outline-none"
+              >
+                <option value="">
+                  {selectedType === "life" ? "생명 선택" : selectedType === "student" ? "전도자 선택" : "관리자 선택"}
+                </option>
+                {targets
+                  .filter((t) => !targetSearch || t.name.toLowerCase().includes(targetSearch.toLowerCase()))
+                  .map((t) => (
+                    <option key={t.id} value={t.id}>{t.name}</option>
+                  ))}
+              </select>
+            </div>
           )}
 
           {error && (
@@ -406,13 +419,22 @@ export default function AnalysisPage() {
       {/* 강의 반응 정리 */}
       {tab === "lecture" && (
         <div className="space-y-3">
+          <input
+            type="text"
+            placeholder="이름으로 검색"
+            value={lectureSearch}
+            onChange={(e) => setLectureSearch(e.target.value)}
+            className="w-full rounded-lg border border-gray-300 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none"
+          />
           <select value={lectureLife}
             onChange={(e) => { if (e.target.value) fetchLectureReactions(e.target.value); else { setLectureLife(""); setLectureReactions([]); } }}
             className="w-full rounded-lg border border-gray-300 px-4 py-3 text-base focus:border-blue-500 focus:outline-none">
             <option value="">생명 선택</option>
-            {allLives.map((l) => (
-              <option key={l.id} value={l.id}>{l.name} ({STAGE_LABELS[l.stage] || l.stage})</option>
-            ))}
+            {allLives
+              .filter((l) => !lectureSearch || l.name.toLowerCase().includes(lectureSearch.toLowerCase()))
+              .map((l) => (
+                <option key={l.id} value={l.id}>{l.name} ({STAGE_LABELS[l.stage] || l.stage})</option>
+              ))}
           </select>
           {loadingLecture && <p className="text-center text-sm text-gray-400 py-4">로딩 중...</p>}
           {!loadingLecture && lectureLife && lectureReactions.length === 0 && (

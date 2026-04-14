@@ -41,6 +41,8 @@ export default function InstructorAnalysis() {
   const [lives, setLives] = useState<Life[]>([]);
   const [selectedLife, setSelectedLife] = useState("");
   const [selectedLectureLife, setSelectedLectureLife] = useState("");
+  const [lifeSearch, setLifeSearch] = useState("");
+  const [lectureSearch, setLectureSearch] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [reports, setReports] = useState<Report[]>([]);
   const [viewingReport, setViewingReport] = useState<Report | null>(null);
@@ -195,15 +197,24 @@ export default function InstructorAnalysis() {
       {/* 생명 분석 */}
       {tab === "life" && !viewingReport && (
         <div className="space-y-3">
+          <input
+            type="text"
+            placeholder="이름으로 검색"
+            value={lifeSearch}
+            onChange={(e) => setLifeSearch(e.target.value)}
+            className="w-full rounded-lg border border-gray-300 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none"
+          />
           <select
             value={selectedLife}
             onChange={(e) => setSelectedLife(e.target.value)}
             className="w-full rounded-lg border border-gray-300 px-4 py-3 text-base focus:border-blue-500 focus:outline-none"
           >
             <option value="">생명 선택</option>
-            {lives.map((l) => (
-              <option key={l.id} value={l.id}>{l.name} ({STAGE_LABELS[l.stage] || l.stage})</option>
-            ))}
+            {lives
+              .filter((l) => !lifeSearch || l.name.toLowerCase().includes(lifeSearch.toLowerCase()))
+              .map((l) => (
+                <option key={l.id} value={l.id}>{l.name} ({STAGE_LABELS[l.stage] || l.stage})</option>
+              ))}
           </select>
 
           {error && <p className="text-sm text-red-500">{error}</p>}
@@ -266,15 +277,24 @@ export default function InstructorAnalysis() {
       {/* 강의 반응 정리 */}
       {tab === "lecture" && (
         <div className="space-y-3">
+          <input
+            type="text"
+            placeholder="이름으로 검색"
+            value={lectureSearch}
+            onChange={(e) => setLectureSearch(e.target.value)}
+            className="w-full rounded-lg border border-gray-300 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none"
+          />
           <select
             value={selectedLectureLife}
             onChange={(e) => { if (e.target.value) fetchLectureReactions(e.target.value); else { setSelectedLectureLife(""); setReactions([]); } }}
             className="w-full rounded-lg border border-gray-300 px-4 py-3 text-base focus:border-blue-500 focus:outline-none"
           >
             <option value="">생명 선택</option>
-            {lives.map((l) => (
-              <option key={l.id} value={l.id}>{l.name} ({STAGE_LABELS[l.stage] || l.stage})</option>
-            ))}
+            {lives
+              .filter((l) => !lectureSearch || l.name.toLowerCase().includes(lectureSearch.toLowerCase()))
+              .map((l) => (
+                <option key={l.id} value={l.id}>{l.name} ({STAGE_LABELS[l.stage] || l.stage})</option>
+              ))}
           </select>
 
           {loadingReactions && <p className="text-center text-sm text-gray-400 py-4">로딩 중...</p>}
