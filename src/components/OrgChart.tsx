@@ -298,24 +298,31 @@ export default function OrgChart({ userRole, userId, basePath, editMode: externa
 
   // 선택된 생명 일괄 이동 (기존 연결 유지 + 새 연결 추가)
   const moveSelectedToStudent = async (toStudentId: string) => {
-    for (const lifeId of selectedLives) {
-      // 기존 evangelist의 created_at을 현재로 업데이트
-      await supabase.from("user_lives")
-        .update({ created_at: new Date().toISOString() })
-        .eq("life_id", lifeId)
-        .eq("role_in_life", "evangelist");
-      // 새 연결 추가
-      await supabase.from("user_lives").upsert({
-        user_id: toStudentId,
-        life_id: lifeId,
-        role_in_life: "evangelist",
-      }, { onConflict: "user_id,life_id" });
+    if (selectedLives.size === 0) {
+      alert("이동할 생명을 먼저 선택하세요.");
+      return;
     }
-
-    setSelectedLives(new Set());
-    setShowToolModal(false);
-    setMovingSelectedTo(false);
-    fetchOrgData();
+    try {
+      for (const lifeId of selectedLives) {
+        const { error: upErr } = await supabase.from("user_lives")
+          .update({ created_at: new Date().toISOString() })
+          .eq("life_id", lifeId)
+          .eq("role_in_life", "evangelist");
+        if (upErr) throw upErr;
+        const { error: insErr } = await supabase.from("user_lives").upsert({
+          user_id: toStudentId,
+          life_id: lifeId,
+          role_in_life: "evangelist",
+        }, { onConflict: "user_id,life_id" });
+        if (insErr) throw insErr;
+      }
+      setSelectedLives(new Set());
+      setShowToolModal(false);
+      setMovingSelectedTo(false);
+      fetchOrgData();
+    } catch (e: any) {
+      alert("이동 실패: " + (e?.message || "알 수 없는 오류"));
+    }
   };
 
   // 대학생을 다른 관리자로 이동
@@ -544,7 +551,7 @@ export default function OrgChart({ userRole, userId, basePath, editMode: externa
 
       {/* 선택된 생명 이동 대상 선택 모달 */}
       {movingSelectedTo && (
-        <div className="fixed inset-0 bg-black/50 flex items-end justify-center z-50" onClick={(e) => { if (e.target === e.currentTarget) setMovingSelectedTo(false); }}>
+        <div className="fixed inset-0 bg-black/50 flex items-end justify-center z-50">
           <div className="bg-white w-full max-w-lg rounded-t-2xl p-4 space-y-3">
             <h3 className="text-sm font-bold">{selectedLives.size}명을 이동할 대상 선택</h3>
             <div className="space-y-2 max-h-60 overflow-y-auto">
@@ -570,7 +577,7 @@ export default function OrgChart({ userRole, userId, basePath, editMode: externa
 
       {/* 대학생 이동 모달 */}
       {movingStudent && (
-        <div className="fixed inset-0 bg-black/50 flex items-end justify-center z-50" onClick={(e) => { if (e.target === e.currentTarget) setMovingStudent(null); }}>
+        <div className="fixed inset-0 bg-black/50 flex items-end justify-center z-50">
           <div className="bg-white w-full max-w-lg rounded-t-2xl p-4 space-y-3">
             <h3 className="text-sm font-bold">대학생 이동: {movingStudent.name}</h3>
             <p className="text-xs text-gray-500">어느 관리자 밑으로 이동할까요?</p>
@@ -595,7 +602,7 @@ export default function OrgChart({ userRole, userId, basePath, editMode: externa
 
       {/* 생명 이동 모달 */}
       {movingLife && (
-        <div className="fixed inset-0 bg-black/50 flex items-end justify-center z-50" onClick={(e) => { if (e.target === e.currentTarget) setMovingLife(null); }}>
+        <div className="fixed inset-0 bg-black/50 flex items-end justify-center z-50">
           <div className="bg-white w-full max-w-lg rounded-t-2xl p-4 space-y-3">
             <h3 className="text-sm font-bold">생명 이동: {movingLife.name}</h3>
             <p className="text-xs text-gray-500">누구에게 이동할까요?</p>
