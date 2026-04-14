@@ -4,6 +4,7 @@ export interface User {
   name: string;
   role: "student" | "manager" | "instructor" | "leader" | "admin";
   display_name: string;
+  is_college_leader?: boolean;
 }
 
 function getCookie(name: string): string | null {

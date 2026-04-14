@@ -17,7 +17,11 @@ export default function LoginPage() {
     const user = getUser();
     if (user) {
       const routes: Record<string, string> = { admin: "/admin", leader: "/leader", instructor: "/instructor", manager: "/manager" };
-      router.replace(routes[user.role] || "/student");
+      if (user.role === "student" && user.is_college_leader) {
+        router.replace("/manager");
+      } else {
+        router.replace(routes[user.role] || "/student");
+      }
     }
   }, [router]);
 
@@ -28,7 +32,7 @@ export default function LoginPage() {
 
     const { data, error: dbError } = await supabase
       .from("users")
-      .select("id, login_id, name, role, display_name")
+      .select("id, login_id, name, role, display_name, is_college_leader")
       .eq("login_id", loginId)
       .eq("password", password)
       .single();
@@ -57,7 +61,11 @@ export default function LoginPage() {
         router.push("/manager");
         break;
       default:
-        router.push("/student");
+        if (data.role === "student" && data.is_college_leader) {
+          router.push("/manager");
+        } else {
+          router.push("/student");
+        }
     }
   };
 
