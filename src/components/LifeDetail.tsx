@@ -22,6 +22,7 @@ interface Life {
   birth_year: string | null;
   stage: string;
   is_failed: boolean;
+  memo: string | null;
 }
 
 interface Journal {
@@ -53,6 +54,8 @@ export default function LifeDetail({ lifeId, basePath, backPath, readOnly = fals
   const [loading, setLoading] = useState(true);
   const [editingInfo, setEditingInfo] = useState(false);
   const [editForm, setEditForm] = useState<Partial<Life>>({});
+  const [memoDraft, setMemoDraft] = useState("");
+  const [memoSaving, setMemoSaving] = useState(false);
   const [activeTab, setActiveTab] = useState<"info" | "lessons" | "appointments">("info");
   const [showMenu, setShowMenu] = useState(false);
   const [showTrash, setShowTrash] = useState(false);
@@ -83,6 +86,7 @@ export default function LifeDetail({ lifeId, basePath, backPath, readOnly = fals
 
     if (lifeRes.data) {
       setLife(lifeRes.data);
+      setMemoDraft(lifeRes.data.memo || "");
       setEditForm(lifeRes.data);
     }
     if (journalRes.data) {
@@ -268,6 +272,37 @@ export default function LifeDetail({ lifeId, basePath, backPath, readOnly = fals
       {/* 정보 · 일지 탭 */}
       {activeTab === "info" && (
       <div className="p-4 space-y-4">
+        {/* 메모: 조직도/목록에서 이름 옆에 표시됨 */}
+        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+          <div className="flex items-center justify-between mb-1.5">
+            <p className="text-xs font-medium text-yellow-700">📝 메모</p>
+            {!readOnly && memoDraft !== (life.memo || "") && (
+              <button
+                onClick={async () => {
+                  setMemoSaving(true);
+                  await supabase.from("lives").update({ memo: memoDraft || null }).eq("id", lifeId);
+                  setLife({ ...life, memo: memoDraft || null });
+                  setMemoSaving(false);
+                }}
+                disabled={memoSaving}
+                className="text-xs bg-yellow-500 text-white rounded-full px-3 py-1 disabled:opacity-50"
+              >
+                {memoSaving ? "저장 중..." : "저장"}
+              </button>
+            )}
+          </div>
+          {readOnly ? (
+            <p className="text-sm text-gray-700 whitespace-pre-wrap">{life.memo || <span className="text-gray-400">메모 없음</span>}</p>
+          ) : (
+            <textarea
+              value={memoDraft}
+              onChange={(e) => setMemoDraft(e.target.value)}
+              placeholder="간단한 상태 메모 (예: 시험기간, 약속 잡기 어려움 등)"
+              rows={2}
+              className="w-full rounded-lg border border-yellow-200 bg-white px-3 py-2 text-sm focus:border-yellow-400 focus:outline-none resize-none"
+            />
+          )}
+        </div>
         {!life.is_failed && !readOnly && life.stage !== "completed" && (
           <div className="bg-white rounded-lg border border-gray-200 p-4">
             <div className="flex items-center justify-between">

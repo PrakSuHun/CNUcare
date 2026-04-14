@@ -14,6 +14,7 @@ interface LifeItem {
   stage: string;
   is_failed: boolean;
   last_met_at: string | null;
+  memo?: string | null;
   has_unread?: boolean;
   date_label?: string; // 조직도에 표시할 날짜 텍스트
   date_is_upcoming?: boolean; // 예정 약속 여부
@@ -113,7 +114,7 @@ export default function OrgChart({ userRole, userId, basePath, editMode: externa
       supabase.from("users").select("id, display_name, manager_id").eq("role", "student").order("display_name"),
       supabase
         .from("lives")
-        .select("id, name, age, department, stage, is_failed, last_met_at, primary_user_id, created_at")
+        .select("id, name, age, department, stage, is_failed, last_met_at, memo, primary_user_id, created_at")
         .eq("is_failed", false),
     ]);
     const managers = managersRes.data;
@@ -235,6 +236,7 @@ export default function OrgChart({ userRole, userId, basePath, editMode: externa
         stage: lifeRow.stage,
         is_failed: lifeRow.is_failed,
         last_met_at: lifeRow.last_met_at,
+        memo: lifeRow.memo,
         has_unread: unreadLifeIds.has(lifeId),
         date_label: dateLabel,
         date_is_upcoming: dateIsUpcoming,
@@ -727,11 +729,16 @@ function ManagerColumn({
                         }`}
                       >
                         <div className="flex items-center gap-2 min-w-0">
-                          <span className={`text-sm font-medium truncate ${STAGE_NAME_COLORS[life.stage] || "text-gray-800"}`}>{life.name}</span>
+                          <span className={`text-sm font-medium shrink-0 ${STAGE_NAME_COLORS[life.stage] || "text-gray-800"}`}>{life.name}</span>
                           {life.has_unread && (
                             <span className="w-2 h-2 bg-yellow-400 rounded-full shrink-0" />
                           )}
                           {life.age && <span className="text-[11px] text-gray-400 shrink-0">{life.age}세</span>}
+                          {life.memo && (
+                            <span className="text-[11px] text-yellow-700 bg-yellow-50 border border-yellow-200 rounded px-1.5 py-0.5 truncate" title={life.memo}>
+                              {life.memo}
+                            </span>
+                          )}
                         </div>
                         <div className="flex items-center gap-1.5 shrink-0">
                           {life.date_label && (
