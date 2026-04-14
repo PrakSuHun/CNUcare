@@ -179,7 +179,7 @@ export default function LifeDetail({ lifeId, basePath, backPath, readOnly = fals
     <div className="h-full flex flex-col bg-gray-50">
       <header className="bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between shrink-0">
         <div className="flex items-center">
-          <button onClick={() => router.push(backPath)} className="text-gray-500 mr-3">&larr;</button>
+          <button onClick={() => { if (window.history.length > 1) router.back(); else router.push(backPath); }} className="text-gray-500 mr-3">&larr;</button>
           <div>
             <h1 className="text-lg font-bold">{life.name}</h1>
             <p className="text-xs text-gray-500">
