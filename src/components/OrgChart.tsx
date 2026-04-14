@@ -88,12 +88,14 @@ export default function OrgChart({ userRole, userId, basePath, editMode: externa
 
     const { data: userLives } = await supabase
       .from("user_lives")
-      .select("user_id, life_id, created_at, lives(id, name, age, department, stage, is_failed, last_met_at)")
+      .select("user_id, life_id, created_at, role_in_life, lives(id, name, age, department, stage, is_failed, last_met_at)")
       .order("created_at", { ascending: true });
 
-    // 생명당 최초 등록자만 조직도에 표시 (중복 방지)
-    const firstOwner = new Map<string, string>(); // life_id → first user_id
+    // 생명당 최초 등록자(evangelist)만 조직도에 표시 (중복 방지)
+    // evangelist 외 역할(instructor 등)은 firstOwner 판정에서 제외 — 트리에 없는 사용자가 선택되면 생명이 사라지는 문제 방지
+    const firstOwner = new Map<string, string>(); // life_id → first evangelist user_id
     userLives?.forEach((ul: any) => {
+      if (ul.role_in_life !== "evangelist") return;
       if (!firstOwner.has(ul.life_id)) {
         firstOwner.set(ul.life_id, ul.user_id);
       }
@@ -296,7 +298,7 @@ export default function OrgChart({ userRole, userId, basePath, editMode: externa
     fetchOrgData();
   };
 
-  // 선택된 생명 일괄 이동 (기존 연결 유지 + 새 연결 추가)
+  // 선택된 생명 일괄 이동 (기존 연결 유지 + 새 연결 추가, 대상이 firstOwner가 되도록 created_at 조정)
   const moveSelectedToStudent = async (toStudentId: string) => {
     if (selectedLives.size === 0) {
       alert("이동할 생명을 먼저 선택하세요.");
@@ -304,15 +306,21 @@ export default function OrgChart({ userRole, userId, basePath, editMode: externa
     }
     try {
       for (const lifeId of selectedLives) {
+        const now = Date.now();
+        const bumpTs = new Date(now).toISOString();
+        const targetTs = new Date(now - 10_000).toISOString();
+        // 1) 기존 evangelist 행들을 now로 밀어내기
         const { error: upErr } = await supabase.from("user_lives")
-          .update({ created_at: new Date().toISOString() })
+          .update({ created_at: bumpTs })
           .eq("life_id", lifeId)
           .eq("role_in_life", "evangelist");
         if (upErr) throw upErr;
+        // 2) 대상 행에 명시적으로 더 이른 created_at 설정 → firstOwner 확정
         const { error: insErr } = await supabase.from("user_lives").upsert({
           user_id: toStudentId,
           life_id: lifeId,
           role_in_life: "evangelist",
+          created_at: targetTs,
         }, { onConflict: "user_id,life_id" });
         if (insErr) throw insErr;
       }
@@ -333,24 +341,29 @@ export default function OrgChart({ userRole, userId, basePath, editMode: externa
   };
 
   // 생명을 다른 사용자(대학생/관리자)로 이동
-  // 기존 연결은 유지하고, 새 연결을 추가 + 조직도 표시를 새 사람 밑으로 변경
-  const moveLifeToStudent = async (lifeId: string, fromStudentId: string, toUserId: string) => {
-    // 1. 새 연결 추가 (이미 있으면 무시)
-    await supabase.from("user_lives").upsert({
-      user_id: toUserId,
-      life_id: lifeId,
-      role_in_life: "evangelist",
-    }, { onConflict: "user_id,life_id" });
-
-    // 2. 기존 연결의 created_at을 현재로 업데이트하여 firstOwner가 새 사람이 되도록
-    //    (firstOwner = created_at이 가장 오래된 사람)
-    await supabase.from("user_lives")
-      .update({ created_at: new Date().toISOString() })
-      .eq("life_id", lifeId)
-      .eq("user_id", fromStudentId);
-
-    setMovingLife(null);
-    fetchOrgData();
+  // 기존 evangelist 연결은 유지하되 created_at을 밀어내고, 대상에게 가장 이른 created_at 부여 → firstOwner 확정
+  const moveLifeToStudent = async (lifeId: string, _fromStudentId: string, toUserId: string) => {
+    try {
+      const now = Date.now();
+      const bumpTs = new Date(now).toISOString();
+      const targetTs = new Date(now - 10_000).toISOString();
+      const { error: upErr } = await supabase.from("user_lives")
+        .update({ created_at: bumpTs })
+        .eq("life_id", lifeId)
+        .eq("role_in_life", "evangelist");
+      if (upErr) throw upErr;
+      const { error: insErr } = await supabase.from("user_lives").upsert({
+        user_id: toUserId,
+        life_id: lifeId,
+        role_in_life: "evangelist",
+        created_at: targetTs,
+      }, { onConflict: "user_id,life_id" });
+      if (insErr) throw insErr;
+      setMovingLife(null);
+      fetchOrgData();
+    } catch (e: any) {
+      alert("이동 실패: " + (e?.message || "알 수 없는 오류"));
+    }
   };
 
   // 이동 대상 목록: 관리자 + 대학생
