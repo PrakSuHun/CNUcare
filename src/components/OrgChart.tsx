@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { getUser } from "@/lib/auth";
 import { STAGE_LABELS, STAGE_COLORS, STAGE_NAME_COLORS, STAGE_ORDER } from "@/lib/stages";
@@ -41,12 +41,31 @@ interface OrgChartProps {
 
 export default function OrgChart({ userRole, userId, basePath, editMode: externalEditMode }: OrgChartProps) {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [tree, setTree] = useState<ManagerNode[]>([]);
   const [loading, setLoading] = useState(true);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [stageFilter, setStageFilter] = useState("");
-  const [showAll, setShowAll] = useState(userRole === "instructor");
-  const [managerFilter, setManagerFilter] = useState("");
+  const [searchQuery, setSearchQuery] = useState(() => searchParams.get("q") || "");
+  const [stageFilter, setStageFilter] = useState(() => searchParams.get("stage") || "");
+  const [showAll, setShowAll] = useState(() => {
+    const v = searchParams.get("all");
+    if (v === "1") return true;
+    if (v === "0") return false;
+    return userRole === "instructor";
+  });
+  const [managerFilter, setManagerFilter] = useState(() => searchParams.get("mgr") || "");
+
+  // 필터 상태 변경 시 URL 쿼리에 반영 (뒤로가기 시 복원됨)
+  useEffect(() => {
+    const p = new URLSearchParams();
+    if (searchQuery) p.set("q", searchQuery);
+    if (stageFilter) p.set("stage", stageFilter);
+    if (showAll !== (userRole === "instructor")) p.set("all", showAll ? "1" : "0");
+    if (managerFilter) p.set("mgr", managerFilter);
+    const qs = p.toString();
+    const url = qs ? `${pathname}?${qs}` : pathname;
+    router.replace(url, { scroll: false });
+  }, [searchQuery, stageFilter, showAll, managerFilter, pathname, router, userRole]);
   const [editMode, setEditMode] = useState(false);
   const isEditing = externalEditMode !== undefined ? externalEditMode : editMode;
   const [movingStudent, setMovingStudent] = useState<{ id: string; name: string } | null>(null);
