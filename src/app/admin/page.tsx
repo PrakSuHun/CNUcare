@@ -18,10 +18,12 @@ interface UserRow {
   phone: string;
   birth_date: string | null;
   manager_id: string | null;
+  is_college_leader: boolean;
 }
 
 const ROLE_COLORS: Record<string, string> = {
   student: "bg-gray-100 text-gray-700",
+  college_leader: "bg-teal-100 text-teal-700",
   manager: "bg-yellow-100 text-yellow-700",
   instructor: "bg-blue-100 text-blue-700",
   leader: "bg-purple-100 text-purple-700",
@@ -53,15 +55,19 @@ export default function AdminPage() {
   const fetchUsers = async () => {
     const { data } = await supabase
       .from("users")
-      .select("id, login_id, display_name, name, role, phone, birth_date, manager_id")
+      .select("id, login_id, display_name, name, role, phone, birth_date, manager_id, is_college_leader")
       .order("role")
       .order("display_name");
     if (data) setUsers(data);
     setLoading(false);
   };
 
-  const changeRole = async (userId: string, newRole: string) => {
-    await supabase.from("users").update({ role: newRole }).eq("id", userId);
+  const changeRole = async (userId: string, newValue: string) => {
+    // "college_leader"는 role=student + is_college_leader=true로 저장
+    const updates = newValue === "college_leader"
+      ? { role: "student", is_college_leader: true }
+      : { role: newValue, is_college_leader: false };
+    await supabase.from("users").update(updates).eq("id", userId);
     fetchUsers();
   };
 
@@ -166,14 +172,15 @@ export default function AdminPage() {
             <p className="text-xs text-gray-500 mb-2">전체 {users.length}명</p>
             {users.map((u) => {
               const roleRoute: Record<string, string> = { admin: "/admin", leader: "/leader", instructor: "/instructor", manager: "/manager", student: "/student" };
-              const viewPath = roleRoute[u.role] || "/student";
+              const effectiveRole = u.is_college_leader && u.role === "student" ? "college_leader" : u.role;
+              const viewPath = u.is_college_leader && u.role === "student" ? "/manager" : (roleRoute[u.role] || "/student");
               return (
               <div key={u.id} className="bg-white rounded-lg border border-gray-200 p-3">
                 <div className="flex items-center justify-between">
                   <button onClick={() => {
                     // 해당 사용자로 임시 전환하여 페이지 확인
                     localStorage.setItem("admin_backup", localStorage.getItem("user") || "");
-                    localStorage.setItem("user", JSON.stringify({ id: u.id, login_id: u.login_id, name: u.name, role: u.role, display_name: u.display_name }));
+                    localStorage.setItem("user", JSON.stringify({ id: u.id, login_id: u.login_id, name: u.name, role: u.role, display_name: u.display_name, is_college_leader: u.is_college_leader }));
                     router.push(viewPath);
                   }} className="text-left flex-1 min-w-0">
                     <p className="text-sm font-medium truncate">{u.display_name}</p>
@@ -182,11 +189,12 @@ export default function AdminPage() {
                   <div className="flex items-center gap-2 shrink-0">
                     <button onClick={() => openEdit(u)} className="text-xs text-gray-400 border border-gray-200 rounded-full px-2 py-1 hover:bg-gray-50">수정</button>
                     <select
-                      value={u.role}
+                      value={effectiveRole}
                       onChange={(e) => changeRole(u.id, e.target.value)}
-                      className={`text-xs rounded-full px-2.5 py-1 border-0 font-medium ${ROLE_COLORS[u.role] || "bg-gray-100"}`}
+                      className={`text-xs rounded-full px-2.5 py-1 border-0 font-medium ${ROLE_COLORS[effectiveRole] || "bg-gray-100"}`}
                     >
                       <option value="student">대학생</option>
+                      <option value="college_leader">대학리더</option>
                       <option value="manager">관리자</option>
                       <option value="instructor">강사</option>
                       <option value="leader">지도자</option>
