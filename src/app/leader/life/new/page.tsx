@@ -59,6 +59,7 @@ export default function NewLifePage() {
       mbti: form.mbti || null, meeting_reason: form.meeting_reason || null,
       has_partner: form.has_partner === "" ? null : form.has_partner === "true",
       characteristics: form.characteristics || null, birth_year: form.birth_year || null,
+      primary_user_id: user.id,
     }).select("id").single();
     if (!newLife) { alert("등록 실패"); setLoading(false); return; }
     await supabase.from("user_lives").insert({ user_id: user.id, life_id: newLife.id, role_in_life: "instructor" });

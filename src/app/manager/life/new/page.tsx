@@ -44,6 +44,7 @@ export default function NewLifePage() {
     if (!user) return;
     setLoading(true);
     await supabase.from("user_lives").insert({ user_id: user.id, life_id: lifeId, role_in_life: "manager" });
+    await supabase.from("lives").update({ primary_user_id: user.id }).eq("id", lifeId).is("primary_user_id", null);
     router.push("/manager");
   };
 
@@ -62,6 +63,7 @@ export default function NewLifePage() {
       has_partner: form.has_partner === "" ? null : form.has_partner === "true",
       characteristics: form.characteristics || null,
       birth_year: form.birth_year || null,
+      primary_user_id: user.id,
     }).select("id").single();
     if (!newLife) { alert("생명 등록에 실패했습니다."); setLoading(false); return; }
     await supabase.from("user_lives").insert({ user_id: user.id, life_id: newLife.id, role_in_life: "manager" });

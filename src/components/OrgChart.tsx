@@ -80,47 +80,38 @@ export default function OrgChart({ userRole, userId, basePath, editMode: externa
   };
 
   const fetchOrgData = async () => {
-    // 최초 3개 쿼리 병렬 실행 (직렬 대기 제거)
-    const [managersRes, studentsRes, userLivesRes] = await Promise.all([
+    // 최초 3개 쿼리 병렬 실행
+    const [managersRes, studentsRes, livesRes] = await Promise.all([
       supabase.from("users").select("id, display_name").eq("role", "manager").order("display_name"),
       supabase.from("users").select("id, display_name, manager_id").eq("role", "student").order("display_name"),
       supabase
-        .from("user_lives")
-        .select("user_id, life_id, created_at, role_in_life, lives(id, name, age, department, stage, is_failed, last_met_at)")
-        .order("created_at", { ascending: true }),
+        .from("lives")
+        .select("id, name, age, department, stage, is_failed, last_met_at, primary_user_id, created_at")
+        .eq("is_failed", false),
     ]);
     const managers = managersRes.data;
     const students = studentsRes.data;
-    const userLives = userLivesRes.data;
+    const livesList = livesRes.data;
 
-    // 생명당 최초 등록자(evangelist)만 조직도에 표시 (중복 방지)
-    // evangelist 외 역할(instructor 등)은 firstOwner 판정에서 제외 — 트리에 없는 사용자가 선택되면 생명이 사라지는 문제 방지
-    const firstOwner = new Map<string, string>(); // life_id → first evangelist user_id
-    userLives?.forEach((ul: any) => {
-      if (ul.role_in_life !== "evangelist") return;
-      if (!firstOwner.has(ul.life_id)) {
-        firstOwner.set(ul.life_id, ul.user_id);
-      }
+    // 담당자 맵: life_id → primary_user_id (담당자 없으면 제외)
+    const firstOwner = new Map<string, string>();
+    (livesList || []).forEach((l: any) => {
+      if (l.primary_user_id) firstOwner.set(l.id, l.primary_user_id);
     });
 
-    // 현재 사용자
     const currentUser = getUser();
     const currentUserId = currentUser?.id || "";
 
     // 관리자만 알림 표시 (자기 소속 대학생의 생명만)
     const unreadLifeIds = new Set<string>();
     if (userRole === "manager") {
-      // 자기 소속 대학생 ID 목록
       const myStudentIds = new Set(
         (students || []).filter((s) => s.manager_id === userId).map((s) => s.id)
       );
-      // 소속 대학생의 생명 ID 목록
-      const myLifeIds = new Set(
-        (userLives || []).filter((ul: any) => myStudentIds.has(ul.user_id)).map((ul: any) => ul.life_id)
-      );
-
-      // 내 소속 생명만 조회 (전체 스캔 제거)
-      const myLifeIdArr = [...myLifeIds];
+      // 내가 담당(직접 관리)하거나 내 소속 대학생이 담당하는 생명
+      const myLifeIdArr = (livesList || [])
+        .filter((l: any) => l.primary_user_id === userId || myStudentIds.has(l.primary_user_id))
+        .map((l: any) => l.id);
       if (myLifeIdArr.length > 0) {
         const { data: recentJournals } = await supabase
           .from("journals")
@@ -146,12 +137,12 @@ export default function OrgChart({ userRole, userId, basePath, editMode: externa
       supabase.from("journals").select("life_id, met_date").in("life_id", safeIds).is("deleted_at", null).order("met_date", { ascending: false }),
     ]);
 
-    // 생명별 등록일 (user_lives의 created_at)
+    // 생명별 등록일 (lives.created_at)
     const lifeCreatedAt = new Map<string, string>();
-    userLives?.forEach((ul: any) => {
-      if (!lifeCreatedAt.has(ul.life_id)) {
-        lifeCreatedAt.set(ul.life_id, ul.created_at);
-      }
+    const livesById = new Map<string, any>();
+    (livesList || []).forEach((l: any) => {
+      lifeCreatedAt.set(l.id, l.created_at);
+      livesById.set(l.id, l);
     });
 
     // 생명별 최신 일지 날짜
@@ -191,32 +182,38 @@ export default function OrgChart({ userRole, userId, basePath, editMode: externa
     });
 
     const livesMap = new Map<string, LifeItem[]>();
-    userLives?.forEach((ul: any) => {
-      if (!ul.lives) return;
-      if (firstOwner.get(ul.life_id) !== ul.user_id) return;
-      const list = livesMap.get(ul.user_id) || [];
+    firstOwner.forEach((ownerId, lifeId) => {
+      const lifeRow = livesById.get(lifeId);
+      if (!lifeRow) return;
+      const list = livesMap.get(ownerId) || [];
 
       // 날짜 라벨 결정: 약속 > 일지 최신 met_date > 등록일
-      const apptInfo = lifeDateInfo.get(ul.life_id);
+      const apptInfo = lifeDateInfo.get(lifeId);
       let dateLabel = "";
       let dateIsUpcoming = false;
       if (apptInfo) {
         dateLabel = apptInfo.label;
         dateIsUpcoming = apptInfo.upcoming;
-      } else if (lifeLastJournal.has(ul.life_id)) {
-        dateLabel = lifeLastJournal.get(ul.life_id)!;
+      } else if (lifeLastJournal.has(lifeId)) {
+        dateLabel = lifeLastJournal.get(lifeId)!;
       } else {
-        dateLabel = (lifeCreatedAt.get(ul.life_id) || "").split("T")[0];
+        dateLabel = (lifeCreatedAt.get(lifeId) || "").split("T")[0];
       }
 
       const life = {
-        ...ul.lives,
-        has_unread: unreadLifeIds.has(ul.life_id),
+        id: lifeRow.id,
+        name: lifeRow.name,
+        age: lifeRow.age,
+        department: lifeRow.department,
+        stage: lifeRow.stage,
+        is_failed: lifeRow.is_failed,
+        last_met_at: lifeRow.last_met_at,
+        has_unread: unreadLifeIds.has(lifeId),
         date_label: dateLabel,
         date_is_upcoming: dateIsUpcoming,
       };
       list.push(life);
-      livesMap.set(ul.user_id, list);
+      livesMap.set(ownerId, list);
     });
 
     // 정렬: 알림 있는 생명 먼저 → 단계 순
@@ -303,31 +300,26 @@ export default function OrgChart({ userRole, userId, basePath, editMode: externa
     fetchOrgData();
   };
 
-  // 선택된 생명 일괄 이동 (기존 연결 유지 + 새 연결 추가, 대상이 firstOwner가 되도록 created_at 조정)
+  // 선택된 생명 일괄 담당자 변경 (lives.primary_user_id + 이력용 user_lives 추가)
   const moveSelectedToStudent = async (toStudentId: string) => {
     if (selectedLives.size === 0) {
       alert("이동할 생명을 먼저 선택하세요.");
       return;
     }
     try {
-      for (const lifeId of selectedLives) {
-        const now = Date.now();
-        const bumpTs = new Date(now).toISOString();
-        const targetTs = new Date(now - 10_000).toISOString();
-        // 1) 기존 evangelist 행들을 now로 밀어내기
-        const { error: upErr } = await supabase.from("user_lives")
-          .update({ created_at: bumpTs })
-          .eq("life_id", lifeId)
-          .eq("role_in_life", "evangelist");
-        if (upErr) throw upErr;
-        // 2) 대상 행에 명시적으로 더 이른 created_at 설정 → firstOwner 확정
-        const { error: insErr } = await supabase.from("user_lives").upsert({
+      const lifeIds = [...selectedLives];
+      // 1) 담당자 일괄 변경 (한 번의 쿼리)
+      const { error: updErr } = await supabase.from("lives")
+        .update({ primary_user_id: toStudentId })
+        .in("id", lifeIds);
+      if (updErr) throw updErr;
+      // 2) 이력 유지: user_lives에 evangelist 연결 추가 (있으면 무시)
+      for (const lifeId of lifeIds) {
+        await supabase.from("user_lives").upsert({
           user_id: toStudentId,
           life_id: lifeId,
           role_in_life: "evangelist",
-          created_at: targetTs,
-        }, { onConflict: "user_id,life_id" });
-        if (insErr) throw insErr;
+        }, { onConflict: "user_id,life_id", ignoreDuplicates: true });
       }
       setSelectedLives(new Set());
       setShowToolModal(false);
@@ -345,25 +337,18 @@ export default function OrgChart({ userRole, userId, basePath, editMode: externa
     fetchOrgData();
   };
 
-  // 생명을 다른 사용자(대학생/관리자)로 이동
-  // 기존 evangelist 연결은 유지하되 created_at을 밀어내고, 대상에게 가장 이른 created_at 부여 → firstOwner 확정
+  // 생명 담당자 변경 (lives.primary_user_id)
   const moveLifeToStudent = async (lifeId: string, _fromStudentId: string, toUserId: string) => {
     try {
-      const now = Date.now();
-      const bumpTs = new Date(now).toISOString();
-      const targetTs = new Date(now - 10_000).toISOString();
-      const { error: upErr } = await supabase.from("user_lives")
-        .update({ created_at: bumpTs })
-        .eq("life_id", lifeId)
-        .eq("role_in_life", "evangelist");
-      if (upErr) throw upErr;
-      const { error: insErr } = await supabase.from("user_lives").upsert({
+      const { error: updErr } = await supabase.from("lives")
+        .update({ primary_user_id: toUserId })
+        .eq("id", lifeId);
+      if (updErr) throw updErr;
+      await supabase.from("user_lives").upsert({
         user_id: toUserId,
         life_id: lifeId,
         role_in_life: "evangelist",
-        created_at: targetTs,
-      }, { onConflict: "user_id,life_id" });
-      if (insErr) throw insErr;
+      }, { onConflict: "user_id,life_id", ignoreDuplicates: true });
       setMovingLife(null);
       fetchOrgData();
     } catch (e: any) {

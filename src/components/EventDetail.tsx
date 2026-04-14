@@ -1161,6 +1161,7 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                                     age: a.year ? new Date().getFullYear() - (2000 + a.year) + 1 : null,
                                     gender: a.gender || null, phone: a.phone || null,
                                     characteristics: `[${event?.name}] 참여`,
+                                    primary_user_id: member.user_id,
                                   }).select("id").single();
                                   if (!life || lifeErr) { alert("생명 등록 실패: " + (lifeErr?.message || "")); return; }
                                   await supabase.from("user_lives").insert({ user_id: member.user_id, life_id: life.id, role_in_life: "evangelist" });

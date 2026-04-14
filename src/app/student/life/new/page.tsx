@@ -75,6 +75,8 @@ export default function NewLifePage() {
       life_id: lifeId,
       role_in_life: "evangelist",
     });
+    // 담당자가 비어있으면 연결한 사용자를 담당자로 설정
+    await supabase.from("lives").update({ primary_user_id: user.id }).eq("id", lifeId).is("primary_user_id", null);
 
     router.push("/student");
   };
@@ -98,6 +100,7 @@ export default function NewLifePage() {
         has_partner: form.has_partner === "" ? null : form.has_partner === "true",
         characteristics: form.characteristics || null,
         birth_year: form.birth_year || null,
+        primary_user_id: user.id,
       })
       .select("id")
       .single();
