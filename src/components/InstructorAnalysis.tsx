@@ -199,23 +199,29 @@ export default function InstructorAnalysis() {
         <div className="space-y-3">
           <input
             type="text"
-            placeholder="이름으로 검색"
+            placeholder="생명 이름 검색"
             value={lifeSearch}
             onChange={(e) => setLifeSearch(e.target.value)}
-            className="w-full rounded-lg border border-gray-300 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none"
-          />
-          <select
-            value={selectedLife}
-            onChange={(e) => setSelectedLife(e.target.value)}
             className="w-full rounded-lg border border-gray-300 px-4 py-3 text-base focus:border-blue-500 focus:outline-none"
-          >
-            <option value="">생명 선택</option>
+          />
+          <div className="max-h-60 overflow-y-auto rounded-lg border border-gray-200 bg-white divide-y divide-gray-100">
             {lives
               .filter((l) => !lifeSearch || l.name.toLowerCase().includes(lifeSearch.toLowerCase()))
               .map((l) => (
-                <option key={l.id} value={l.id}>{l.name} ({STAGE_LABELS[l.stage] || l.stage})</option>
+                <button
+                  key={l.id}
+                  type="button"
+                  onClick={() => setSelectedLife(l.id)}
+                  style={{ touchAction: "manipulation" }}
+                  className={`w-full text-left px-4 py-2.5 text-sm hover:bg-blue-50 ${selectedLife === l.id ? "bg-blue-100 font-semibold text-blue-700" : ""}`}
+                >
+                  {l.name} <span className="text-xs text-gray-400">({STAGE_LABELS[l.stage] || l.stage})</span>
+                </button>
               ))}
-          </select>
+            {lives.filter((l) => !lifeSearch || l.name.toLowerCase().includes(lifeSearch.toLowerCase())).length === 0 && (
+              <p className="text-center text-xs text-gray-400 py-4">검색 결과가 없습니다</p>
+            )}
+          </div>
 
           {error && <p className="text-sm text-red-500">{error}</p>}
 
@@ -279,23 +285,29 @@ export default function InstructorAnalysis() {
         <div className="space-y-3">
           <input
             type="text"
-            placeholder="이름으로 검색"
+            placeholder="생명 이름 검색"
             value={lectureSearch}
             onChange={(e) => setLectureSearch(e.target.value)}
-            className="w-full rounded-lg border border-gray-300 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none"
-          />
-          <select
-            value={selectedLectureLife}
-            onChange={(e) => { if (e.target.value) fetchLectureReactions(e.target.value); else { setSelectedLectureLife(""); setReactions([]); } }}
             className="w-full rounded-lg border border-gray-300 px-4 py-3 text-base focus:border-blue-500 focus:outline-none"
-          >
-            <option value="">생명 선택</option>
+          />
+          <div className="max-h-60 overflow-y-auto rounded-lg border border-gray-200 bg-white divide-y divide-gray-100">
             {lives
               .filter((l) => !lectureSearch || l.name.toLowerCase().includes(lectureSearch.toLowerCase()))
               .map((l) => (
-                <option key={l.id} value={l.id}>{l.name} ({STAGE_LABELS[l.stage] || l.stage})</option>
+                <button
+                  key={l.id}
+                  type="button"
+                  onClick={() => fetchLectureReactions(l.id)}
+                  style={{ touchAction: "manipulation" }}
+                  className={`w-full text-left px-4 py-2.5 text-sm hover:bg-blue-50 ${selectedLectureLife === l.id ? "bg-blue-100 font-semibold text-blue-700" : ""}`}
+                >
+                  {l.name} <span className="text-xs text-gray-400">({STAGE_LABELS[l.stage] || l.stage})</span>
+                </button>
               ))}
-          </select>
+            {lives.filter((l) => !lectureSearch || l.name.toLowerCase().includes(lectureSearch.toLowerCase())).length === 0 && (
+              <p className="text-center text-xs text-gray-400 py-4">검색 결과가 없습니다</p>
+            )}
+          </div>
 
           {loadingReactions && <p className="text-center text-sm text-gray-400 py-4">로딩 중...</p>}
 
