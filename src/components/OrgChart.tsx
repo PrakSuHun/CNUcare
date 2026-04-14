@@ -80,16 +80,18 @@ export default function OrgChart({ userRole, userId, basePath, editMode: externa
   };
 
   const fetchOrgData = async () => {
-    const { data: managers } = await supabase
-      .from("users").select("id, display_name").eq("role", "manager").order("display_name");
-
-    const { data: students } = await supabase
-      .from("users").select("id, display_name, manager_id").eq("role", "student").order("display_name");
-
-    const { data: userLives } = await supabase
-      .from("user_lives")
-      .select("user_id, life_id, created_at, role_in_life, lives(id, name, age, department, stage, is_failed, last_met_at)")
-      .order("created_at", { ascending: true });
+    // 최초 3개 쿼리 병렬 실행 (직렬 대기 제거)
+    const [managersRes, studentsRes, userLivesRes] = await Promise.all([
+      supabase.from("users").select("id, display_name").eq("role", "manager").order("display_name"),
+      supabase.from("users").select("id, display_name, manager_id").eq("role", "student").order("display_name"),
+      supabase
+        .from("user_lives")
+        .select("user_id, life_id, created_at, role_in_life, lives(id, name, age, department, stage, is_failed, last_met_at)")
+        .order("created_at", { ascending: true }),
+    ]);
+    const managers = managersRes.data;
+    const students = studentsRes.data;
+    const userLives = userLivesRes.data;
 
     // 생명당 최초 등록자(evangelist)만 조직도에 표시 (중복 방지)
     // evangelist 외 역할(instructor 등)은 firstOwner 판정에서 제외 — 트리에 없는 사용자가 선택되면 생명이 사라지는 문제 방지
@@ -117,20 +119,23 @@ export default function OrgChart({ userRole, userId, basePath, editMode: externa
         (userLives || []).filter((ul: any) => myStudentIds.has(ul.user_id)).map((ul: any) => ul.life_id)
       );
 
-      const { data: recentJournals } = await supabase
-        .from("journals")
-        .select("life_id, read_by")
-        .is("deleted_at", null)
-        .order("created_at", { ascending: false })
-        .limit(500);
+      // 내 소속 생명만 조회 (전체 스캔 제거)
+      const myLifeIdArr = [...myLifeIds];
+      if (myLifeIdArr.length > 0) {
+        const { data: recentJournals } = await supabase
+          .from("journals")
+          .select("life_id, read_by")
+          .is("deleted_at", null)
+          .in("life_id", myLifeIdArr)
+          .order("created_at", { ascending: false });
 
-      recentJournals?.forEach((j: any) => {
-        if (!myLifeIds.has(j.life_id)) return; // 내 소속만
-        const readBy = j.read_by || [];
-        if (!readBy.includes(currentUserId)) {
-          unreadLifeIds.add(j.life_id);
-        }
-      });
+        recentJournals?.forEach((j: any) => {
+          const readBy = j.read_by || [];
+          if (!readBy.includes(currentUserId)) {
+            unreadLifeIds.add(j.life_id);
+          }
+        });
+      }
     }
 
     // 약속 + 일지 날짜 조회 (병렬)

@@ -15,6 +15,7 @@ import EventList from "@/components/EventList";
 export default function ManagerPage() {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
+  const [viewManagerId, setViewManagerId] = useState<string>(""); // 조직도 필터용 — 대학리더면 소속 관리자 id
   const [editMode, setEditMode] = useState(false);
   const [tab, setTab] = useState<"org" | "mylives" | "calendar" | "dashboard" | "analysis" | "events">("org");
 
@@ -27,6 +28,13 @@ export default function ManagerPage() {
       return;
     }
     setUser(u);
+    // 대학리더면 소속 관리자의 팀을 기본 보기로
+    if (u.role === "student" && u.is_college_leader) {
+      supabase.from("users").select("manager_id").eq("id", u.id).single()
+        .then(({ data }) => setViewManagerId((data?.manager_id as string) || u.id));
+    } else {
+      setViewManagerId(u.id);
+    }
     fetch("/api/process-queue").catch(() => {});
     fetch("/api/process-reports").catch(() => {});
   }, [router]);
@@ -143,7 +151,7 @@ export default function ManagerPage() {
             </div>
           </div>
         ))}
-        {tab === "org" && <OrgChart userRole="manager" userId={user.id} basePath="/manager" editMode={editMode} />}
+        {tab === "org" && <OrgChart userRole="manager" userId={viewManagerId || user.id} basePath="/manager" editMode={editMode} />}
         {tab === "mylives" && <MyLives userId={user.id} basePath="/manager" />}
         {tab === "calendar" && <InstructorCalendar basePath="/manager" />}
         {tab === "dashboard" && <Dashboard />}
