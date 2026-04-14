@@ -4,6 +4,7 @@ import { useEffect, useState, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import { getUser } from "@/lib/auth";
 import { STAGE_LABELS } from "@/lib/stages";
+import Dashboard from "./Dashboard";
 
 interface Report {
   id: string;
@@ -42,6 +43,7 @@ const TYPE_COLORS: Record<string, string> = {
 
 export default function AnalysisPage() {
   const [tab, setTab] = useState<"new" | "history" | "lecture" | "chat">("new");
+  const [showDashboard, setShowDashboard] = useState(false);
   const [lectureLife, setLectureLife] = useState("");
   const [allLives, setAllLives] = useState<{ id: string; name: string; stage: string }[]>([]);
   const [lectureReactions, setLectureReactions] = useState<any[]>([]);
@@ -222,46 +224,66 @@ export default function AnalysisPage() {
 
   const canAnalyze = selectedType === "overall" || (selectedType && selectedTarget);
 
+  const selectTab = (t: "new" | "history" | "lecture" | "chat") => {
+    setShowDashboard(false);
+    setTab(t);
+    if (t === "new") setViewingReport(null);
+  };
+
   return (
     <div className="space-y-4">
-      {/* 탭 */}
+      {/* 현황 버튼 (4개 탭과 별개) */}
+      <button
+        onClick={() => setShowDashboard(true)}
+        className={`w-full py-2.5 text-sm font-medium rounded-lg border transition-colors ${
+          showDashboard
+            ? "bg-blue-600 text-white border-blue-600"
+            : "bg-white text-gray-600 border-gray-200 hover:border-blue-400"
+        }`}
+      >
+        📊 현황
+      </button>
+
+      {/* 4개 분석 탭 */}
       <div className="flex bg-white rounded-lg border border-gray-200 overflow-hidden">
         <button
-          onClick={() => { setTab("new"); setViewingReport(null); }}
+          onClick={() => selectTab("new")}
           className={`flex-1 py-2.5 text-sm font-medium text-center transition-colors ${
-            tab === "new" ? "bg-blue-600 text-white" : "text-gray-500"
+            !showDashboard && tab === "new" ? "bg-blue-600 text-white" : "text-gray-500"
           }`}
         >
           새 분석
         </button>
         <button
-          onClick={() => setTab("history")}
+          onClick={() => selectTab("history")}
           className={`flex-1 py-2.5 text-sm font-medium text-center transition-colors ${
-            tab === "history" ? "bg-blue-600 text-white" : "text-gray-500"
+            !showDashboard && tab === "history" ? "bg-blue-600 text-white" : "text-gray-500"
           }`}
         >
           보고서 ({reports.length})
         </button>
         <button
-          onClick={() => setTab("lecture")}
+          onClick={() => selectTab("lecture")}
           className={`flex-1 py-2.5 text-sm font-medium text-center transition-colors ${
-            tab === "lecture" ? "bg-blue-600 text-white" : "text-gray-500"
+            !showDashboard && tab === "lecture" ? "bg-blue-600 text-white" : "text-gray-500"
           }`}
         >
           강의 반응
         </button>
         <button
-          onClick={() => setTab("chat")}
+          onClick={() => selectTab("chat")}
           className={`flex-1 py-2.5 text-sm font-medium text-center transition-colors ${
-            tab === "chat" ? "bg-blue-600 text-white" : "text-gray-500"
+            !showDashboard && tab === "chat" ? "bg-blue-600 text-white" : "text-gray-500"
           }`}
         >
           AI 채팅
         </button>
       </div>
 
+      {showDashboard && <Dashboard />}
+
       {/* 새 분석 */}
-      {tab === "new" && (
+      {!showDashboard && tab === "new" && (
         <div className="space-y-3">
           <div className="grid grid-cols-2 gap-2">
             {Object.entries(TYPE_LABELS).map(([key, label]) => (
@@ -325,7 +347,7 @@ export default function AnalysisPage() {
       )}
 
       {/* 보고서 이력 */}
-      {tab === "history" && !viewingReport && (
+      {!showDashboard && tab === "history" && !viewingReport && (
         <div className="space-y-2">
           {reports.length === 0 && (
             <p className="text-center text-sm text-gray-400 py-8">저장된 보고서가 없습니다.</p>
@@ -387,7 +409,7 @@ export default function AnalysisPage() {
       )}
 
       {/* 보고서 상세 보기 */}
-      {viewingReport && tab === "history" && (
+      {!showDashboard && viewingReport && tab === "history" && (
         <div>
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
@@ -421,7 +443,7 @@ export default function AnalysisPage() {
         </div>
       )}
       {/* 강의 반응 정리 */}
-      {tab === "lecture" && (
+      {!showDashboard && tab === "lecture" && (
         <div className="space-y-3">
           <input
             type="text"
@@ -489,7 +511,7 @@ export default function AnalysisPage() {
       )}
 
       {/* AI 채팅 */}
-      {tab === "chat" && (
+      {!showDashboard && tab === "chat" && (
         <div className="flex flex-col" style={{ height: "calc(100vh - 220px)" }}>
           {/* 메시지 영역 */}
           <div className="flex-1 overflow-y-auto space-y-3 pb-4">

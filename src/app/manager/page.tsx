@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { getUser, logout, User } from "@/lib/auth";
 import { supabase } from "@/lib/supabase";
 import OrgChart from "@/components/OrgChart";
-import Dashboard from "@/components/Dashboard";
 import AnalysisPage from "@/components/AnalysisPage";
 import InstructorCalendar from "@/components/InstructorCalendar";
 import MyLives from "@/components/MyLives";
@@ -121,7 +120,6 @@ export default function ManagerPage() {
           { key: "mylives", label: "내 생명" },
           { key: "calendar", label: "캘린더" },
           { key: "events", label: "행사" },
-          { key: "dashboard", label: "현황" },
           { key: "analysis", label: "AI 분석" },
         ].map((t) => (
           <button
@@ -154,7 +152,6 @@ export default function ManagerPage() {
         {tab === "org" && <OrgChart userRole="manager" userId={viewManagerId || user.id} basePath="/manager" editMode={editMode} />}
         {tab === "mylives" && <MyLives userId={user.id} basePath="/manager" />}
         {tab === "calendar" && <InstructorCalendar basePath="/manager" />}
-        {tab === "dashboard" && <Dashboard />}
         {tab === "analysis" && <AnalysisPage />}
         {tab === "events" && <EventList basePath="/manager" />}
       </div>

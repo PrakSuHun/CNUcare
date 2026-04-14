@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { getUser, logout, User } from "@/lib/auth";
 import OrgChart from "@/components/OrgChart";
-import Dashboard from "@/components/Dashboard";
 import AnalysisPage from "@/components/AnalysisPage";
 import InstructorCalendar from "@/components/InstructorCalendar";
 
@@ -144,7 +143,6 @@ export default function AdminPage() {
         {[
           { key: "org", label: "조직도" },
           { key: "calendar", label: "캘린더" },
-          { key: "dashboard", label: "현황" },
           { key: "analysis", label: "AI 분석" },
           { key: "users", label: "권한 관리" },
         ].map((t) => (
@@ -165,7 +163,6 @@ export default function AdminPage() {
           <OrgChart userRole="instructor" userId={user.id} basePath="/admin" editMode={editMode} />
         )}
         {tab === "calendar" && <InstructorCalendar basePath="/admin" />}
-        {tab === "dashboard" && <Dashboard />}
         {tab === "analysis" && <AnalysisPage />}
         {tab === "users" && (
           <div className="space-y-2">
