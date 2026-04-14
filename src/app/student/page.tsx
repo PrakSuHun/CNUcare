@@ -40,14 +40,12 @@ export default function StudentPage() {
 
   const fetchLives = async (userId: string) => {
     const { data } = await supabase
-      .from("user_lives")
-      .select("life_id, lives(id, name, stage, is_failed, updated_at)")
-      .eq("user_id", userId);
+      .from("lives")
+      .select("id, name, stage, is_failed, updated_at")
+      .eq("primary_user_id", userId);
 
     if (data) {
-      const lifeList = data
-        .map((ul: any) => ul.lives as Life)
-        .filter(Boolean);
+      const lifeList = data as Life[];
 
       // 최신 일지 날짜 조회
       const lifeIds = lifeList.map(l => l.id);
@@ -80,10 +78,10 @@ export default function StudentPage() {
     if (!confirm("이 생명과의 연결을 해제하시겠습니까?\n(생명 데이터는 삭제되지 않습니다)")) return;
 
     await supabase
-      .from("user_lives")
-      .delete()
-      .eq("user_id", user.id)
-      .eq("life_id", lifeId);
+      .from("lives")
+      .update({ primary_user_id: null })
+      .eq("id", lifeId)
+      .eq("primary_user_id", user.id);
 
     setMenuLifeId(null);
     fetchLives(user.id);

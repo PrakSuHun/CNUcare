@@ -30,12 +30,12 @@ export default function MyLives({ userId, basePath }: MyLivesProps) {
 
   const fetchLives = async () => {
     const { data } = await supabase
-      .from("user_lives")
-      .select("life_id, lives(id, name, stage, is_failed, updated_at)")
-      .eq("user_id", userId);
+      .from("lives")
+      .select("id, name, stage, is_failed, updated_at")
+      .eq("primary_user_id", userId);
 
     if (data) {
-      setLives(data.map((ul: any) => ul.lives as Life).filter(Boolean));
+      setLives(data as Life[]);
     }
     setLoading(false);
   };
@@ -49,7 +49,7 @@ export default function MyLives({ userId, basePath }: MyLivesProps) {
 
   const handleUnlink = async (lifeId: string) => {
     if (!confirm("이 생명과의 연결을 해제하시겠습니까?")) return;
-    await supabase.from("user_lives").delete().eq("user_id", userId).eq("life_id", lifeId);
+    await supabase.from("lives").update({ primary_user_id: null }).eq("id", lifeId).eq("primary_user_id", userId);
     setMenuLifeId(null);
     fetchLives();
   };

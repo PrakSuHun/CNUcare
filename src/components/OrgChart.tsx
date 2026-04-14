@@ -51,7 +51,6 @@ export default function OrgChart({ userRole, userId, basePath, editMode: externa
   const [movingStudent, setMovingStudent] = useState<{ id: string; name: string } | null>(null);
   const [movingLife, setMovingLife] = useState<{ id: string; name: string; fromStudentId: string } | null>(null);
   const [selectedLives, setSelectedLives] = useState<Set<string>>(new Set());
-  const [showToolModal, setShowToolModal] = useState(false);
   const [movingSelectedTo, setMovingSelectedTo] = useState(false);
 
   const [hasUnread, setHasUnread] = useState(false);
@@ -64,11 +63,39 @@ export default function OrgChart({ userRole, userId, basePath, editMode: externa
   const markAllRead = async () => {
     const currentUser = getUser();
     if (!currentUser) return;
-    // 읽지 않은 일지에 현재 사용자 ID 추가
+
+    let myLifeIds: string[] = [];
+    if (userRole === "manager") {
+      const { data: myStudents } = await supabase
+        .from("users")
+        .select("id")
+        .eq("role", "student")
+        .eq("manager_id", currentUser.id);
+      const studentIds = (myStudents || []).map((s: any) => s.id);
+      const ownerIds = [currentUser.id, ...studentIds];
+      const { data: ownedLives } = await supabase
+        .from("lives")
+        .select("id")
+        .in("primary_user_id", ownerIds);
+      myLifeIds = (ownedLives || []).map((l: any) => l.id);
+    } else {
+      const { data: ownedLives } = await supabase
+        .from("lives")
+        .select("id")
+        .eq("primary_user_id", currentUser.id);
+      myLifeIds = (ownedLives || []).map((l: any) => l.id);
+    }
+
+    if (myLifeIds.length === 0) {
+      fetchOrgData();
+      return;
+    }
+
     const { data: unread } = await supabase
       .from("journals")
       .select("id, read_by")
-      .is("deleted_at", null);
+      .is("deleted_at", null)
+      .in("life_id", myLifeIds);
 
     if (!unread) return;
     const toUpdate = unread.filter((j: any) => !(j.read_by || []).includes(currentUser.id));
@@ -296,11 +323,10 @@ export default function OrgChart({ userRole, userId, basePath, editMode: externa
     }
 
     setSelectedLives(new Set());
-    setShowToolModal(false);
     fetchOrgData();
   };
 
-  // 선택된 생명 일괄 담당자 변경 (lives.primary_user_id + 이력용 user_lives 추가)
+  // 선택된 생명 일괄 담당자 변경 (lives.primary_user_id)
   const moveSelectedToStudent = async (toStudentId: string) => {
     if (selectedLives.size === 0) {
       alert("이동할 생명을 먼저 선택하세요.");
@@ -308,21 +334,11 @@ export default function OrgChart({ userRole, userId, basePath, editMode: externa
     }
     try {
       const lifeIds = [...selectedLives];
-      // 1) 담당자 일괄 변경 (한 번의 쿼리)
       const { error: updErr } = await supabase.from("lives")
         .update({ primary_user_id: toStudentId })
         .in("id", lifeIds);
       if (updErr) throw updErr;
-      // 2) 이력 유지: user_lives에 evangelist 연결 추가 (있으면 무시)
-      for (const lifeId of lifeIds) {
-        await supabase.from("user_lives").upsert({
-          user_id: toStudentId,
-          life_id: lifeId,
-          role_in_life: "evangelist",
-        }, { onConflict: "user_id,life_id", ignoreDuplicates: true });
-      }
       setSelectedLives(new Set());
-      setShowToolModal(false);
       setMovingSelectedTo(false);
       fetchOrgData();
     } catch (e: any) {
@@ -344,11 +360,6 @@ export default function OrgChart({ userRole, userId, basePath, editMode: externa
         .update({ primary_user_id: toUserId })
         .eq("id", lifeId);
       if (updErr) throw updErr;
-      await supabase.from("user_lives").upsert({
-        user_id: toUserId,
-        life_id: lifeId,
-        role_in_life: "evangelist",
-      }, { onConflict: "user_id,life_id", ignoreDuplicates: true });
       setMovingLife(null);
       fetchOrgData();
     } catch (e: any) {
@@ -450,17 +461,6 @@ export default function OrgChart({ userRole, userId, basePath, editMode: externa
           </select>
         )}
       </div>
-
-      {/* 조직도: 전체(관리자 가로) vs 단일(대학생 가로) */}
-      {visibleTree.map((manager) => {
-        const hasFilteredLives = manager.students.some((s) => s.lives.some(filterLife));
-        if ((searchQuery || stageFilter) && !hasFilteredLives) return null;
-        const visibleStudents = manager.students.filter((student) => {
-          if (!searchQuery && !stageFilter) return true;
-          return student.lives.some(filterLife);
-        });
-        return null; // 아래에서 렌더링
-      })}
 
       {/* 전체 관리자 보기: 관리자 컬럼이 가로로 */}
       {showAll && !managerFilter ? (

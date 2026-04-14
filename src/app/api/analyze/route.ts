@@ -21,16 +21,14 @@ async function getLifeContext(lifeId: string) {
 
 // 대학생별 분석 데이터 수집
 async function getStudentContext(studentId: string) {
-  const [student, userLives] = await Promise.all([
+  const [student, livesRes] = await Promise.all([
     getSb().from("users").select("*").eq("id", studentId).single(),
-    getSb().from("user_lives").select("life_id").eq("user_id", studentId).eq("role_in_life", "evangelist"),
+    getSb().from("lives").select("*").eq("primary_user_id", studentId),
   ]);
-  const lifeIds = (userLives.data || []).map((ul: any) => ul.life_id);
-  const [lives, journals] = await Promise.all([
-    getSb().from("lives").select("*").in("id", lifeIds),
-    getSb().from("journals").select("*").in("life_id", lifeIds).is("deleted_at", null).order("met_date", { ascending: false }),
-  ]);
-  return { student: student.data, lives: lives.data || [], journals: journals.data || [] };
+  const lives = livesRes.data || [];
+  const lifeIds = lives.map((l: any) => l.id);
+  const { data: journalsData } = await getSb().from("journals").select("*").in("life_id", lifeIds.length ? lifeIds : ["_"]).is("deleted_at", null).order("met_date", { ascending: false });
+  return { student: student.data, lives, journals: journalsData || [] };
 }
 
 // 관리자 팀 분석 데이터 수집
@@ -40,19 +38,18 @@ async function getManagerContext(managerId: string) {
     getSb().from("users").select("id, display_name").eq("manager_id", managerId).eq("role", "student"),
   ]);
   const studentIds = (students.data || []).map((s: any) => s.id);
-  const [userLives, allJournals] = await Promise.all([
-    getSb().from("user_lives").select("user_id, life_id").in("user_id", studentIds).eq("role_in_life", "evangelist"),
+  const [livesRes, allJournals] = await Promise.all([
+    getSb().from("lives").select("*").in("primary_user_id", studentIds.length ? studentIds : ["_"]),
     getSb().from("journals").select("life_id, met_date, response, author_id").is("deleted_at", null).order("met_date", { ascending: false }).limit(200),
   ]);
-  const lifeIds = (userLives.data || []).map((ul: any) => ul.life_id);
-  const [lives] = await Promise.all([
-    getSb().from("lives").select("*").in("id", lifeIds),
-  ]);
+  const lives = livesRes.data || [];
+  const lifeIds = lives.map((l: any) => l.id);
+  const userLives = lives.map((l: any) => ({ user_id: l.primary_user_id, life_id: l.id }));
   return {
     manager: manager.data,
     students: students.data || [],
-    userLives: userLives.data || [],
-    lives: lives.data || [],
+    userLives,
+    lives,
     journals: allJournals.data?.filter((j: any) => lifeIds.includes(j.life_id)) || [],
   };
 }
