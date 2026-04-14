@@ -15,6 +15,7 @@ interface Life {
   stage: string;
   is_failed: boolean;
   updated_at: string;
+  memo: string | null;
 }
 
 export default function StudentPage() {
@@ -41,7 +42,7 @@ export default function StudentPage() {
   const fetchLives = async (userId: string) => {
     const { data } = await supabase
       .from("lives")
-      .select("id, name, stage, is_failed, updated_at")
+      .select("id, name, stage, is_failed, updated_at, memo")
       .eq("primary_user_id", userId);
 
     if (data) {
@@ -273,9 +274,16 @@ export default function StudentPage() {
                 className="flex-1 p-4 text-left"
               >
                 <div className="flex items-center justify-between">
-                  <span className="font-semibold text-base">{life.name}</span>
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="font-semibold text-base shrink-0">{life.name}</span>
+                    {life.memo && (
+                      <span className="text-[11px] text-yellow-700 bg-yellow-50 border border-yellow-200 rounded px-1.5 py-0.5 truncate" title={life.memo}>
+                        {life.memo}
+                      </span>
+                    )}
+                  </div>
                   <span
-                    className={`text-xs px-2 py-1 rounded-full font-medium ${
+                    className={`text-xs px-2 py-1 rounded-full font-medium shrink-0 ${
                       STAGE_COLORS[life.stage] || "bg-gray-100 text-gray-700"
                     }`}
                   >
