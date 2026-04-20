@@ -40,10 +40,21 @@ export default function StudentPage() {
   }, [router]);
 
   const fetchLives = async (userId: string) => {
-    const { data } = await supabase
+    // 담당자이거나 연결된(user_lives) 생명 모두 포함
+    const { data: uls } = await supabase
+      .from("user_lives")
+      .select("life_id")
+      .eq("user_id", userId);
+    const linkedIds = (uls || []).map((u: any) => u.life_id);
+    let query = supabase
       .from("lives")
-      .select("id, name, stage, is_failed, updated_at, memo")
-      .eq("primary_user_id", userId);
+      .select("id, name, stage, is_failed, updated_at, memo");
+    if (linkedIds.length > 0) {
+      query = query.or(`primary_user_id.eq.${userId},id.in.(${linkedIds.join(",")})`);
+    } else {
+      query = query.eq("primary_user_id", userId);
+    }
+    const { data } = await query;
 
     if (data) {
       const lifeList = data as Life[];
@@ -78,11 +89,10 @@ export default function StudentPage() {
     if (!user) return;
     if (!confirm("이 생명과의 연결을 해제하시겠습니까?\n(생명 데이터는 삭제되지 않습니다)")) return;
 
-    await supabase
-      .from("lives")
-      .update({ primary_user_id: null })
-      .eq("id", lifeId)
-      .eq("primary_user_id", user.id);
+    // user_lives 연결 제거
+    await supabase.from("user_lives").delete().eq("user_id", user.id).eq("life_id", lifeId);
+    // 담당자이기도 하면 담당자 해제
+    await supabase.from("lives").update({ primary_user_id: null }).eq("id", lifeId).eq("primary_user_id", user.id);
 
     setMenuLifeId(null);
     fetchLives(user.id);

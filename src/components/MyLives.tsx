@@ -30,14 +30,22 @@ export default function MyLives({ userId, basePath }: MyLivesProps) {
   }, [userId]);
 
   const fetchLives = async () => {
-    const { data } = await supabase
+    // 담당자이거나 연결된(user_lives) 생명 모두 포함
+    const { data: uls } = await supabase
+      .from("user_lives")
+      .select("life_id")
+      .eq("user_id", userId);
+    const linkedIds = (uls || []).map((u: any) => u.life_id);
+    let query = supabase
       .from("lives")
-      .select("id, name, stage, is_failed, updated_at, memo")
-      .eq("primary_user_id", userId);
-
-    if (data) {
-      setLives(data as Life[]);
+      .select("id, name, stage, is_failed, updated_at, memo");
+    if (linkedIds.length > 0) {
+      query = query.or(`primary_user_id.eq.${userId},id.in.(${linkedIds.join(",")})`);
+    } else {
+      query = query.eq("primary_user_id", userId);
     }
+    const { data } = await query;
+    if (data) setLives(data as Life[]);
     setLoading(false);
   };
 
@@ -50,6 +58,7 @@ export default function MyLives({ userId, basePath }: MyLivesProps) {
 
   const handleUnlink = async (lifeId: string) => {
     if (!confirm("이 생명과의 연결을 해제하시겠습니까?")) return;
+    await supabase.from("user_lives").delete().eq("user_id", userId).eq("life_id", lifeId);
     await supabase.from("lives").update({ primary_user_id: null }).eq("id", lifeId).eq("primary_user_id", userId);
     setMenuLifeId(null);
     fetchLives();

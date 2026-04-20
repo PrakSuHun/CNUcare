@@ -65,21 +65,21 @@ export default function NewLifePage() {
     setLoading(false);
   };
 
-  // 기존 생명에 연결 (담당자를 현재 사용자로 설정)
+  // 기존 생명에 연결 (담당자는 변경하지 않음)
+  // 담당자가 비어있을 때만 나를 담당자로, 이미 있으면 연결(user_lives)만 추가
   const handleLinkExisting = async (lifeId: string) => {
     if (!user) return;
     setLoading(true);
 
-    await supabase.from("user_lives").upsert({
+    const { error: ulErr } = await supabase.from("user_lives").upsert({
       user_id: user.id,
       life_id: lifeId,
       role_in_life: "evangelist",
     }, { onConflict: "user_id,life_id", ignoreDuplicates: true });
-    // 담당자를 현재 사용자로 설정 (기존 담당자가 있어도 덮어씀)
-    const { error } = await supabase.from("lives").update({ primary_user_id: user.id }).eq("id", lifeId);
+    await supabase.from("lives").update({ primary_user_id: user.id }).eq("id", lifeId).is("primary_user_id", null);
     setLoading(false);
-    if (error) {
-      alert("연결 실패: " + error.message);
+    if (ulErr) {
+      alert("연결 실패: " + ulErr.message);
       return;
     }
     router.push("/student");
