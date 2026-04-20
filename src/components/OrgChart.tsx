@@ -347,7 +347,7 @@ export default function OrgChart({ userRole, userId, basePath, editMode: externa
     fetchOrgData();
   };
 
-  // 선택된 생명 일괄 담당자 변경 (lives.primary_user_id)
+  // 선택된 생명 일괄 담당자 변경 (lives.primary_user_id + 새 담당자 user_lives 연결 추가)
   const moveSelectedToStudent = async (toStudentId: string) => {
     if (selectedLives.size === 0) {
       alert("이동할 생명을 먼저 선택하세요.");
@@ -359,6 +359,13 @@ export default function OrgChart({ userRole, userId, basePath, editMode: externa
         .update({ primary_user_id: toStudentId })
         .in("id", lifeIds);
       if (updErr) throw updErr;
+      // 새 담당자에게 user_lives 연결도 보장 (기존 연결자들은 그대로)
+      const ulRows = lifeIds.map((lifeId) => ({
+        user_id: toStudentId,
+        life_id: lifeId,
+        role_in_life: "evangelist",
+      }));
+      await supabase.from("user_lives").upsert(ulRows, { onConflict: "user_id,life_id", ignoreDuplicates: true });
       setSelectedLives(new Set());
       setMovingSelectedTo(false);
       fetchOrgData();
@@ -374,13 +381,18 @@ export default function OrgChart({ userRole, userId, basePath, editMode: externa
     fetchOrgData();
   };
 
-  // 생명 담당자 변경 (lives.primary_user_id)
+  // 생명 담당자 변경 (lives.primary_user_id + 새 담당자 user_lives 연결 추가)
   const moveLifeToStudent = async (lifeId: string, _fromStudentId: string, toUserId: string) => {
     try {
       const { error: updErr } = await supabase.from("lives")
         .update({ primary_user_id: toUserId })
         .eq("id", lifeId);
       if (updErr) throw updErr;
+      await supabase.from("user_lives").upsert({
+        user_id: toUserId,
+        life_id: lifeId,
+        role_in_life: "evangelist",
+      }, { onConflict: "user_id,life_id", ignoreDuplicates: true });
       setMovingLife(null);
       fetchOrgData();
     } catch (e: any) {
