@@ -785,7 +785,7 @@ function ManagerColumn({
                         {life.age ? `${life.age}세` : ""}
                       </span>
                       {life.memo ? (
-                        <span className="text-[11px] text-yellow-700 bg-yellow-50 border border-yellow-200 rounded px-1.5 py-0.5 truncate" title={life.memo}>
+                        <span className="block w-full text-[11px] text-yellow-700 bg-yellow-50 border border-yellow-200 rounded px-1.5 py-0.5 truncate" title={life.memo}>
                           {life.memo}
                         </span>
                       ) : <span />}
