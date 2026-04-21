@@ -784,14 +784,16 @@ function ManagerColumn({
                       <span className="text-[11px] text-gray-400 whitespace-nowrap truncate">
                         {life.age ? `${life.age}세` : ""}
                       </span>
-                      {life.memo ? (
-                        <span
-                          className={`text-[11px] text-yellow-700 bg-yellow-50 border border-yellow-200 rounded px-1.5 py-0.5 truncate ${life.memo.length >= 13 ? "block w-full" : "justify-self-start max-w-full"}`}
-                          title={life.memo}
-                        >
-                          {life.memo}
-                        </span>
-                      ) : <span />}
+                      <div className="w-full min-w-0 overflow-hidden">
+                        {life.memo && (
+                          <span
+                            className={`text-[11px] text-yellow-700 bg-yellow-50 border border-yellow-200 rounded px-1.5 py-0.5 truncate ${life.memo.length >= 13 ? "block w-full" : "inline-block max-w-full"}`}
+                            title={life.memo}
+                          >
+                            {life.memo}
+                          </span>
+                        )}
+                      </div>
                       <span className={`text-[10px] font-medium text-right truncate ${life.date_is_upcoming ? "text-blue-600" : "text-gray-700"}`}>
                         {life.date_label ? `${formatDate(life.date_label)}${life.date_is_upcoming ? " 예정" : ""}` : ""}
                       </span>
