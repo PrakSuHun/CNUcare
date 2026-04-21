@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { getUser } from "@/lib/auth";
-import { autoUpdateStage } from "@/lib/autoStage";
+import { autoUpdateStage, revertStageIfOrphaned } from "@/lib/autoStage";
 
 interface Appointment {
   id: string;
@@ -199,18 +199,7 @@ export default function Appointments({ lifeId, readOnly = false }: AppointmentsP
   const handleDelete = async (id: string) => {
     if (!confirm("이 약속을 삭제하시겠습니까?")) return;
     await supabase.from("appointments").delete().eq("id", id);
-
-    // 전초연결 단계에서 남은 전초 약속/일지가 없으면 1차 만남으로 되돌림
-    const { data: life } = await supabase.from("lives").select("stage").eq("id", lifeId).single();
-    if (life?.stage === "pre_visit_connect") {
-      const [{ data: remainAppts }, { data: pvJournals }] = await Promise.all([
-        supabase.from("appointments").select("id").eq("life_id", lifeId).eq("purpose", "pre_visit"),
-        supabase.from("journals").select("id").eq("life_id", lifeId).eq("purpose", "pre_visit").is("deleted_at", null),
-      ]);
-      if ((remainAppts || []).length === 0 && (pvJournals || []).length === 0) {
-        await supabase.from("lives").update({ stage: "first_meeting" }).eq("id", lifeId);
-      }
-    }
+    await revertStageIfOrphaned(lifeId);
     fetchAppointments();
   };
 

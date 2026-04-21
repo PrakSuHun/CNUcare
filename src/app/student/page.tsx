@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { getUser, logout, User } from "@/lib/auth";
 import { STAGE_LABELS, STAGE_COLORS } from "@/lib/stages";
+import { revertStageIfOrphaned } from "@/lib/autoStage";
 import InstructorCalendar from "@/components/InstructorCalendar";
 import AdminViewBanner from "@/components/AdminViewBanner";
 import EventList from "@/components/EventList";
@@ -179,7 +180,9 @@ export default function StudentPage() {
   }, [user, lives]);
 
   const dismissApptAlert = async (apptId: string) => {
+    const alert = pastApptAlerts.find((a) => a.apptId === apptId);
     await supabase.from("appointments").delete().eq("id", apptId);
+    if (alert) await revertStageIfOrphaned(alert.lifeId);
     setPastApptAlerts((prev) => prev.filter((a) => a.apptId !== apptId));
   };
 

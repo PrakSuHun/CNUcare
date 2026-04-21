@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { getUser } from "@/lib/auth";
+import { revertStageIfOrphaned } from "@/lib/autoStage";
 
 interface CalEvent {
   id: string;
@@ -272,7 +273,15 @@ export default function InstructorCalendar({ basePath }: { basePath: string }) {
 
   const handleDelete = async (event: CalEvent) => {
     if (!confirm("이 일정을 삭제하시겠습니까?")) return;
-    if (event.type === "appointment") await supabase.from("appointments").delete().eq("id", event.id);
+    if (event.type === "appointment") {
+      let lifeId = event.life_id;
+      if (!lifeId) {
+        const { data: appt } = await supabase.from("appointments").select("life_id").eq("id", event.id).single();
+        lifeId = appt?.life_id;
+      }
+      await supabase.from("appointments").delete().eq("id", event.id);
+      if (lifeId) await revertStageIfOrphaned(lifeId);
+    }
     else if (event.type === "personal") await supabase.from("personal_events").delete().eq("id", event.id);
     else if (event.type === "group") await supabase.from("group_events").delete().eq("id", event.id);
     fetchAll();

@@ -42,6 +42,51 @@ export async function autoUpdateByLessons(lifeId: string) {
   }
 }
 
+export async function revertStageIfOrphaned(lifeId: string) {
+  const { data: life } = await supabase.from("lives").select("stage").eq("id", lifeId).single();
+  if (!life) return;
+
+  // pre_visit_connect: 전초 약속 없고 전초 일지 없으면 → first_meeting
+  if (life.stage === "pre_visit_connect") {
+    const [{ data: appts }, { data: journals }] = await Promise.all([
+      supabase.from("appointments").select("id").eq("life_id", lifeId).eq("purpose", "pre_visit"),
+      supabase.from("journals").select("id").eq("life_id", lifeId).eq("purpose", "pre_visit").is("deleted_at", null),
+    ]);
+    if ((appts || []).length === 0 && (journals || []).length === 0) {
+      await supabase.from("lives").update({ stage: "first_meeting" }).eq("id", lifeId);
+    }
+    return;
+  }
+
+  // pre_visit: 전초 일지 없으면 → pre_visit_connect (전초 약속 있으면) 또는 first_meeting
+  if (life.stage === "pre_visit") {
+    const { data: journals } = await supabase.from("journals").select("id").eq("life_id", lifeId).eq("purpose", "pre_visit").is("deleted_at", null);
+    if ((journals || []).length === 0) {
+      const { data: appts } = await supabase.from("appointments").select("id").eq("life_id", lifeId).eq("purpose", "pre_visit");
+      const next = (appts || []).length > 0 ? "pre_visit_connect" : "first_meeting";
+      await supabase.from("lives").update({ stage: next }).eq("id", lifeId);
+    }
+    return;
+  }
+
+  // intro: 강의 관련 기록(lesson_checks)도 없고 강의 일지도 없으면 이전 단계로
+  if (life.stage === "intro") {
+    const [{ data: checks }, { data: lectureJournals }] = await Promise.all([
+      supabase.from("lesson_checks").select("id").eq("life_id", lifeId),
+      supabase.from("journals").select("id").eq("life_id", lifeId).eq("purpose", "lecture").is("deleted_at", null),
+    ]);
+    if ((checks || []).length === 0 && (lectureJournals || []).length === 0) {
+      const { data: pvJournals } = await supabase.from("journals").select("id").eq("life_id", lifeId).eq("purpose", "pre_visit").is("deleted_at", null);
+      if ((pvJournals || []).length > 0) {
+        await supabase.from("lives").update({ stage: "pre_visit" }).eq("id", lifeId);
+        return;
+      }
+      const { data: pvAppts } = await supabase.from("appointments").select("id").eq("life_id", lifeId).eq("purpose", "pre_visit");
+      await supabase.from("lives").update({ stage: (pvAppts || []).length > 0 ? "pre_visit_connect" : "first_meeting" }).eq("id", lifeId);
+    }
+  }
+}
+
 // 특정 단계로 업데이트 (앞으로만, 수료 제외)
 export async function autoUpdateStage(lifeId: string, newStage: string) {
   if (newStage === "completed") return;

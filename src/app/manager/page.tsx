@@ -10,6 +10,7 @@ import InstructorCalendar from "@/components/InstructorCalendar";
 import MyLives from "@/components/MyLives";
 import AdminViewBanner from "@/components/AdminViewBanner";
 import EventList from "@/components/EventList";
+import { revertStageIfOrphaned } from "@/lib/autoStage";
 
 export default function ManagerPage() {
   const router = useRouter();
@@ -85,7 +86,9 @@ export default function ManagerPage() {
   }, [user]);
 
   const dismissApptAlert = async (apptId: string) => {
+    const alert = pastApptAlerts.find((a) => a.apptId === apptId);
     await supabase.from("appointments").delete().eq("id", apptId);
+    if (alert) await revertStageIfOrphaned(alert.lifeId);
     setPastApptAlerts((prev) => prev.filter((a) => a.apptId !== apptId));
   };
 

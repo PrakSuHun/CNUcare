@@ -6,6 +6,7 @@ import { supabase } from "@/lib/supabase";
 import { getUser, User } from "@/lib/auth";
 import LessonProgress from "@/components/LessonProgress";
 import Appointments from "@/components/Appointments";
+import { revertStageIfOrphaned } from "@/lib/autoStage";
 
 interface Life {
   id: string;
@@ -164,12 +165,14 @@ export default function LifeDetail({ lifeId, basePath, backPath, readOnly = fals
   const handlePermanentDelete = async (journalId: string) => {
     if (!confirm("영구 삭제하시겠습니까? 복원할 수 없습니다.")) return;
     await supabase.from("journals").delete().eq("id", journalId);
+    await revertStageIfOrphaned(lifeId);
     fetchDeletedJournals();
   };
 
   const handleDeleteJournal = async (journalId: string) => {
     if (!confirm("이 일지를 삭제하시겠습니까? (30일간 휴지통에 보관됩니다)")) return;
     await supabase.from("journals").update({ deleted_at: new Date().toISOString() }).eq("id", journalId);
+    await revertStageIfOrphaned(lifeId);
     fetchData();
     fetchDeletedJournals();
   };
