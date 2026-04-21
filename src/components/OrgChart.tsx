@@ -760,14 +760,14 @@ function ManagerColumn({
                       )}
                       <button
                         onClick={() => editMode ? onToggleSelect(life.id) : router.push(`${basePath}/life/${life.id}`)}
-                        className={`flex-1 min-w-0 text-left rounded border px-2 py-1.5 transition-colors grid items-center gap-1.5 ${
+                        className={`flex-1 min-w-0 text-left rounded border px-2 py-1.5 transition-colors grid items-center gap-0 ${
                           editMode
                             ? selectedLives.has(life.id) ? "border-blue-400 bg-blue-50" : "border-gray-100 cursor-pointer"
                             : "border-gray-100 hover:bg-blue-50 hover:border-blue-300"
                         }`}
                         style={{ gridTemplateColumns: "minmax(auto,1fr) 90px 2.75rem 3.2rem" }}
                       >
-                        <div className="flex items-baseline gap-1 min-w-0">
+                        <div className="flex items-baseline gap-0 min-w-0">
                           <span className={`text-sm font-medium whitespace-nowrap ${STAGE_NAME_COLORS[life.stage] || "text-gray-800"}`}>{life.name}</span>
                           {life.has_unread && <span className="w-2 h-2 bg-yellow-400 rounded-full shrink-0 self-center" />}
                           <span className="text-[11px] text-gray-400 whitespace-nowrap shrink-0" style={{ width: "2.25rem" }}>
