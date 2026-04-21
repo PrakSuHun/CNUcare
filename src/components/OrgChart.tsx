@@ -765,15 +765,15 @@ function ManagerColumn({
                             ? selectedLives.has(life.id) ? "border-blue-400 bg-blue-50" : "border-gray-100 cursor-pointer"
                             : "border-gray-100 hover:bg-blue-50 hover:border-blue-300"
                         }`}
-                        style={{ gridTemplateColumns: "minmax(auto,1fr) 2.25rem 90px 2.75rem 3.2rem" }}
+                        style={{ gridTemplateColumns: "minmax(auto,1fr) 90px 2.75rem 3.2rem" }}
                       >
-                        <div className="flex items-center gap-1 min-w-0">
+                        <div className="flex items-baseline gap-1 min-w-0">
                           <span className={`text-sm font-medium whitespace-nowrap ${STAGE_NAME_COLORS[life.stage] || "text-gray-800"}`}>{life.name}</span>
-                          {life.has_unread && <span className="w-2 h-2 bg-yellow-400 rounded-full shrink-0" />}
+                          {life.has_unread && <span className="w-2 h-2 bg-yellow-400 rounded-full shrink-0 self-center" />}
+                          <span className="text-[11px] text-gray-400 whitespace-nowrap shrink-0" style={{ width: "2.25rem" }}>
+                            {life.age ? `${life.age}세` : ""}
+                          </span>
                         </div>
-                        <span className="text-[11px] text-gray-400 text-right truncate">
-                          {life.age ? `${life.age}세` : ""}
-                        </span>
                         {life.memo ? (
                           <span className="text-[11px] text-yellow-700 bg-yellow-50 border border-yellow-200 rounded px-1.5 py-0.5 truncate" title={life.memo}>
                             {life.memo}
