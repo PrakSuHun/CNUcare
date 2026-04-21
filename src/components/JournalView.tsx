@@ -48,7 +48,7 @@ export default function JournalView({ lifeId, journalId, backPath }: JournalView
   return (
     <div className="h-full flex flex-col bg-gray-50">
       <header className="bg-white border-b border-gray-200 px-4 py-3 flex items-center shrink-0">
-        <button onClick={() => router.push(backPath)} className="text-gray-500 mr-3">&larr;</button>
+        <button onClick={() => { if (window.history.length > 1) router.back(); else router.push(backPath); }} className="text-gray-500 mr-3">&larr;</button>
         <h1 className="text-lg font-bold">일지 상세</h1>
       </header>
 
