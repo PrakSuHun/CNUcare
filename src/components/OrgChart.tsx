@@ -744,52 +744,56 @@ function ManagerColumn({
                   </div>
                 </div>
                 {/* 생명 리스트 */}
-                <div className="p-2 space-y-1">
+                <div
+                  className="p-2 grid gap-y-1"
+                  style={{ gridTemplateColumns: `${editMode ? "auto " : ""}max-content 2.25rem 90px 2.75rem 3.2rem` }}
+                >
                   {activeLives.length === 0 && failedLives.length === 0 && (
-                    <p className="text-xs text-gray-300 text-center py-1">생명 없음</p>
+                    <p className="text-xs text-gray-300 text-center py-1" style={{ gridColumn: "1 / -1" }}>생명 없음</p>
                   )}
                   {activeLives.map((life) => (
-                    <div key={life.id} className="flex items-center gap-1">
+                    <div
+                      key={life.id}
+                      role="button"
+                      onClick={() => editMode ? onToggleSelect(life.id) : router.push(`${basePath}/life/${life.id}`)}
+                      className={`grid items-center rounded border px-2 py-1.5 cursor-pointer transition-colors ${
+                        editMode
+                          ? selectedLives.has(life.id) ? "border-blue-400 bg-blue-50" : "border-gray-100"
+                          : "border-gray-100 hover:bg-blue-50 hover:border-blue-300"
+                      }`}
+                      style={{ gridColumn: "1 / -1", gridTemplateColumns: "subgrid" }}
+                    >
                       {editMode && (
                         <input
                           type="checkbox"
                           checked={selectedLives.has(life.id)}
-                          onChange={() => onToggleSelect(life.id)}
-                          className="w-4 h-4 shrink-0 accent-blue-600"
+                          onChange={(e) => { e.stopPropagation(); onToggleSelect(life.id); }}
+                          onClick={(e) => e.stopPropagation()}
+                          className="w-4 h-4 shrink-0 accent-blue-600 mr-1"
                         />
                       )}
-                      <button
-                        onClick={() => editMode ? onToggleSelect(life.id) : router.push(`${basePath}/life/${life.id}`)}
-                        className={`flex-1 min-w-0 text-left rounded border px-2 py-1.5 transition-colors grid items-center gap-0 ${
-                          editMode
-                            ? selectedLives.has(life.id) ? "border-blue-400 bg-blue-50" : "border-gray-100 cursor-pointer"
-                            : "border-gray-100 hover:bg-blue-50 hover:border-blue-300"
-                        }`}
-                        style={{ gridTemplateColumns: "4.5rem 2.25rem 90px 2.75rem 3.2rem" }}
-                      >
-                        <div className="flex items-center gap-1 min-w-0 overflow-hidden">
-                          <span className={`text-sm font-medium truncate ${STAGE_NAME_COLORS[life.stage] || "text-gray-800"}`}>{life.name}</span>
-                          {life.has_unread && <span className="w-2 h-2 bg-yellow-400 rounded-full shrink-0" />}
-                        </div>
-                        <span className="text-[11px] text-gray-400 whitespace-nowrap truncate">
-                          {life.age ? `${life.age}세` : ""}
+                      <div className="flex items-center gap-1 min-w-0 overflow-hidden">
+                        <span className={`text-sm font-medium truncate ${STAGE_NAME_COLORS[life.stage] || "text-gray-800"}`}>{life.name}</span>
+                        {life.has_unread && <span className="w-2 h-2 bg-yellow-400 rounded-full shrink-0" />}
+                      </div>
+                      <span className="text-[11px] text-gray-400 whitespace-nowrap truncate">
+                        {life.age ? `${life.age}세` : ""}
+                      </span>
+                      {life.memo ? (
+                        <span className="text-[11px] text-yellow-700 bg-yellow-50 border border-yellow-200 rounded px-1.5 py-0.5 truncate" title={life.memo}>
+                          {life.memo}
                         </span>
-                        {life.memo ? (
-                          <span className="text-[11px] text-yellow-700 bg-yellow-50 border border-yellow-200 rounded px-1.5 py-0.5 truncate" title={life.memo}>
-                            {life.memo}
-                          </span>
-                        ) : <span />}
-                        <span className={`text-[10px] font-medium text-right truncate ${life.date_is_upcoming ? "text-blue-600" : "text-gray-700"}`}>
-                          {life.date_label ? `${formatDate(life.date_label)}${life.date_is_upcoming ? " 예정" : ""}` : ""}
-                        </span>
-                        <span className={`text-[10px] px-1 py-0.5 rounded-full font-medium whitespace-nowrap text-center ${STAGE_COLORS[life.stage]}`}>
-                          {(STAGE_LABELS[life.stage] || "").replace(" ", "")}
-                        </span>
-                      </button>
+                      ) : <span />}
+                      <span className={`text-[10px] font-medium text-right truncate ${life.date_is_upcoming ? "text-blue-600" : "text-gray-700"}`}>
+                        {life.date_label ? `${formatDate(life.date_label)}${life.date_is_upcoming ? " 예정" : ""}` : ""}
+                      </span>
+                      <span className={`text-[10px] px-1 py-0.5 rounded-full font-medium whitespace-nowrap text-center ${STAGE_COLORS[life.stage]}`}>
+                        {(STAGE_LABELS[life.stage] || "").replace(" ", "")}
+                      </span>
                     </div>
                   ))}
                   {failedLives.length > 0 && (
-                    <div className="flex flex-wrap gap-1 mt-1">
+                    <div className="flex flex-wrap gap-1 mt-1" style={{ gridColumn: "1 / -1" }}>
                       {failedLives.map((life) => (
                         <button
                           key={life.id}
