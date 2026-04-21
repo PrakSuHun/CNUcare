@@ -104,7 +104,7 @@ export default function LifeDetail({ lifeId, basePath, backPath, readOnly = fals
   };
 
   const handleSaveInfo = async () => {
-    await supabase
+    const { error } = await supabase
       .from("lives")
       .update({
         student_id_number: editForm.student_id_number || null,
@@ -118,18 +118,30 @@ export default function LifeDetail({ lifeId, basePath, backPath, readOnly = fals
         birth_year: editForm.birth_year || null,
       })
       .eq("id", lifeId);
+    if (error) {
+      alert("저장 실패: " + error.message);
+      return;
+    }
     setEditingInfo(false);
     fetchData();
   };
 
   const handleStageChange = async (newStage: string) => {
-    await supabase.from("lives").update({ stage: newStage }).eq("id", lifeId);
+    const { error } = await supabase.from("lives").update({ stage: newStage }).eq("id", lifeId);
+    if (error) {
+      alert("저장 실패: " + error.message);
+      return;
+    }
     fetchData();
   };
 
   const handleFail = async () => {
     if (!confirm("이 생명을 페일 처리하시겠습니까?")) return;
-    await supabase.from("lives").update({ is_failed: true }).eq("id", lifeId);
+    const { error } = await supabase.from("lives").update({ is_failed: true }).eq("id", lifeId);
+    if (error) {
+      alert("저장 실패: " + error.message);
+      return;
+    }
     router.push(backPath);
   };
 
@@ -280,9 +292,13 @@ export default function LifeDetail({ lifeId, basePath, backPath, readOnly = fals
               <button
                 onClick={async () => {
                   setMemoSaving(true);
-                  await supabase.from("lives").update({ memo: memoDraft || null }).eq("id", lifeId);
-                  setLife({ ...life, memo: memoDraft || null });
+                  const { error } = await supabase.from("lives").update({ memo: memoDraft || null }).eq("id", lifeId);
                   setMemoSaving(false);
+                  if (error) {
+                    alert("저장 실패: " + error.message);
+                    return;
+                  }
+                  setLife({ ...life, memo: memoDraft || null });
                 }}
                 disabled={memoSaving}
                 className="text-xs bg-yellow-500 text-white rounded-full px-3 py-1 disabled:opacity-50"

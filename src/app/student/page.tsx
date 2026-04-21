@@ -89,10 +89,10 @@ export default function StudentPage() {
     if (!user) return;
     if (!confirm("이 생명과의 연결을 해제하시겠습니까?\n(생명 데이터는 삭제되지 않습니다)")) return;
 
-    // user_lives 연결 제거
-    await supabase.from("user_lives").delete().eq("user_id", user.id).eq("life_id", lifeId);
     // 담당자이기도 하면 담당자 해제
     await supabase.from("lives").update({ primary_user_id: null }).eq("id", lifeId).eq("primary_user_id", user.id);
+    // user_lives 연결 제거
+    await supabase.from("user_lives").delete().eq("user_id", user.id).eq("life_id", lifeId);
 
     setMenuLifeId(null);
     fetchLives(user.id);

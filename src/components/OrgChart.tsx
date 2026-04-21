@@ -333,14 +333,18 @@ export default function OrgChart({ userRole, userId, basePath, editMode: externa
     if (selectedLives.size === 0) return;
     if (!confirm(`선택한 ${selectedLives.size}명의 생명을 삭제하시겠습니까?\n(모든 일지, 강의 기록이 삭제되며 복구할 수 없습니다)`)) return;
 
-    for (const lifeId of selectedLives) {
-      await supabase.from("journals").delete().eq("life_id", lifeId);
-      await supabase.from("lesson_checks").delete().eq("life_id", lifeId);
-      await supabase.from("worship_attendance").delete().eq("life_id", lifeId);
-      await supabase.from("bible_reading").delete().eq("life_id", lifeId);
-      await supabase.from("audio_queue").delete().eq("life_id", lifeId);
-      await supabase.from("user_lives").delete().eq("life_id", lifeId);
-      await supabase.from("lives").delete().eq("id", lifeId);
+    try {
+      for (const lifeId of selectedLives) {
+        await supabase.from("journals").delete().eq("life_id", lifeId);
+        await supabase.from("lesson_checks").delete().eq("life_id", lifeId);
+        await supabase.from("worship_attendance").delete().eq("life_id", lifeId);
+        await supabase.from("bible_reading").delete().eq("life_id", lifeId);
+        await supabase.from("audio_queue").delete().eq("life_id", lifeId);
+        await supabase.from("user_lives").delete().eq("life_id", lifeId);
+        await supabase.from("lives").delete().eq("id", lifeId);
+      }
+    } catch (e: any) {
+      alert("삭제 실패: " + (e?.message || "알 수 없는 오류"));
     }
 
     setSelectedLives(new Set());

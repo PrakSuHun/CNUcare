@@ -76,10 +76,10 @@ export default function NewLifePage() {
       life_id: lifeId,
       role_in_life: "evangelist",
     }, { onConflict: "user_id,life_id", ignoreDuplicates: true });
-    await supabase.from("lives").update({ primary_user_id: user.id }).eq("id", lifeId).is("primary_user_id", null);
+    const { error: updErr } = await supabase.from("lives").update({ primary_user_id: user.id }).eq("id", lifeId).is("primary_user_id", null);
     setLoading(false);
-    if (ulErr) {
-      alert("연결 실패: " + ulErr.message);
+    if (ulErr || updErr) {
+      alert("연결 실패: " + ((ulErr || updErr)?.message || ""));
       return;
     }
     router.push("/student");
@@ -116,11 +116,14 @@ export default function NewLifePage() {
     }
 
     // 사용자-생명 연결
-    await supabase.from("user_lives").insert({
+    const { error: ulErr } = await supabase.from("user_lives").insert({
       user_id: user.id,
       life_id: newLife.id,
       role_in_life: "evangelist",
     });
+    if (ulErr) {
+      alert("연결 실패: " + ulErr.message);
+    }
 
     router.push("/student");
   };

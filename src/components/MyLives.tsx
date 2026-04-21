@@ -58,8 +58,8 @@ export default function MyLives({ userId, basePath }: MyLivesProps) {
 
   const handleUnlink = async (lifeId: string) => {
     if (!confirm("이 생명과의 연결을 해제하시겠습니까?")) return;
-    await supabase.from("user_lives").delete().eq("user_id", userId).eq("life_id", lifeId);
     await supabase.from("lives").update({ primary_user_id: null }).eq("id", lifeId).eq("primary_user_id", userId);
+    await supabase.from("user_lives").delete().eq("user_id", userId).eq("life_id", lifeId);
     setMenuLifeId(null);
     fetchLives();
   };
