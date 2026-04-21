@@ -746,7 +746,7 @@ function ManagerColumn({
                 {/* 생명 리스트 */}
                 <div
                   className="p-2 grid gap-y-1"
-                  style={{ gridTemplateColumns: `${editMode ? "auto " : ""}max-content 2.25rem 90px 2.75rem 3.2rem` }}
+                  style={{ gridTemplateColumns: `${editMode ? "auto " : ""}3.5rem 2.25rem 90px 2.75rem 3.2rem` }}
                 >
                   {activeLives.length === 0 && failedLives.length === 0 && (
                     <p className="text-xs text-gray-300 text-center py-1" style={{ gridColumn: "1 / -1" }}>생명 없음</p>
@@ -773,8 +773,13 @@ function ManagerColumn({
                         />
                       )}
                       <div className="flex items-center gap-1 min-w-0 overflow-hidden">
-                        <span className={`text-sm font-medium truncate ${STAGE_NAME_COLORS[life.stage] || "text-gray-800"}`}>{life.name}</span>
-                        {life.has_unread && <span className="w-2 h-2 bg-yellow-400 rounded-full shrink-0" />}
+                        <span
+                          className={`font-medium whitespace-nowrap ${STAGE_NAME_COLORS[life.stage] || "text-gray-800"}`}
+                          style={{ fontSize: life.name.length <= 3 ? "14px" : life.name.length === 4 ? "11px" : "9px" }}
+                        >
+                          {life.name}
+                        </span>
+                        {life.has_unread && <span className="w-1.5 h-1.5 bg-yellow-400 rounded-full shrink-0" />}
                       </div>
                       <span className="text-[11px] text-gray-400 whitespace-nowrap truncate">
                         {life.age ? `${life.age}세` : ""}
