@@ -43,7 +43,7 @@ export default function NewLifePage() {
   const handleLinkExisting = async (lifeId: string) => {
     if (!user) return;
     setLoading(true);
-    const { error: ulErr } = await supabase.from("user_lives").insert({ user_id: user.id, life_id: lifeId, role_in_life: "instructor" });
+    const { error: ulErr } = await supabase.from("user_lives").upsert({ user_id: user.id, life_id: lifeId, role_in_life: "instructor" }, { onConflict: "user_id,life_id", ignoreDuplicates: true });
     const { error: updErr } = await supabase.from("lives").update({ primary_user_id: user.id }).eq("id", lifeId).is("primary_user_id", null);
     setLoading(false);
     if (ulErr || updErr) {
