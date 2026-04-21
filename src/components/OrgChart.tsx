@@ -762,7 +762,7 @@ function ManagerColumn({
                             ? selectedLives.has(life.id) ? "border-blue-400 bg-blue-50" : "border-gray-100 cursor-pointer"
                             : "border-gray-100 hover:bg-blue-50 hover:border-blue-300"
                         }`}
-                        style={{ gridTemplateColumns: "minmax(0,1fr) 2rem 5rem 3rem auto" }}
+                        style={{ gridTemplateColumns: "minmax(0,1fr) 2.5rem 5rem 3rem 4.5rem" }}
                       >
                         <div className="flex items-center gap-1 min-w-0">
                           <span className={`text-sm font-medium truncate ${STAGE_NAME_COLORS[life.stage] || "text-gray-800"}`}>{life.name}</span>
@@ -779,7 +779,7 @@ function ManagerColumn({
                         <span className={`text-[10px] font-medium text-right truncate ${life.date_is_upcoming ? "text-blue-600" : "text-gray-700"}`}>
                           {life.date_label ? `${formatDate(life.date_label)}${life.date_is_upcoming ? " 예정" : ""}` : ""}
                         </span>
-                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium whitespace-nowrap ${STAGE_COLORS[life.stage]}`}>
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium whitespace-nowrap text-center truncate ${STAGE_COLORS[life.stage]}`}>
                           {STAGE_LABELS[life.stage]}
                         </span>
                       </button>
