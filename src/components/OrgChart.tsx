@@ -757,34 +757,31 @@ function ManagerColumn({
                       )}
                       <button
                         onClick={() => editMode ? onToggleSelect(life.id) : router.push(`${basePath}/life/${life.id}`)}
-                        className={`flex-1 text-left rounded border px-2 py-1.5 transition-colors flex items-center justify-between gap-2 ${
+                        className={`flex-1 min-w-0 text-left rounded border px-2 py-1.5 transition-colors grid items-center gap-1.5 ${
                           editMode
                             ? selectedLives.has(life.id) ? "border-blue-400 bg-blue-50" : "border-gray-100 cursor-pointer"
                             : "border-gray-100 hover:bg-blue-50 hover:border-blue-300"
                         }`}
+                        style={{ gridTemplateColumns: "minmax(0,1fr) 2rem 5rem 3rem auto" }}
                       >
-                        <div className="flex items-center gap-2 min-w-0">
-                          <span className={`text-sm font-medium shrink-0 ${STAGE_NAME_COLORS[life.stage] || "text-gray-800"}`}>{life.name}</span>
-                          {life.has_unread && (
-                            <span className="w-2 h-2 bg-yellow-400 rounded-full shrink-0" />
-                          )}
-                          {life.age && <span className="text-[11px] text-gray-400 shrink-0">{life.age}세</span>}
-                          {life.memo && (
-                            <span className="text-[11px] text-yellow-700 bg-yellow-50 border border-yellow-200 rounded px-1.5 py-0.5 truncate" title={life.memo}>
-                              {life.memo}
-                            </span>
-                          )}
+                        <div className="flex items-center gap-1 min-w-0">
+                          <span className={`text-sm font-medium truncate ${STAGE_NAME_COLORS[life.stage] || "text-gray-800"}`}>{life.name}</span>
+                          {life.has_unread && <span className="w-2 h-2 bg-yellow-400 rounded-full shrink-0" />}
                         </div>
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          {life.date_label && (
-                            <span className={`text-[10px] font-medium ${life.date_is_upcoming ? "text-blue-600" : "text-gray-700"}`}>
-                              {formatDate(life.date_label)}{life.date_is_upcoming ? " 예정" : ""}
-                            </span>
-                          )}
-                          <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${STAGE_COLORS[life.stage]}`}>
-                            {STAGE_LABELS[life.stage]}
+                        <span className="text-[11px] text-gray-400 text-right truncate">
+                          {life.age ? `${life.age}세` : ""}
+                        </span>
+                        {life.memo ? (
+                          <span className="text-[11px] text-yellow-700 bg-yellow-50 border border-yellow-200 rounded px-1.5 py-0.5 truncate" title={life.memo}>
+                            {life.memo}
                           </span>
-                        </div>
+                        ) : <span />}
+                        <span className={`text-[10px] font-medium text-right truncate ${life.date_is_upcoming ? "text-blue-600" : "text-gray-700"}`}>
+                          {life.date_label ? `${formatDate(life.date_label)}${life.date_is_upcoming ? " 예정" : ""}` : ""}
+                        </span>
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium whitespace-nowrap ${STAGE_COLORS[life.stage]}`}>
+                          {STAGE_LABELS[life.stage]}
+                        </span>
                       </button>
                     </div>
                   ))}
