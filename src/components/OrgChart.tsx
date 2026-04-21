@@ -746,7 +746,7 @@ function ManagerColumn({
                 {/* 생명 리스트 */}
                 <div
                   className="p-2 grid gap-y-1"
-                  style={{ gridTemplateColumns: `${editMode ? "auto " : ""}48px 26px 140px 2.75rem 3.2rem` }}
+                  style={{ gridTemplateColumns: `${editMode ? "auto " : ""}48px 26px 140px 40px 3.2rem` }}
                 >
                   {activeLives.length === 0 && failedLives.length === 0 && (
                     <p className="text-xs text-gray-300 text-center py-1" style={{ gridColumn: "1 / -1" }}>생명 없음</p>
