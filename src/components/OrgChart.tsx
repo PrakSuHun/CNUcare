@@ -794,8 +794,9 @@ function ManagerColumn({
                           </span>
                         )}
                       </div>
-                      <span className={`text-[10px] font-medium text-right truncate ${life.date_is_upcoming ? "text-blue-600" : "text-gray-700"}`}>
-                        {life.date_label ? `${formatDate(life.date_label)}${life.date_is_upcoming ? " 예정" : ""}` : ""}
+                      <span className={`text-[10px] font-medium text-right leading-tight flex flex-col items-end justify-center ${life.date_is_upcoming ? "text-blue-600" : "text-gray-700"}`}>
+                        {life.date_label && <span className="whitespace-nowrap">{formatDate(life.date_label)}</span>}
+                        {life.date_is_upcoming && <span className="text-[8px] font-normal">예정</span>}
                       </span>
                       <span className={`text-[10px] px-1 py-0.5 rounded-full font-medium whitespace-nowrap text-center ${STAGE_COLORS[life.stage]}`}>
                         {(STAGE_LABELS[life.stage] || "").replace(" ", "")}
