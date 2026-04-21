@@ -80,7 +80,7 @@ export default function NewLifePage() {
   return (
     <div className="h-full flex flex-col bg-gray-50">
       <header className="shrink-0 bg-white border-b border-gray-200 px-4 py-3 flex items-center">
-        <button onClick={() => step === "name" ? router.push("/admin") : setStep("name")} className="text-gray-500 mr-3">&larr;</button>
+        <button onClick={() => { if (step !== "name") setStep("name"); else if (window.history.length > 1) router.back(); else router.push("/admin"); }} className="text-gray-500 mr-3">&larr;</button>
         <h1 className="text-lg font-bold">생명 추가</h1>
       </header>
       <div className="flex-1 overflow-y-auto p-4">

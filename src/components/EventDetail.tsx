@@ -570,7 +570,7 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
     <div className="h-full flex flex-col bg-gray-50">
       {/* Header */}
       <header className="bg-white border-b border-gray-200 px-4 py-3 flex items-center shrink-0">
-        <button onClick={() => router.push(basePath)} className="text-gray-500 mr-3">&larr;</button>
+        <button onClick={() => { if (window.history.length > 1) router.back(); else router.push(basePath); }} className="text-gray-500 mr-3">&larr;</button>
         <div className="flex items-center gap-2">
           <h1 className="text-lg font-bold">{event.name}</h1>
           <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${

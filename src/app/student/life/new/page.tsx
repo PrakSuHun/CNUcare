@@ -134,6 +134,7 @@ export default function NewLifePage() {
         <button
           onClick={() => {
             if (step === "form" || step === "similar") setStep("name");
+            else if (window.history.length > 1) router.back();
             else router.push("/student");
           }}
           className="text-gray-500 mr-3"
