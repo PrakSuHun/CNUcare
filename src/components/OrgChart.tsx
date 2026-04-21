@@ -794,7 +794,7 @@ function ManagerColumn({
                           </span>
                         )}
                       </div>
-                      <span className={`text-[10px] font-medium text-right leading-tight flex flex-col items-end justify-center ${life.date_is_upcoming ? "text-blue-600" : "text-gray-700"}`}>
+                      <span className={`text-[10px] font-medium text-center leading-tight flex flex-col items-center justify-center ${life.date_is_upcoming ? "text-blue-600" : "text-gray-700"}`}>
                         {life.date_label && <span className="whitespace-nowrap">{formatDate(life.date_label)}</span>}
                         {life.date_is_upcoming && <span className="text-[8px] font-normal">예정</span>}
                       </span>
