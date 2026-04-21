@@ -763,11 +763,11 @@ function ManagerColumn({
                             : "border-gray-100 hover:bg-blue-50 hover:border-blue-300"
                         }`}
                       >
-                        <span className={`text-sm font-medium whitespace-nowrap ${STAGE_NAME_COLORS[life.stage] || "text-gray-800"}`}>{life.name}</span>
+                        <span className={`text-sm font-medium whitespace-nowrap shrink-0 ${STAGE_NAME_COLORS[life.stage] || "text-gray-800"}`}>{life.name}</span>
                         {life.has_unread && <span className="w-2 h-2 bg-yellow-400 rounded-full shrink-0" />}
                         {life.age && <span className="text-[11px] text-gray-400 shrink-0 whitespace-nowrap">{life.age}세</span>}
                         {life.memo && (
-                          <span className="text-[11px] text-yellow-700 bg-yellow-50 border border-yellow-200 rounded px-1.5 py-0.5 truncate min-w-0" title={life.memo}>
+                          <span className="text-[11px] text-yellow-700 bg-yellow-50 border border-yellow-200 rounded px-1.5 py-0.5 truncate min-w-0 max-w-[5rem]" title={life.memo}>
                             {life.memo}
                           </span>
                         )}
@@ -777,8 +777,8 @@ function ManagerColumn({
                             {formatDate(life.date_label)}{life.date_is_upcoming ? " 예정" : ""}
                           </span>
                         )}
-                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium whitespace-nowrap shrink-0 ${STAGE_COLORS[life.stage]}`}>
-                          {STAGE_LABELS[life.stage]}
+                        <span className={`text-[10px] px-1 py-0.5 rounded-full font-medium whitespace-nowrap shrink-0 text-center ${STAGE_COLORS[life.stage]}`} style={{ width: "3.2rem" }}>
+                          {(STAGE_LABELS[life.stage] || "").replace(" ", "")}
                         </span>
                       </button>
                     </div>

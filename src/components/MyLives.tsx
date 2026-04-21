@@ -105,15 +105,15 @@ export default function MyLives({ userId, basePath }: MyLivesProps) {
               className="flex-1 p-4 text-left"
             >
               <div className="flex items-center gap-2">
-                <span className="font-semibold text-base whitespace-nowrap">{life.name}</span>
+                <span className="font-semibold text-base whitespace-nowrap shrink-0">{life.name}</span>
                 {life.memo && (
-                  <span className="text-[11px] text-yellow-700 bg-yellow-50 border border-yellow-200 rounded px-1.5 py-0.5 truncate min-w-0" title={life.memo}>
+                  <span className="text-[11px] text-yellow-700 bg-yellow-50 border border-yellow-200 rounded px-1.5 py-0.5 truncate min-w-0 max-w-[8rem]" title={life.memo}>
                     {life.memo}
                   </span>
                 )}
                 <span className="flex-1" />
-                <span className={`text-xs px-2 py-1 rounded-full font-medium whitespace-nowrap shrink-0 ${STAGE_COLORS[life.stage] || "bg-gray-100 text-gray-700"}`}>
-                  {STAGE_LABELS[life.stage] || life.stage}
+                <span className={`text-xs px-1 py-1 rounded-full font-medium whitespace-nowrap shrink-0 text-center ${STAGE_COLORS[life.stage] || "bg-gray-100 text-gray-700"}`} style={{ width: "3.6rem" }}>
+                  {(STAGE_LABELS[life.stage] || life.stage).replace(" ", "")}
                 </span>
               </div>
               <p className="text-xs text-gray-400 mt-1">
