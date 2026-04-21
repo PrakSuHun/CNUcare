@@ -786,7 +786,7 @@ function ManagerColumn({
                       </span>
                       {life.memo ? (
                         <span
-                          className={`text-[11px] text-yellow-700 bg-yellow-50 border border-yellow-200 rounded px-1.5 py-0.5 truncate ${life.memo.length >= 13 ? "block w-full" : "inline-block max-w-full"}`}
+                          className={`text-[11px] text-yellow-700 bg-yellow-50 border border-yellow-200 rounded px-1.5 py-0.5 truncate ${life.memo.length >= 13 ? "block w-full" : "justify-self-start max-w-full"}`}
                           title={life.memo}
                         >
                           {life.memo}
