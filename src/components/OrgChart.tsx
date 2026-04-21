@@ -368,7 +368,8 @@ export default function OrgChart({ userRole, userId, basePath, editMode: externa
         life_id: lifeId,
         role_in_life: "evangelist",
       }));
-      await supabase.from("user_lives").upsert(ulRows, { onConflict: "user_id,life_id", ignoreDuplicates: true });
+      const { error: ulErr } = await supabase.from("user_lives").upsert(ulRows, { onConflict: "user_id,life_id", ignoreDuplicates: true });
+      if (ulErr) throw ulErr;
       setSelectedLives(new Set());
       setMovingSelectedTo(false);
       fetchOrgData();
@@ -391,11 +392,12 @@ export default function OrgChart({ userRole, userId, basePath, editMode: externa
         .update({ primary_user_id: toUserId })
         .eq("id", lifeId);
       if (updErr) throw updErr;
-      await supabase.from("user_lives").upsert({
+      const { error: ulErr } = await supabase.from("user_lives").upsert({
         user_id: toUserId,
         life_id: lifeId,
         role_in_life: "evangelist",
       }, { onConflict: "user_id,life_id", ignoreDuplicates: true });
+      if (ulErr) throw ulErr;
       setMovingLife(null);
       fetchOrgData();
     } catch (e: any) {
@@ -403,22 +405,24 @@ export default function OrgChart({ userRole, userId, basePath, editMode: externa
     }
   };
 
-  // 이동 대상 목록: 관리자 + 대학생
+  // 이동 대상 목록: 현재 필터 상태와 무관하게 전체 트리 기준 (unassigned 제외)
   const allMoveTargets = [
-    // 관리자
-    ...visibleTree.map((m) => ({
-      id: m.id,
-      display_name: m.display_name,
-      lives: [] as LifeItem[],
-      managerName: "관리자",
-      isManager: true,
-    })),
-    // 대학생
-    ...visibleTree.flatMap((m) =>
-      m.students
-        .filter((s) => !s.id.endsWith("_direct"))
-        .map((s) => ({ ...s, managerName: m.display_name, isManager: false }))
-    ),
+    ...tree
+      .filter((m) => m.id !== "unassigned")
+      .map((m) => ({
+        id: m.id,
+        display_name: m.display_name,
+        lives: [] as LifeItem[],
+        managerName: "관리자",
+        isManager: true,
+      })),
+    ...tree
+      .filter((m) => m.id !== "unassigned")
+      .flatMap((m) =>
+        m.students
+          .filter((s) => !s.id.endsWith("_direct"))
+          .map((s) => ({ ...s, managerName: m.display_name, isManager: false }))
+      ),
   ];
 
   const filterLife = (life: LifeItem) => {
