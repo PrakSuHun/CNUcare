@@ -744,14 +744,14 @@ function ManagerColumn({
                   </div>
                 </div>
                 {/* 생명 리스트 */}
-                <div
-                  className="p-2 grid gap-y-1"
-                  style={{ gridTemplateColumns: `${editMode ? "auto " : ""}48px 26px minmax(140px, 1fr) 40px 3.2rem` }}
-                >
+                <div className="p-2 space-y-1">
                   {activeLives.length === 0 && failedLives.length === 0 && (
-                    <p className="text-xs text-gray-300 text-center py-1" style={{ gridColumn: "1 / -1" }}>생명 없음</p>
+                    <p className="text-xs text-gray-300 text-center py-1">생명 없음</p>
                   )}
-                  {activeLives.map((life) => (
+                  {activeLives.map((life) => {
+                    const memoLen = life.memo?.length || 0;
+                    const memoCol = memoLen >= 13 ? "minmax(140px, 1fr)" : memoLen > 0 ? "max-content" : "0";
+                    return (
                     <div
                       key={life.id}
                       role="button"
@@ -761,7 +761,7 @@ function ManagerColumn({
                           ? selectedLives.has(life.id) ? "border-blue-400 bg-blue-50" : "border-gray-100"
                           : "border-gray-100 hover:bg-blue-50 hover:border-blue-300"
                       }`}
-                      style={{ gridColumn: "1 / -1", gridTemplateColumns: "subgrid" }}
+                      style={{ gridTemplateColumns: `${editMode ? "auto " : ""}48px 26px ${memoCol} 40px 3.2rem` }}
                     >
                       {editMode && (
                         <input
@@ -796,9 +796,10 @@ function ManagerColumn({
                         {(STAGE_LABELS[life.stage] || "").replace(" ", "")}
                       </span>
                     </div>
-                  ))}
+                    );
+                  })}
                   {failedLives.length > 0 && (
-                    <div className="flex flex-wrap gap-1 mt-1" style={{ gridColumn: "1 / -1" }}>
+                    <div className="flex flex-wrap gap-1 mt-1">
                       {failedLives.map((life) => (
                         <button
                           key={life.id}
