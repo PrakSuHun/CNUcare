@@ -104,14 +104,15 @@ export default function MyLives({ userId, basePath }: MyLivesProps) {
               onClick={() => router.push(`${basePath}/life/${life.id}`)}
               className="flex-1 p-4 text-left"
             >
-              <div className="grid items-center gap-2" style={{ gridTemplateColumns: "minmax(0,1fr) minmax(0,10rem) auto" }}>
-                <span className="font-semibold text-base truncate">{life.name}</span>
-                {life.memo ? (
-                  <span className="text-[11px] text-yellow-700 bg-yellow-50 border border-yellow-200 rounded px-1.5 py-0.5 truncate" title={life.memo}>
+              <div className="flex items-center gap-2">
+                <span className="font-semibold text-base whitespace-nowrap">{life.name}</span>
+                {life.memo && (
+                  <span className="text-[11px] text-yellow-700 bg-yellow-50 border border-yellow-200 rounded px-1.5 py-0.5 truncate min-w-0" title={life.memo}>
                     {life.memo}
                   </span>
-                ) : <span />}
-                <span className={`text-xs px-2 py-1 rounded-full font-medium whitespace-nowrap ${STAGE_COLORS[life.stage] || "bg-gray-100 text-gray-700"}`}>
+                )}
+                <span className="flex-1" />
+                <span className={`text-xs px-2 py-1 rounded-full font-medium whitespace-nowrap shrink-0 ${STAGE_COLORS[life.stage] || "bg-gray-100 text-gray-700"}`}>
                   {STAGE_LABELS[life.stage] || life.stage}
                 </span>
               </div>
