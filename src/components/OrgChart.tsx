@@ -765,7 +765,7 @@ function ManagerColumn({
                             ? selectedLives.has(life.id) ? "border-blue-400 bg-blue-50" : "border-gray-100 cursor-pointer"
                             : "border-gray-100 hover:bg-blue-50 hover:border-blue-300"
                         }`}
-                        style={{ gridTemplateColumns: "minmax(auto,1fr) 2.25rem 5.5rem 2.75rem 3.2rem" }}
+                        style={{ gridTemplateColumns: "minmax(auto,1fr) 2.25rem 90px 2.75rem 3.2rem" }}
                       >
                         <div className="flex items-center gap-1 min-w-0">
                           <span className={`text-sm font-medium whitespace-nowrap ${STAGE_NAME_COLORS[life.stage] || "text-gray-800"}`}>{life.name}</span>
