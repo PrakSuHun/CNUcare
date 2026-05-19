@@ -378,9 +378,10 @@ export default function OrgChart({ userRole, userId, basePath, editMode: externa
     }
   };
 
-  // 대학생을 다른 관리자로 이동
+  // 대학생을 다른 관리자로 이동 ("unassigned"이면 관리자 미배정으로)
   const moveStudentToManager = async (studentId: string, newManagerId: string) => {
-    await supabase.from("users").update({ manager_id: newManagerId }).eq("id", studentId);
+    const managerId = newManagerId === "unassigned" ? null : newManagerId;
+    await supabase.from("users").update({ manager_id: managerId }).eq("id", studentId);
     setMovingStudent(null);
     fetchOrgData();
   };
@@ -637,6 +638,14 @@ export default function OrgChart({ userRole, userId, basePath, editMode: externa
                   <span className="text-xs text-gray-400 ml-2">대학생 {m.students.length}명</span>
                 </button>
               ))}
+              <button
+                type="button"
+                onClick={() => moveStudentToManager(movingStudent.id, "unassigned")}
+                style={{ touchAction: "manipulation" }}
+                className="w-full text-left rounded-lg border border-dashed border-gray-300 px-4 py-3 hover:bg-gray-50 hover:border-gray-400 transition-colors"
+              >
+                <span className="text-sm font-medium text-gray-500">관리자 미배정</span>
+              </button>
             </div>
             <button onClick={() => setMovingStudent(null)} className="w-full text-center text-sm text-gray-500 py-2">취소</button>
           </div>

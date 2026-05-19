@@ -105,9 +105,11 @@ export default function LifeDetail({ lifeId, basePath, backPath, readOnly = fals
   };
 
   const handleSaveInfo = async () => {
+    if (!life) return;
     const { error } = await supabase
       .from("lives")
       .update({
+        name: editForm.name || life.name,
         student_id_number: editForm.student_id_number || null,
         age: editForm.age || null,
         grade: editForm.grade || null,
@@ -361,6 +363,7 @@ export default function LifeDetail({ lifeId, basePath, backPath, readOnly = fals
           </div>
           {editingInfo ? (
             <div className="space-y-3">
+              <input placeholder="이름" value={editForm.name ?? life.name} onChange={(e) => setEditForm((f) => ({ ...f, name: e.target.value }))} className="w-full rounded border border-gray-300 px-3 py-2 text-sm" />
               <div className="grid grid-cols-2 gap-3">
                 <input placeholder="학번(나이)" value={editForm.student_id_number || ""} onChange={(e) => setEditForm((f) => ({ ...f, student_id_number: e.target.value }))} className="rounded border border-gray-300 px-3 py-2 text-sm" />
                 <input type="number" placeholder="나이" value={editForm.age || ""} onChange={(e) => setEditForm((f) => ({ ...f, age: parseInt(e.target.value) || null }))} className="rounded border border-gray-300 px-3 py-2 text-sm" />
