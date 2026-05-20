@@ -30,7 +30,7 @@ export default function StudentPage() {
   useEffect(() => {
     const u = getUser();
     const isAdminView = !!localStorage.getItem("admin_backup");
-    if (!u || (!isAdminView && u.role !== "student")) {
+    if (!u || (!isAdminView && (u.role !== "student" || u.is_college_leader))) {
       router.push("/");
       return;
     }

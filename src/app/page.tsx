@@ -5,6 +5,18 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { getUser, saveUser } from "@/lib/auth";
 
+// 역할에 따라 이동할 페이지 결정 (대학리더 = student role + is_college_leader → /manager)
+function routeForUser(u: { role: string; is_college_leader?: boolean }): string {
+  if (u.role === "student" && u.is_college_leader) return "/manager";
+  switch (u.role) {
+    case "admin": return "/admin";
+    case "leader": return "/leader";
+    case "instructor": return "/instructor";
+    case "manager": return "/manager";
+    default: return "/student";
+  }
+}
+
 export default function LoginPage() {
   const router = useRouter();
   const [loginId, setLoginId] = useState("");
@@ -12,17 +24,23 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  // 이미 로그인되어 있으면 자동 리다이렉트
+  // 이미 로그인되어 있으면 DB에서 최신 권한을 다시 확인 후 자동 리다이렉트
+  // (어드민이 역할을 바꿔도 오래된 세션이 그대로 남아 잘못된 페이지로 가던 문제 방지)
   useEffect(() => {
-    const user = getUser();
-    if (user) {
-      const routes: Record<string, string> = { admin: "/admin", leader: "/leader", instructor: "/instructor", manager: "/manager" };
-      if (user.role === "student" && user.is_college_leader) {
-        router.replace("/manager");
-      } else {
-        router.replace(routes[user.role] || "/student");
-      }
-    }
+    const cached = getUser();
+    if (!cached) return;
+    let active = true;
+    (async () => {
+      const { data } = await supabase
+        .from("users")
+        .select("id, login_id, name, role, display_name, is_college_leader")
+        .eq("id", cached.id)
+        .single();
+      if (!active) return;
+      if (data) saveUser(data); // 세션 갱신
+      router.replace(routeForUser(data ?? cached));
+    })();
+    return () => { active = false; };
   }, [router]);
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -47,26 +65,7 @@ export default function LoginPage() {
     saveUser(data);
 
     // 역할별 리다이렉트
-    switch (data.role) {
-      case "admin":
-        router.push("/admin");
-        break;
-      case "leader":
-        router.push("/leader");
-        break;
-      case "instructor":
-        router.push("/instructor");
-        break;
-      case "manager":
-        router.push("/manager");
-        break;
-      default:
-        if (data.role === "student" && data.is_college_leader) {
-          router.push("/manager");
-        } else {
-          router.push("/student");
-        }
-    }
+    router.push(routeForUser(data));
   };
 
   return (
