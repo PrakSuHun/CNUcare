@@ -84,16 +84,22 @@ export default function AdminPage() {
 
   const saveEdit = async () => {
     if (!editingUser) return;
-    const updates: Record<string, string> = {
+    const updates: Record<string, string | null> = {
       display_name: editForm.display_name,
       name: editForm.name,
       phone: editForm.phone,
-      birth_date: editForm.birth_date,
+      birth_date: editForm.birth_date || null,
     };
     if (editForm.password) updates.password = editForm.password;
-    if (editForm.manager_id) updates.manager_id = editForm.manager_id;
-    else updates.manager_id = "";
-    await supabase.from("users").update(updates).eq("id", editingUser.id);
+    // manager_id는 대학생만 편집 (uuid 컬럼이라 빈 문자열을 넣으면 update 전체가 실패)
+    if (editingUser.role === "student") {
+      updates.manager_id = editForm.manager_id || null;
+    }
+    const { error } = await supabase.from("users").update(updates).eq("id", editingUser.id);
+    if (error) {
+      alert("저장 실패: " + error.message);
+      return;
+    }
     setEditingUser(null);
     fetchUsers();
   };
