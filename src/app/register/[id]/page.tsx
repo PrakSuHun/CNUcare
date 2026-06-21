@@ -20,6 +20,7 @@ export default function RegisterPage() {
   const [fields, setFields] = useState<FormField[]>([]);
   const [eventId, setEventId] = useState("");
   const [eventName, setEventName] = useState("");
+  const [posterUrl, setPosterUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
@@ -30,13 +31,14 @@ export default function RegisterPage() {
     const fetchForm = async () => {
       const { data } = await supabase
         .from("event_forms")
-        .select("*, events(id, name)")
+        .select("*, events(id, name, poster_url)")
         .eq("id", formId)
         .eq("type", "registration")
         .single();
       if (data) {
         setEventId((data.events as any)?.id || "");
         setEventName((data.events as any)?.name || "");
+        setPosterUrl((data.events as any)?.poster_url || null);
         const config = data.config as any;
         // 새 구조 (fields 배열) 또는 이전 구조 (custom_fields) 지원
         if (config?.fields) {
@@ -191,6 +193,9 @@ export default function RegisterPage() {
       </header>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        {posterUrl && (
+          <img src={posterUrl} alt={`${eventName} 포스터`} className="w-full rounded-lg border border-gray-200" />
+        )}
         {fields.map((f) => (
           <div key={f.id}>
             <label className="block text-sm font-medium text-gray-700 mb-1">

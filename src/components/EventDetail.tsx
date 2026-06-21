@@ -25,6 +25,29 @@ interface Event {
   club_unit?: "daily" | "weekly";
   slug?: string;
   created_by: string;
+  poster_url?: string | null;
+}
+
+// 브라우저에서 이미지 리사이즈 (가로 max 1200px, JPEG 0.85)
+async function resizeImage(file: File, maxWidth = 1200, quality = 0.85): Promise<Blob> {
+  const dataUrl: string = await new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res(r.result as string);
+    r.onerror = rej;
+    r.readAsDataURL(file);
+  });
+  const img = document.createElement("img");
+  await new Promise<void>((res, rej) => { img.onload = () => res(); img.onerror = rej; img.src = dataUrl; });
+  const scale = Math.min(1, maxWidth / img.width);
+  const w = Math.round(img.width * scale);
+  const h = Math.round(img.height * scale);
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  canvas.getContext("2d")!.drawImage(img, 0, 0, w, h);
+  return await new Promise<Blob>((res, rej) =>
+    canvas.toBlob((b) => b ? res(b) : rej(new Error("리사이즈 실패")), "image/jpeg", quality)
+  );
 }
 
 interface Attendee {
@@ -73,6 +96,7 @@ type GroupOption = string; // "default" | "team" | "manager" | "lifeOnly" | "att
 export default function EventDetail({ eventId, basePath }: EventDetailProps) {
   const router = useRouter();
   const [event, setEvent] = useState<Event | null>(null);
+  const [posterUploading, setPosterUploading] = useState(false);
   const [attendees, setAttendees] = useState<Attendee[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
   const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([]);
@@ -1357,6 +1381,78 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
         {/* ===== 설정 Tab ===== */}
         {activeTab === "settings" && (
           <div className="p-4 space-y-4">
+            {/* 포스터 */}
+            <div className="bg-white rounded-lg border border-gray-200 p-4">
+              <p className="text-sm font-medium text-gray-700 mb-1">포스터</p>
+              <p className="text-xs text-gray-500 mb-3">신청 페이지 상단에 표시됩니다.</p>
+              {event?.poster_url ? (
+                <div className="space-y-2">
+                  <img src={event.poster_url} alt="행사 포스터" className="w-full rounded-lg border border-gray-200" />
+                  <div className="flex gap-2">
+                    <label className={`flex-1 cursor-pointer border border-gray-300 text-gray-700 rounded-lg py-2 text-sm text-center hover:bg-gray-50 ${posterUploading ? "opacity-50 pointer-events-none" : ""}`}>
+                      {posterUploading ? "업로드 중..." : "교체"}
+                      <input type="file" accept="image/*" className="hidden" disabled={posterUploading}
+                        onChange={async (e) => {
+                          const f = e.target.files?.[0]; if (!f || !event) return;
+                          setPosterUploading(true);
+                          try {
+                            const blob = await resizeImage(f);
+                            const path = `${eventId}/${Date.now()}.jpg`;
+                            const { error: upErr } = await supabase.storage.from("event-posters").upload(path, blob, { contentType: "image/jpeg", upsert: true });
+                            if (upErr) throw upErr;
+                            const publicUrl = supabase.storage.from("event-posters").getPublicUrl(path).data.publicUrl;
+                            const oldPath = event.poster_url?.split("/event-posters/")[1];
+                            if (oldPath && oldPath !== path) await supabase.storage.from("event-posters").remove([oldPath]).catch(() => {});
+                            const { error: dbErr } = await supabase.from("events").update({ poster_url: publicUrl }).eq("id", eventId);
+                            if (dbErr) throw dbErr;
+                            setEvent({ ...event, poster_url: publicUrl });
+                          } catch (err: any) {
+                            alert("업로드 실패: " + (err?.message || "알 수 없는 오류"));
+                          } finally {
+                            setPosterUploading(false);
+                            e.target.value = "";
+                          }
+                        }} />
+                    </label>
+                    <button disabled={posterUploading}
+                      onClick={async () => {
+                        if (!event?.poster_url) return;
+                        if (!confirm("포스터를 삭제할까요?")) return;
+                        const path = event.poster_url.split("/event-posters/")[1];
+                        if (path) await supabase.storage.from("event-posters").remove([path]).catch(() => {});
+                        await supabase.from("events").update({ poster_url: null }).eq("id", eventId);
+                        setEvent({ ...event, poster_url: null });
+                      }}
+                      className="flex-1 bg-red-50 text-red-600 rounded-lg py-2 text-sm disabled:opacity-50">삭제</button>
+                  </div>
+                </div>
+              ) : (
+                <label className={`block w-full border-2 border-dashed border-gray-300 rounded-lg py-8 text-center text-sm cursor-pointer hover:border-blue-400 hover:text-blue-500 ${posterUploading ? "text-gray-400 pointer-events-none" : "text-gray-500"}`}>
+                  {posterUploading ? "업로드 중..." : "+ 이미지 선택"}
+                  <input type="file" accept="image/*" className="hidden" disabled={posterUploading}
+                    onChange={async (e) => {
+                      const f = e.target.files?.[0]; if (!f || !event) return;
+                      setPosterUploading(true);
+                      try {
+                        const blob = await resizeImage(f);
+                        const path = `${eventId}/${Date.now()}.jpg`;
+                        const { error: upErr } = await supabase.storage.from("event-posters").upload(path, blob, { contentType: "image/jpeg", upsert: true });
+                        if (upErr) throw upErr;
+                        const publicUrl = supabase.storage.from("event-posters").getPublicUrl(path).data.publicUrl;
+                        const { error: dbErr } = await supabase.from("events").update({ poster_url: publicUrl }).eq("id", eventId);
+                        if (dbErr) throw dbErr;
+                        setEvent({ ...event, poster_url: publicUrl });
+                      } catch (err: any) {
+                        alert("업로드 실패: " + (err?.message || "알 수 없는 오류"));
+                      } finally {
+                        setPosterUploading(false);
+                        e.target.value = "";
+                      }
+                    }} />
+                </label>
+              )}
+            </div>
+
             {/* 행사명 수정 */}
             <div className="bg-white rounded-lg border border-gray-200 p-4">
               <p className="text-sm font-medium text-gray-700 mb-3">행사 정보</p>
