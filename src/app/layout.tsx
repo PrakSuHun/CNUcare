@@ -2,8 +2,8 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "CNUcare",
-  description: "교회 선교 관리 및 분석 서비스",
+  title: process.env.NEXT_PUBLIC_SITE_NAME || "CNUcare",
+  description: process.env.NEXT_PUBLIC_SITE_DESCRIPTION || "교회 선교 관리 및 분석 서비스",
 };
 
 export const viewport: Viewport = {

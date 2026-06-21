@@ -9,6 +9,10 @@ import * as XLSX from "xlsx";
 const YEAR_LABELS: Record<number, string> = { 1: "1학년", 2: "2학년", 3: "3학년", 4: "4학년", 0: "졸업유예" };
 const formatYear = (y: number | null) => y != null ? YEAR_LABELS[y] || `${y}` : "";
 
+// 외부 공유용 URL의 도메인. NEXT_PUBLIC_PUBLIC_BASE_URL이 설정돼 있으면 그 값,
+// 없으면 현재 접속 도메인. (내부용/외부용 도메인을 분리 운영 시 외부 도메인으로 설정)
+const publicBase = () => process.env.NEXT_PUBLIC_PUBLIC_BASE_URL || (typeof window !== "undefined" ? window.location.origin : "");
+
 interface EventDetailProps {
   eventId: string;
   basePath: string;
@@ -202,17 +206,17 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
     const { data: existingForms } = await supabase.from("event_forms").select("id, type, config").eq("event_id", eventId);
     (existingForms || []).forEach((f: any) => {
       if (f.type === "registration") {
-        setRegFormUrl(`${window.location.origin}/register/${f.id}`);
+        setRegFormUrl(`${publicBase()}/register/${f.id}`);
         if (f.config?.fields) setRegFields(f.config.fields);
       }
       if (f.type === "checkin_individual") {
-        setCheckinFormUrl(`${window.location.origin}/checkin/${f.id}`);
+        setCheckinFormUrl(`${publicBase()}/checkin/${f.id}`);
         if (f.config?.popup_text) setCheckinPopupText(f.config.popup_text);
         if (f.config?.show_fields) setCheckinShowFields(f.config.show_fields);
         setCheckinType("individual");
       }
       if (f.type === "checkin_team") {
-        setCheckinFormUrl(`${window.location.origin}/check/${encodeURIComponent(ev?.slug || eventId)}`);
+        setCheckinFormUrl(`${publicBase()}/check/${encodeURIComponent(ev?.slug || eventId)}`);
         setCheckinType("team");
       }
     });
@@ -221,7 +225,7 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
     const { data: forms } = await supabase.from("event_feedback_forms").select("id, is_anonymous, questions").eq("event_id", eventId).limit(1);
     if (forms && forms.length > 0) {
       const form = forms[0] as any;
-      setFbUrl(`${window.location.origin}/feedback/${form.id}`);
+      setFbUrl(`${publicBase()}/feedback/${form.id}`);
       setFbAnonymous(form.is_anonymous);
       setFbQuestions(form.questions);
       const { data: responses } = await supabase.from("event_feedback_responses").select("*").eq("form_id", form.id).order("created_at", { ascending: false });
@@ -1567,7 +1571,7 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                   config: { fields: regFields },
                   created_by: getUser()?.id,
                 }).select("id").single();
-                if (data) setRegFormUrl(`${window.location.origin}/register/${data.id}`);
+                if (data) setRegFormUrl(`${publicBase()}/register/${data.id}`);
               }
               setShowRegGen(false);
             }} className="w-full bg-green-600 text-white rounded-lg py-2.5 text-sm font-medium mt-3">{regFormUrl ? "저장" : "생성하기"}</button>
@@ -1640,7 +1644,7 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                     config: { popup_text: checkinPopupText, show_fields: checkinShowFields },
                     created_by: getUser()?.id,
                   }).select("id").single();
-                  if (data) setCheckinFormUrl(`${window.location.origin}/checkin/${data.id}`);
+                  if (data) setCheckinFormUrl(`${publicBase()}/checkin/${data.id}`);
                 }
               } else {
                 // 팀별: slug 확인/생성
@@ -1653,7 +1657,7 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                   event_id: eventId, type: "checkin_team", config: {},
                   created_by: getUser()?.id,
                 }, { onConflict: "event_id,type" });
-                setCheckinFormUrl(`${window.location.origin}/check/${encodeURIComponent(slug)}`);
+                setCheckinFormUrl(`${publicBase()}/check/${encodeURIComponent(slug)}`);
               }
               setShowCheckinGen(false);
             }} className="w-full bg-orange-500 text-white rounded-lg py-2.5 text-sm font-medium">{checkinFormUrl ? "저장" : "생성하기"}</button>
@@ -1711,7 +1715,7 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                   created_by: getUser()?.id,
                 }).select("id").single();
                 if (data) {
-                  const url = `${window.location.origin}/feedback/${data.id}`;
+                  const url = `${publicBase()}/feedback/${data.id}`;
                   setFbUrl(url);
                 }
                 setShowFeedbackGen(false);
