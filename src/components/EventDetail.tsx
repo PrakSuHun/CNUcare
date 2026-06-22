@@ -160,6 +160,7 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
   const [regNewType, setRegNewType] = useState<"text" | "textarea" | "dropdown" | "checkbox">("text");
   const [regNewOptions, setRegNewOptions] = useState("");
   const [regPreview, setRegPreview] = useState(false);
+  const [regDescription, setRegDescription] = useState("");
   const [checkinType, setCheckinType] = useState<"individual" | "team">("individual");
   const [checkinPopupText, setCheckinPopupText] = useState("");
   const [checkinShowFields, setCheckinShowFields] = useState<string[]>([]);
@@ -232,6 +233,7 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
       if (f.type === "registration") {
         setRegFormUrl(`${publicBase()}/register/${f.id}`);
         if (f.config?.fields) setRegFields(f.config.fields);
+        if (typeof f.config?.description === "string") setRegDescription(f.config.description);
       }
       if (f.type === "checkin_individual") {
         setCheckinFormUrl(`${publicBase()}/checkin/${f.id}`);
@@ -1555,6 +1557,9 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
             {regPreview ? (
               /* 미리보기 */
               <div className="space-y-3 border border-gray-200 rounded-lg p-4 bg-gray-50">
+                {regDescription.trim() && (
+                  <p className="text-sm text-gray-700 whitespace-pre-wrap border-b border-gray-200 pb-3">{regDescription}</p>
+                )}
                 {regFields.map((f) => (
                   <div key={f.id}>
                     <label className="block text-sm font-medium text-gray-700 mb-1">{f.label}{f.required && " *"}</label>
@@ -1581,6 +1586,15 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
             ) : (
               /* 편집 */
               <div className="space-y-3">
+                {/* 폼 설명 (소개글) */}
+                <div className="bg-gray-50 rounded-lg p-3 space-y-1">
+                  <label className="text-xs text-gray-500 font-medium">폼 설명 (선택)</label>
+                  <p className="text-[10px] text-gray-400">신청 페이지 상단에 표시되는 소개글. 줄바꿈 그대로 보입니다.</p>
+                  <textarea value={regDescription} onChange={(e) => setRegDescription(e.target.value)}
+                    placeholder="행사 안내, 유의사항 등을 입력하세요"
+                    rows={4}
+                    className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-blue-400 resize-y" />
+                </div>
                 {/* 필드 목록 */}
                 {regFields.map((f, i) => (
                   <div key={f.id} className="bg-gray-50 rounded-lg p-3 space-y-2">
@@ -1659,12 +1673,12 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
               if (regFormUrl) {
                 // 수정: 기존 폼 업데이트
                 const formId = regFormUrl.split("/register/")[1];
-                await supabase.from("event_forms").update({ config: { fields: regFields } }).eq("id", formId);
+                await supabase.from("event_forms").update({ config: { fields: regFields, description: regDescription } }).eq("id", formId);
               } else {
                 // 생성
                 const { data } = await supabase.from("event_forms").insert({
                   event_id: eventId, type: "registration",
-                  config: { fields: regFields },
+                  config: { fields: regFields, description: regDescription },
                   created_by: getUser()?.id,
                 }).select("id").single();
                 if (data) setRegFormUrl(`${publicBase()}/register/${data.id}`);
