@@ -26,6 +26,7 @@ interface Event {
   slug?: string;
   created_by: string;
   poster_url?: string | null;
+  created_at?: string;
 }
 
 // 브라우저에서 이미지 리사이즈 (가로 max 1200px, JPEG 0.85)
@@ -109,6 +110,9 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
   const [groupBy, setGroupBy] = useState<GroupOption>("default");
   const [lifeOnly, setLifeOnly] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [addType, setAddType] = useState<"guest" | "member">("guest");
+  const [memberSearch, setMemberSearch] = useState("");
+  const [allUsers, setAllUsers] = useState<{ id: string; display_name: string }[]>([]);
   const [newAttendeeName, setNewAttendeeName] = useState("");
   const [newAttendeeGender, setNewAttendeeGender] = useState("");
   const [newAttendeeDept, setNewAttendeeDept] = useState("");
@@ -123,6 +127,7 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
   // Detail tab state
   const [detailMode, setDetailMode] = useState<"before" | "after">("before");
   const [expandedAttendee, setExpandedAttendee] = useState<string | null>(null);
+  const [editingAttendee, setEditingAttendee] = useState<string | null>(null);
   const [feedbackMap, setFeedbackMap] = useState<Record<string, string>>({});
 
   // Status tab state
@@ -205,25 +210,15 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
     if (attendanceRes.data) setAttendanceRecords(attendanceRes.data as AttendanceRecord[]);
     if (feedbackRes.data) setFeedbacks(feedbackRes.data as Feedback[]);
 
-    // 현재 사용자를 참석자 명단에 자동 추가 (섭리회원) — upsert로 중복 방지
-    const currentUser = getUser();
-    if (currentUser) {
-      await supabase.from("event_attendees").upsert({
-        event_id: eventId,
-        name: currentUser.display_name,
-        is_member: true,
-        status: "pending",
-      }, { onConflict: "event_id,name", ignoreDuplicates: false });
-
-      // 최신 목록 다시 조회
-      const { data: refreshed } = await supabase.from("event_attendees").select("*").eq("event_id", eventId).order("name");
-      if (refreshed) setAttendees(refreshed as Attendee[]);
-    }
-
     // 회차 설정 로드
     const { data: settingsForm } = await supabase.from("event_forms").select("config").eq("event_id", eventId).eq("type", "settings").limit(1);
-    if (settingsForm?.[0]?.config?.sessions) {
-      setSessions(settingsForm[0].config.sessions);
+    const loadedSessions = (settingsForm?.[0]?.config?.sessions as { number: number; date: string }[] | undefined) || [];
+    if (loadedSessions.length > 0) setSessions(loadedSessions);
+
+    // 일회성+0회차 행사는 단일 출석일을 event.created_at으로 고정 (날짜 입력 UI 없음)
+    const evData = eventRes.data;
+    if (evData?.type === "onetime" && loadedSessions.length === 0 && evData.created_at) {
+      setSelectedDate(evData.created_at.split("T")[0]);
     }
 
     // 기존 신청/출석 폼 URL 로드
@@ -320,6 +315,28 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
         }
       }
     }
+  };
+
+  const loadAllUsers = async () => {
+    if (allUsers.length > 0) return;
+    const { data } = await supabase.from("users").select("id, display_name").order("display_name");
+    if (data) setAllUsers(data as { id: string; display_name: string }[]);
+  };
+
+  const addMemberAttendee = async (displayName: string) => {
+    // 중복 방지
+    if (attendees.some((a) => a.name === displayName)) {
+      alert(`${displayName}님은 이미 명단에 있습니다.`);
+      return;
+    }
+    const { data } = await supabase
+      .from("event_attendees")
+      .insert({ event_id: eventId, name: displayName, is_member: true, status: "pending" })
+      .select()
+      .single();
+    if (data) setAttendees((prev) => [...prev, data as Attendee]);
+    setMemberSearch("");
+    setShowAddModal(false);
   };
 
   const addAttendee = async () => {
@@ -491,12 +508,13 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
   };
 
   const getStats = () => {
-    const total = attendees.length;
-    const lifeOnly = attendees.filter((a) => !a.is_member);
-    const presentToday = attendees.filter((a) => attendanceRecords.some((r) => r.attendee_id === a.id && r.present));
-    const male = lifeOnly.filter((a) => a.gender === "남").length;
-    const female = lifeOnly.filter((a) => a.gender === "여").length;
-    const passed = attendees.filter((a) => a.status === "pass").length;
+    // 현황 탭은 게스트(섭리회원이 아닌 신청자)만 집계
+    const guests = attendees.filter((a) => !a.is_member);
+    const total = guests.length;
+    const presentToday = guests.filter((a) => attendanceRecords.some((r) => r.attendee_id === a.id && r.present));
+    const male = guests.filter((a) => a.gender === "남").length;
+    const female = guests.filter((a) => a.gender === "여").length;
+    const passed = guests.filter((a) => a.status === "pass").length;
     return { total, totalAttended: presentToday.length, male, female, passed };
   };
 
@@ -702,8 +720,8 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
               </div>
             )}
 
-            {/* Club daily: 회차별 드롭다운 */}
-            {event.type === "club" && event.club_unit !== "weekly" && sessions.length > 0 && (
+            {/* 회차 있음 (일회성 또는 club non-weekly): 회차별 드롭다운 */}
+            {!(event.type === "club" && event.club_unit === "weekly") && sessions.length > 0 && (
               <div className="flex items-center gap-2">
                 <select
                   value={selectedSession}
@@ -727,9 +745,10 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
               </div>
             )}
 
-            {/* Date selector (일회성 or 회차 없는 동아리) */}
+            {/* Date selector — club non-weekly에 회차 없을 때만 직접 날짜 입력
+                일회성+0회차는 날짜 칸 안 보임 (단일 출석, event.created_at 사용) */}
             <div className="flex items-center gap-2">
-              {event.type !== "club" && (
+              {event.type === "club" && event.club_unit !== "weekly" && sessions.length === 0 && (
                 <input
                   type="date"
                   value={selectedDate}
@@ -738,8 +757,8 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                 />
               )}
               <button
-                onClick={() => setShowAddModal(true)}
-                className="text-xs text-blue-600 border border-blue-300 rounded-full px-3 py-1.5 hover:bg-blue-50 whitespace-nowrap"
+                onClick={() => { setShowAddModal(true); loadAllUsers(); }}
+                className="ml-auto text-xs text-blue-600 border border-blue-300 rounded-full px-3 py-1.5 hover:bg-blue-50 whitespace-nowrap"
               >
                 + 참석자 추가
               </button>
@@ -889,6 +908,11 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-1.5">
                           <span className="text-sm font-medium truncate">{a.name}</span>
+                          {a.gender && (
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded-full shrink-0 ${
+                              a.gender === "남" ? "bg-blue-100 text-blue-700" : "bg-pink-100 text-pink-700"
+                            }`}>{a.gender}</span>
+                          )}
                           {a.is_member && (
                             <span className="text-[10px] bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded-full shrink-0">섭리</span>
                           )}
@@ -1046,69 +1070,99 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                           </div>
                         </button>
 
-                        {/* Expanded: phone + info */}
-                        {isExpanded && (
+                        {/* Expanded: 읽기 전용 + 수정 토글 */}
+                        {isExpanded && (() => {
+                          const isEditing = editingAttendee === a.id;
+                          return (
                           <div className="mt-2 pt-2 border-t border-gray-100 space-y-2">
-                            <div className="space-y-1.5">
-                              <div className="grid grid-cols-2 gap-1.5">
-                                <div>
-                                  <span className="text-[10px] text-gray-400">연락처</span>
-                                  <input type="tel" value={a.phone || ""} onChange={(e) => updateAttendeeField(a.id, "phone", e.target.value || null)}
-                                    placeholder="연락처" className="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:border-blue-400" />
-                                </div>
-                                <div>
-                                  <span className="text-[10px] text-gray-400">학과</span>
-                                  <input type="text" value={a.department || ""} onChange={(e) => updateAttendeeField(a.id, "department", e.target.value || null)}
-                                    placeholder="학과" className="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:border-blue-400" />
-                                </div>
-                              </div>
-                              <div className="grid grid-cols-2 gap-1.5">
-                                <div>
-                                  <span className="text-[10px] text-gray-400">성별</span>
-                                  <select value={a.gender || ""} onChange={(e) => updateAttendeeField(a.id, "gender", e.target.value || null)}
-                                    className="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:border-blue-400">
-                                    <option value="">미선택</option>
-                                    <option value="남">남</option>
-                                    <option value="여">여</option>
-                                  </select>
-                                </div>
-                                <div>
-                                  <span className="text-[10px] text-gray-400">학년</span>
-                                  <select value={a.year?.toString() || ""} onChange={(e) => updateAttendeeField(a.id, "year", e.target.value ? parseInt(e.target.value) : null)}
-                                    className="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:border-blue-400">
-                                    <option value="">미선택</option>
-                                    <option value="1">1학년</option>
-                                    <option value="2">2학년</option>
-                                    <option value="3">3학년</option>
-                                    <option value="4">4학년</option>
-                                    <option value="0">졸업유예</option>
-                                  </select>
-                                </div>
-                              </div>
-                              <div>
-                                <span className="text-[10px] text-gray-400">친구</span>
-                                <input type="text" value={a.friend_group || ""} onChange={(e) => updateAttendeeField(a.id, "friend_group", e.target.value || null)}
-                                  placeholder="함께 신청한 친구" className="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:border-blue-400" />
-                              </div>
-                              <div>
-                                <label className="flex items-center gap-1.5 text-xs text-gray-500">
-                                  <input type="checkbox" checked={a.is_member} onChange={(e) => updateAttendeeField(a.id, "is_member", e.target.checked)}
-                                    className="w-3.5 h-3.5" />
-                                  섭리회원
-                                </label>
-                              </div>
-                              {a.custom_data && Object.entries(a.custom_data).map(([key]) => (
-                                <div key={key}>
-                                  <span className="text-[10px] text-gray-400">{key}</span>
-                                  <input type="text" value={a.custom_data?.[key] || ""} onChange={(e) => {
-                                    const updated = { ...(a.custom_data || {}), [key]: e.target.value };
-                                    updateAttendeeField(a.id, "custom_data", updated);
-                                  }} placeholder={key} className="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:border-blue-400" />
-                                </div>
-                              ))}
+                            <div className="flex justify-end">
+                              {isEditing ? (
+                                <button onClick={(e) => { e.stopPropagation(); setEditingAttendee(null); }}
+                                  className="text-[11px] bg-blue-600 text-white px-2.5 py-1 rounded-full">완료</button>
+                              ) : (
+                                <button onClick={(e) => { e.stopPropagation(); setEditingAttendee(a.id); }}
+                                  className="text-[11px] text-blue-600 border border-blue-300 px-2.5 py-1 rounded-full hover:bg-blue-50">수정</button>
+                              )}
                             </div>
+                            {isEditing ? (
+                              /* 편집 모드: 기존 인라인 입력 */
+                              <div className="space-y-1.5">
+                                <div className="grid grid-cols-2 gap-1.5">
+                                  <div>
+                                    <span className="text-[10px] text-gray-400">연락처</span>
+                                    <input type="tel" value={a.phone || ""} onChange={(e) => updateAttendeeField(a.id, "phone", e.target.value || null)}
+                                      placeholder="연락처" className="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:border-blue-400" />
+                                  </div>
+                                  <div>
+                                    <span className="text-[10px] text-gray-400">학과</span>
+                                    <input type="text" value={a.department || ""} onChange={(e) => updateAttendeeField(a.id, "department", e.target.value || null)}
+                                      placeholder="학과" className="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:border-blue-400" />
+                                  </div>
+                                </div>
+                                <div className="grid grid-cols-2 gap-1.5">
+                                  <div>
+                                    <span className="text-[10px] text-gray-400">성별</span>
+                                    <select value={a.gender || ""} onChange={(e) => updateAttendeeField(a.id, "gender", e.target.value || null)}
+                                      className="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:border-blue-400">
+                                      <option value="">미선택</option>
+                                      <option value="남">남</option>
+                                      <option value="여">여</option>
+                                    </select>
+                                  </div>
+                                  <div>
+                                    <span className="text-[10px] text-gray-400">학년</span>
+                                    <select value={a.year?.toString() || ""} onChange={(e) => updateAttendeeField(a.id, "year", e.target.value ? parseInt(e.target.value) : null)}
+                                      className="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:border-blue-400">
+                                      <option value="">미선택</option>
+                                      <option value="1">1학년</option>
+                                      <option value="2">2학년</option>
+                                      <option value="3">3학년</option>
+                                      <option value="4">4학년</option>
+                                      <option value="0">졸업유예</option>
+                                    </select>
+                                  </div>
+                                </div>
+                                <div>
+                                  <span className="text-[10px] text-gray-400">친구</span>
+                                  <input type="text" value={a.friend_group || ""} onChange={(e) => updateAttendeeField(a.id, "friend_group", e.target.value || null)}
+                                    placeholder="함께 신청한 친구" className="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:border-blue-400" />
+                                </div>
+                                <div>
+                                  <label className="flex items-center gap-1.5 text-xs text-gray-500">
+                                    <input type="checkbox" checked={a.is_member} onChange={(e) => updateAttendeeField(a.id, "is_member", e.target.checked)}
+                                      className="w-3.5 h-3.5" />
+                                    섭리회원
+                                  </label>
+                                </div>
+                                {a.custom_data && Object.entries(a.custom_data).map(([key]) => (
+                                  <div key={key}>
+                                    <span className="text-[10px] text-gray-400">{key}</span>
+                                    <input type="text" value={a.custom_data?.[key] || ""} onChange={(e) => {
+                                      const updated = { ...(a.custom_data || {}), [key]: e.target.value };
+                                      updateAttendeeField(a.id, "custom_data", updated);
+                                    }} placeholder={key} className="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:border-blue-400" />
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              /* 읽기 전용: 신청폼 답변 전체 표시 */
+                              <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs">
+                                {a.phone && (<div><span className="text-gray-400 text-[10px]">연락처</span><p>{a.phone}</p></div>)}
+                                {a.department && (<div><span className="text-gray-400 text-[10px]">학과</span><p>{a.department}</p></div>)}
+                                {a.gender && (<div><span className="text-gray-400 text-[10px]">성별</span><p>{a.gender}</p></div>)}
+                                {a.year != null && (<div><span className="text-gray-400 text-[10px]">학년</span><p>{formatYear(a.year)}</p></div>)}
+                                {a.friend_group && (<div className="col-span-2"><span className="text-gray-400 text-[10px]">친구</span><p>{a.friend_group}</p></div>)}
+                                {a.custom_data && Object.entries(a.custom_data).filter(([, v]) => v).map(([key, val]) => (
+                                  <div key={key} className="col-span-2"><span className="text-gray-400 text-[10px]">{key}</span><p className="whitespace-pre-wrap">{val}</p></div>
+                                ))}
+                                {!a.phone && !a.department && !a.gender && a.year == null && !a.friend_group && !(a.custom_data && Object.keys(a.custom_data).length > 0) && (
+                                  <p className="col-span-2 text-gray-400">입력된 정보 없음</p>
+                                )}
+                              </div>
+                            )}
                           </div>
-                        )}
+                          );
+                        })()}
 
                         {/* Before mode: team + manager assignment */}
                         {(detailMode === "before" || event?.type === "club") && (
@@ -1131,6 +1185,7 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                                 })()}
                               </select>
                               )}
+                              {!a.is_member && (
                               <select
                                 value={a.manager_id || ""}
                                 onChange={(e) => updateAttendeeField(a.id, "manager_id", e.target.value || null)}
@@ -1141,6 +1196,7 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                                   <option key={m.user_id} value={m.user_id}>{m.display_name}</option>
                                 ))}
                               </select>
+                              )}
                             </div>
                           </div>
                         )}
@@ -1842,7 +1898,7 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
       {/* Add attendee modal */}
       {showAddModal && (
         <div className="fixed inset-0 bg-black/50 flex items-end justify-center z-50" onClick={() => setShowAddModal(false)}>
-          <div className="bg-white w-full max-w-lg rounded-t-2xl p-4" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white w-full max-w-lg rounded-t-2xl p-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-bold">참석자 추가</h3>
               <div className="flex gap-2">
@@ -1850,37 +1906,73 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                 <button onClick={() => setShowAddModal(false)} className="text-xs text-gray-400">닫기</button>
               </div>
             </div>
-            <div className="space-y-2">
-              <input type="text" value={newAttendeeName} onChange={(e) => setNewAttendeeName(e.target.value)}
-                placeholder="이름 *" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400" />
-              <div className="grid grid-cols-2 gap-2">
-                <select value={newAttendeeGender} onChange={(e) => setNewAttendeeGender(e.target.value)}
-                  className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400">
-                  <option value="">성별</option>
-                  <option value="남">남</option>
-                  <option value="여">여</option>
-                </select>
-                <select value={newAttendeeYear} onChange={(e) => setNewAttendeeYear(e.target.value)}
-                  className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400">
-                  <option value="">학년</option>
-                  <option value="1">1학년</option>
-                  <option value="2">2학년</option>
-                  <option value="3">3학년</option>
-                  <option value="4">4학년</option>
-                  <option value="0">졸업유예</option>
-                </select>
-              </div>
-              <input type="text" value={newAttendeeDept} onChange={(e) => setNewAttendeeDept(e.target.value)}
-                placeholder="학과" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400" />
-              <input type="tel" value={newAttendeePhone} onChange={(e) => setNewAttendeePhone(e.target.value)}
-                placeholder="연락처" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400" />
-              <input type="text" value={newAttendeeFriend} onChange={(e) => setNewAttendeeFriend(e.target.value)}
-                placeholder="함께 신청한 친구 (쉼표로 구분)" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400" />
-              <button onClick={addAttendee} disabled={!newAttendeeName.trim()}
-                className="w-full bg-blue-600 text-white rounded-lg py-2.5 text-sm font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors">
-                추가
+            {/* 섭리/게스트 분기 */}
+            <div className="flex bg-gray-100 rounded-lg p-0.5 mb-3">
+              <button onClick={() => setAddType("guest")}
+                className={`flex-1 py-1.5 text-xs rounded-md font-medium ${addType === "guest" ? "bg-white shadow-sm" : "text-gray-500"}`}>
+                게스트
+              </button>
+              <button onClick={() => setAddType("member")}
+                className={`flex-1 py-1.5 text-xs rounded-md font-medium ${addType === "member" ? "bg-white shadow-sm" : "text-gray-500"}`}>
+                섭리회원
               </button>
             </div>
+            {addType === "member" ? (
+              <div className="space-y-2">
+                <input type="text" value={memberSearch} onChange={(e) => setMemberSearch(e.target.value)}
+                  placeholder="이름 검색" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400" />
+                <div className="border border-gray-200 rounded-lg max-h-60 overflow-y-auto divide-y divide-gray-100">
+                  {allUsers
+                    .filter((u) => !memberSearch.trim() || u.display_name.includes(memberSearch.trim()))
+                    .map((u) => {
+                      const already = attendees.some((a) => a.name === u.display_name);
+                      return (
+                        <button key={u.id} disabled={already}
+                          onClick={() => addMemberAttendee(u.display_name)}
+                          className={`w-full text-left px-3 py-2 text-sm flex items-center justify-between ${already ? "text-gray-300" : "hover:bg-blue-50"}`}>
+                          <span>{u.display_name}</span>
+                          {already && <span className="text-[10px] text-gray-400">이미 명단</span>}
+                        </button>
+                      );
+                    })}
+                  {allUsers.length === 0 && (
+                    <p className="text-xs text-gray-400 text-center py-3">사용자 목록을 불러오는 중...</p>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <input type="text" value={newAttendeeName} onChange={(e) => setNewAttendeeName(e.target.value)}
+                  placeholder="이름 *" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400" />
+                <div className="grid grid-cols-2 gap-2">
+                  <select value={newAttendeeGender} onChange={(e) => setNewAttendeeGender(e.target.value)}
+                    className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400">
+                    <option value="">성별</option>
+                    <option value="남">남</option>
+                    <option value="여">여</option>
+                  </select>
+                  <select value={newAttendeeYear} onChange={(e) => setNewAttendeeYear(e.target.value)}
+                    className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400">
+                    <option value="">학년</option>
+                    <option value="1">1학년</option>
+                    <option value="2">2학년</option>
+                    <option value="3">3학년</option>
+                    <option value="4">4학년</option>
+                    <option value="0">졸업유예</option>
+                  </select>
+                </div>
+                <input type="text" value={newAttendeeDept} onChange={(e) => setNewAttendeeDept(e.target.value)}
+                  placeholder="학과" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400" />
+                <input type="tel" value={newAttendeePhone} onChange={(e) => setNewAttendeePhone(e.target.value)}
+                  placeholder="연락처" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400" />
+                <input type="text" value={newAttendeeFriend} onChange={(e) => setNewAttendeeFriend(e.target.value)}
+                  placeholder="함께 신청한 친구 (쉼표로 구분)" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400" />
+                <button onClick={addAttendee} disabled={!newAttendeeName.trim()}
+                  className="w-full bg-blue-600 text-white rounded-lg py-2.5 text-sm font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors">
+                  추가
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
