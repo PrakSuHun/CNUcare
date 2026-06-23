@@ -10,6 +10,7 @@ interface FormField {
   type: "text" | "textarea" | "dropdown" | "checkbox";
   required: boolean;
   options?: string[];
+  description?: string;
   builtin?: boolean;
 }
 
@@ -206,6 +207,9 @@ export default function RegisterPage() {
             <label className="block text-sm font-medium text-gray-700 mb-1">
               {f.label} <span className={f.required ? "text-red-500 text-xs" : "text-gray-400 text-xs"}>{f.required ? "필수" : "선택"}</span>
             </label>
+            {f.description && (
+              <p className="text-xs text-gray-500 whitespace-pre-wrap mb-2">{f.description}</p>
+            )}
 
             {f.type === "text" && (
               <input type={f.id === "phone" ? "tel" : "text"}

@@ -160,10 +160,11 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
     { id: "phone", label: "연락처", type: "text" as const, required: false, builtin: true },
     { id: "friend_group", label: "함께 신청한 친구", type: "text" as const, required: false, builtin: true },
   ];
-  const [regFields, setRegFields] = useState<{ id: string; label: string; type: "text" | "textarea" | "dropdown" | "checkbox"; required: boolean; options?: string[]; builtin?: boolean }[]>([]);
+  const [regFields, setRegFields] = useState<{ id: string; label: string; type: "text" | "textarea" | "dropdown" | "checkbox"; required: boolean; options?: string[]; description?: string; builtin?: boolean }[]>([]);
   const [regNewLabel, setRegNewLabel] = useState("");
   const [regNewType, setRegNewType] = useState<"text" | "textarea" | "dropdown" | "checkbox">("text");
   const [regNewOptions, setRegNewOptions] = useState("");
+  const [regNewDescription, setRegNewDescription] = useState("");
   const [regPreview, setRegPreview] = useState(false);
   const [regDescription, setRegDescription] = useState("");
   const [checkinType, setCheckinType] = useState<"individual" | "team">("individual");
@@ -1619,6 +1620,9 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                 {regFields.map((f) => (
                   <div key={f.id}>
                     <label className="block text-sm font-medium text-gray-700 mb-1">{f.label}{f.required && " *"}</label>
+                    {f.description && (
+                      <p className="text-xs text-gray-500 whitespace-pre-wrap mb-1">{f.description}</p>
+                    )}
                     {f.type === "text" && <input disabled placeholder={f.label} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm bg-white" />}
                     {f.type === "textarea" && <textarea disabled placeholder={f.label} rows={3} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm bg-white resize-none" />}
                     {f.type === "dropdown" && (
@@ -1689,6 +1693,15 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                         }} className="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:border-blue-400" />
                       </div>
                     )}
+                    {/* 부연설명 (선택) */}
+                    <div>
+                      <p className="text-[10px] text-gray-400 mb-1">부연설명 (선택)</p>
+                      <textarea value={f.description || ""} onChange={(e) => {
+                        const arr = [...regFields]; arr[i] = { ...arr[i], description: e.target.value }; setRegFields(arr);
+                      }} placeholder="질문 아래에 표시될 안내문"
+                        rows={2}
+                        className="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:border-blue-400 resize-y" />
+                    </div>
                   </div>
                 ))}
 
@@ -1709,14 +1722,20 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                     <input value={regNewOptions} onChange={(e) => setRegNewOptions(e.target.value)} placeholder="옵션 (쉼표로 구분)"
                       className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400" />
                   )}
+                  <textarea value={regNewDescription} onChange={(e) => setRegNewDescription(e.target.value)}
+                    placeholder="부연설명 (선택) — 질문 아래에 표시될 안내문"
+                    rows={2}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400 resize-y" />
                   <button onClick={() => {
                     if (!regNewLabel.trim()) return;
                     const opts = regNewOptions.split(",").map(s => s.trim()).filter(Boolean);
+                    const desc = regNewDescription.trim();
                     setRegFields([...regFields, {
                       id: `custom_${Date.now()}`, label: regNewLabel.trim(), type: regNewType, required: false,
                       ...(opts.length > 0 ? { options: opts } : {}),
+                      ...(desc ? { description: desc } : {}),
                     }]);
-                    setRegNewLabel(""); setRegNewOptions("");
+                    setRegNewLabel(""); setRegNewOptions(""); setRegNewDescription("");
                   }} disabled={!regNewLabel.trim()}
                     className="w-full bg-gray-200 text-gray-700 rounded-lg py-2 text-sm font-medium disabled:opacity-50">
                     + 추가
