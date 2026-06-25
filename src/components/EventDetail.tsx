@@ -156,7 +156,7 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
   const [showCheckinGen, setShowCheckinGen] = useState(false);
   const defaultRegFields = [
     { id: "name", label: "이름", type: "text" as const, required: true, builtin: true },
-    { id: "school", label: "학교", type: "text" as const, required: false, builtin: true },
+    { id: "school", label: "학교", type: "dropdown" as const, required: false, options: ["충남대학교", "한밭대학교", "한남대학교", "대전대학교", "우송대학교", "배재대학교", "목원대학교"], builtin: true },
     { id: "department", label: "학과", type: "text" as const, required: false, builtin: true },
     { id: "year", label: "학년", type: "dropdown" as const, required: false, options: ["1학년", "2학년", "3학년", "4학년", "졸업유예"], builtin: true },
     { id: "gender", label: "성별", type: "dropdown" as const, required: false, options: ["남", "여"], builtin: true },
@@ -439,6 +439,22 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
       return result;
     }
 
+    // 학교별 그룹
+    if (groupBy === "school") {
+      const bySchool: Record<string, Attendee[]> = {};
+      const noSchool: Attendee[] = [];
+      sorted.forEach((a) => {
+        const s = (a.school || "").trim();
+        if (!s) noSchool.push(a);
+        else (bySchool[s] = bySchool[s] || []).push(a);
+      });
+      const groups = Object.entries(bySchool)
+        .sort((a, b) => b[1].length - a[1].length)
+        .map(([school, items]) => ({ label: `${school} (${items.length})`, items }));
+      if (noSchool.length > 0) groups.push({ label: `미입력 (${noSchool.length})`, items: noSchool });
+      return groups;
+    }
+
     // 커스텀 필드 그룹 (custom_data 기반)
     if (groupBy.startsWith("custom_")) {
       const fieldLabel = groupBy.replace("custom_", "");
@@ -460,8 +476,10 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
 
   // 커스텀 드롭다운/체크박스 필드만 그룹 옵션으로 추출
   const customGroupOptions: { value: string; label: string }[] = (() => {
+    const BUILTIN_IDS = new Set(["name", "school", "gender", "year", "department", "phone", "friend_group"]);
     const groupableFields = regFields
-      .filter((f) => !f.builtin && (f.type === "dropdown" || f.type === "checkbox"))
+      // builtin 필드는 컬럼에 저장되므로 custom_data 기반 그룹에서 제외
+      .filter((f) => !f.builtin && !BUILTIN_IDS.has(f.id) && (f.type === "dropdown" || f.type === "checkbox"))
       .map((f) => f.label);
     return groupableFields.map((k) => ({ value: `custom_${k}`, label: k }));
   })();
@@ -798,6 +816,7 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                   ["default", "기본"],
                   ["team", "팀별"],
                   ["manager", "관리자별"],
+                  ["school", "학교별"],
                   ["attendance", "출석별"],
                   ...customGroupOptions.map((o) => [o.value, o.label] as [string, string]),
                 ]).map(([val, label]) => (
@@ -1020,6 +1039,7 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                   ["default", "기본"],
                   ["team", "팀별"],
                   ["manager", "관리자별"],
+                  ["school", "학교별"],
                   ["attendance", "출석별"],
                   ["friend", "친구별"],
                   ...customGroupOptions.map((o) => [o.value, o.label] as [string, string]),
@@ -1069,7 +1089,8 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                               <span className="text-[10px] bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded-full">섭리</span>
                             )}
                           </div>
-                          <div className="flex items-center gap-2 text-xs text-gray-400 mt-1">
+                          <div className="flex items-center gap-2 text-xs text-gray-400 mt-1 flex-wrap">
+                            {a.school && <span>{a.school}</span>}
                             {a.department && <span>{a.department}</span>}
                             {a.year && <span>{formatYear(a.year)}</span>}
                             {a.friend_group && <span>친구: {a.friend_group}</span>}
