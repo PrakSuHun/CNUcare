@@ -11,7 +11,7 @@ interface Event {
   type: "onetime" | "club";
   slug?: string;
   club_unit?: "daily" | "weekly";
-  member_count: number;
+  guest_count: number;
 }
 
 interface UserChip {
@@ -66,12 +66,13 @@ export default function EventList({ basePath }: EventListProps) {
       for (const em of data as any[]) {
         const ev = em.events;
         if (!ev) continue;
-        // Get member count
+        // 참여 = 게스트(섭리회원이 아닌 신청자) 수
         const { count } = await supabase
-          .from("event_members")
+          .from("event_attendees")
           .select("*", { count: "exact", head: true })
-          .eq("event_id", ev.id);
-        eventList.push({ ...ev, member_count: count || 0 });
+          .eq("event_id", ev.id)
+          .eq("is_member", false);
+        eventList.push({ ...ev, guest_count: count || 0 });
       }
       setEvents(eventList);
     }
@@ -457,7 +458,7 @@ export default function EventList({ basePath }: EventListProps) {
                   {event.type === "club" ? "동아리" : "일회성"}
                 </span>
               </div>
-              <p className="text-xs text-gray-400 mt-1">참여 {event.member_count}명</p>
+              <p className="text-xs text-gray-400 mt-1">참여 {event.guest_count}명</p>
             </button>
             <button
               onClick={(e) => { e.stopPropagation(); setMenuEventId(menuEventId === event.id ? null : event.id); }}
