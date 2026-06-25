@@ -455,20 +455,23 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
       return groups;
     }
 
-    // 커스텀 필드 그룹 (custom_data 기반)
+    // 커스텀 필드 그룹 (custom_data 기반) — 값별로 분류
     if (groupBy.startsWith("custom_")) {
       const fieldLabel = groupBy.replace("custom_", "");
-      const withVal: Attendee[] = [];
-      const withoutVal: Attendee[] = [];
+      const byValue: Record<string, Attendee[]> = {};
+      const empty: Attendee[] = [];
       sorted.forEach((a) => {
-        const val = a.custom_data?.[fieldLabel];
-        if (val && val.trim()) withVal.push(a);
-        else withoutVal.push(a);
+        const raw = (a.custom_data?.[fieldLabel] || "").trim();
+        if (!raw) { empty.push(a); return; }
+        // 체크박스는 "옵션1, 옵션2"처럼 저장 → 첫 값으로 분류
+        const val = raw.split(",")[0].trim();
+        (byValue[val] = byValue[val] || []).push(a);
       });
-      return [
-        { label: `${fieldLabel}: 있음 (${withVal.length})`, items: withVal },
-        { label: `${fieldLabel}: 없음 (${withoutVal.length})`, items: withoutVal },
-      ];
+      const groups = Object.entries(byValue)
+        .sort((a, b) => b[1].length - a[1].length)
+        .map(([val, items]) => ({ label: `${val} (${items.length})`, items }));
+      if (empty.length > 0) groups.push({ label: `미입력 (${empty.length})`, items: empty });
+      return groups;
     }
 
     return [{ label: "", items: sorted }];
