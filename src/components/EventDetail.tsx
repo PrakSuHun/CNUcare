@@ -186,6 +186,12 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
   const [selectedSession, setSelectedSession] = useState<string>("all"); // "all" or session date
   const [aiLoading, setAiLoading] = useState(false);
 
+  // 학교별 명단 공유
+  const [schoolShares, setSchoolShares] = useState<{ id: string; school: string }[]>([]);
+  const [showShareCreate, setShowShareCreate] = useState(false);
+  const [sharePwInput, setSharePwInput] = useState("");
+  const SCHOOL_LIST = ["충남대학교", "한밭대학교", "한남대학교", "대전대학교", "우송대학교", "배재대학교", "목원대학교"];
+
   useEffect(() => {
     const u = getUser();
     if (!u) { router.push("/"); return; }
@@ -213,6 +219,10 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
     }
     if (attendanceRes.data) setAttendanceRecords(attendanceRes.data as AttendanceRecord[]);
     if (feedbackRes.data) setFeedbacks(feedbackRes.data as Feedback[]);
+
+    // 학교별 명단 공유 링크 로드
+    const { data: shareData } = await supabase.from("event_share_links").select("id, school").eq("event_id", eventId);
+    if (shareData) setSchoolShares(shareData as { id: string; school: string }[]);
 
     // 회차 설정 로드
     const { data: settingsForm } = await supabase.from("event_forms").select("config").eq("event_id", eventId).eq("type", "settings").limit(1);
@@ -1551,6 +1561,41 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
               )}
             </div>
 
+            {/* 학교별 명단 공유 */}
+            <div className="bg-white rounded-lg border border-gray-200 p-4">
+              <p className="text-sm font-medium text-gray-700 mb-1">학교별 명단 공유</p>
+              <p className="text-xs text-gray-500 mb-3">학교별로 개별 링크가 생성됩니다. 비밀번호를 입력해야 명단을 볼 수 있습니다.</p>
+              {schoolShares.length === 0 ? (
+                <button onClick={() => { setSharePwInput(""); setShowShareCreate(true); }}
+                  className="w-full bg-blue-600 text-white rounded-lg py-2 text-sm font-medium">학교별 공유 링크 생성</button>
+              ) : (
+                <div className="space-y-2">
+                  {SCHOOL_LIST.map((school) => {
+                    const link = schoolShares.find((s) => s.school === school);
+                    if (!link) return null;
+                    const url = `${publicBase()}/event-share/${link.id}`;
+                    return (
+                      <div key={link.id} className="flex items-center gap-2 border border-gray-200 rounded-lg px-3 py-2">
+                        <span className="text-xs font-medium text-gray-700 w-20 shrink-0">{school}</span>
+                        <input readOnly value={url} className="flex-1 text-[11px] text-gray-500 bg-transparent border-none focus:outline-none truncate" />
+                        <button onClick={async () => { await navigator.clipboard.writeText(url); alert("복사되었습니다."); }}
+                          className="text-[11px] text-blue-600 border border-blue-300 rounded-full px-2 py-1 hover:bg-blue-50 whitespace-nowrap">복사</button>
+                      </div>
+                    );
+                  })}
+                  <div className="flex gap-2 pt-1">
+                    <button onClick={() => { setSharePwInput(""); setShowShareCreate(true); }}
+                      className="flex-1 border border-gray-300 text-gray-700 rounded-lg py-2 text-xs font-medium hover:bg-gray-50">비번 변경 / 재생성</button>
+                    <button onClick={async () => {
+                      if (!confirm("학교별 공유 링크를 모두 삭제할까요?\n이후 기존 링크로는 접근할 수 없습니다.")) return;
+                      await supabase.from("event_share_links").delete().eq("event_id", eventId);
+                      setSchoolShares([]);
+                    }} className="flex-1 bg-red-50 text-red-600 rounded-lg py-2 text-xs font-medium">전체 삭제</button>
+                  </div>
+                </div>
+              )}
+            </div>
+
             {/* 행사명 수정 */}
             <div className="bg-white rounded-lg border border-gray-200 p-4">
               <p className="text-sm font-medium text-gray-700 mb-3">행사 정보</p>
@@ -1948,6 +1993,36 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
               className="w-full bg-blue-600 text-white rounded-lg py-2.5 text-sm font-medium disabled:opacity-50"
             >
               생성하기
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 학교별 명단 공유 생성/재생성 비번 모달 */}
+      {showShareCreate && (
+        <div className="fixed inset-0 bg-black/50 flex items-end justify-center z-50" onClick={() => setShowShareCreate(false)}>
+          <div className="bg-white w-full max-w-lg rounded-t-2xl p-4 space-y-3" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-bold">{schoolShares.length > 0 ? "비번 변경 / 재생성" : "학교별 공유 링크 생성"}</h3>
+              <button onClick={() => setShowShareCreate(false)} className="text-xs text-gray-400">닫기</button>
+            </div>
+            <p className="text-xs text-gray-500">외부 학교 담당자에게 공유할 비밀번호 4자리를 정해주세요. 학교별 7개 링크 모두 같은 비번을 사용합니다.</p>
+            <input type="text" inputMode="numeric" pattern="[0-9]*" maxLength={4} value={sharePwInput}
+              onChange={(e) => setSharePwInput(e.target.value.replace(/[^0-9]/g, ""))}
+              placeholder="4자리 숫자"
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400 text-center tracking-widest" />
+            <button disabled={sharePwInput.length !== 4}
+              onClick={async () => {
+                // 기존 공유 삭제 후 재생성 (재생성/비번 변경 시)
+                await supabase.from("event_share_links").delete().eq("event_id", eventId);
+                const rows = SCHOOL_LIST.map((school) => ({ event_id: eventId, school, password: sharePwInput }));
+                const { data, error } = await supabase.from("event_share_links").insert(rows).select("id, school");
+                if (error) { alert("생성 실패: " + error.message); return; }
+                if (data) setSchoolShares(data as { id: string; school: string }[]);
+                setShowShareCreate(false);
+              }}
+              className="w-full bg-blue-600 text-white rounded-lg py-2.5 text-sm font-medium disabled:opacity-50">
+              {schoolShares.length > 0 ? "재생성" : "생성"}
             </button>
           </div>
         </div>
