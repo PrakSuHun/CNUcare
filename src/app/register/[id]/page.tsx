@@ -145,7 +145,8 @@ export default function RegisterPage() {
       const val = answers[f.id];
       if (f.id === "year") {
         const yearMap: Record<string, number> = { "1학년": 1, "2학년": 2, "3학년": 3, "4학년": 4, "졸업유예": 0 };
-        row.year = yearMap[val] ?? (val ? parseInt(val) : null);
+        const parsed = yearMap[val] ?? (val ? parseInt(val) : NaN);
+        row.year = Number.isFinite(parsed) ? parsed : null;
       } else if (builtinMap[f.id]) {
         row[builtinMap[f.id]] = typeof val === "string" ? val.trim() || null : val || null;
       } else {
