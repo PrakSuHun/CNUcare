@@ -55,6 +55,7 @@ interface Attendee {
   id: string;
   name: string;
   gender: string | null;
+  school: string | null;
   department: string | null;
   year: number | null;
   phone: string | null;
@@ -115,6 +116,7 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
   const [allUsers, setAllUsers] = useState<{ id: string; display_name: string }[]>([]);
   const [newAttendeeName, setNewAttendeeName] = useState("");
   const [newAttendeeGender, setNewAttendeeGender] = useState("");
+  const [newAttendeeSchool, setNewAttendeeSchool] = useState("");
   const [newAttendeeDept, setNewAttendeeDept] = useState("");
   const [newAttendeeYear, setNewAttendeeYear] = useState("");
   const [newAttendeePhone, setNewAttendeePhone] = useState("");
@@ -154,9 +156,10 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
   const [showCheckinGen, setShowCheckinGen] = useState(false);
   const defaultRegFields = [
     { id: "name", label: "이름", type: "text" as const, required: true, builtin: true },
-    { id: "gender", label: "성별", type: "dropdown" as const, required: false, options: ["남", "여"], builtin: true },
-    { id: "year", label: "학년", type: "dropdown" as const, required: false, options: ["1학년", "2학년", "3학년", "4학년", "졸업유예"], builtin: true },
+    { id: "school", label: "학교", type: "text" as const, required: false, builtin: true },
     { id: "department", label: "학과", type: "text" as const, required: false, builtin: true },
+    { id: "year", label: "학년", type: "dropdown" as const, required: false, options: ["1학년", "2학년", "3학년", "4학년", "졸업유예"], builtin: true },
+    { id: "gender", label: "성별", type: "dropdown" as const, required: false, options: ["남", "여"], builtin: true },
     { id: "phone", label: "연락처", type: "text" as const, required: false, builtin: true },
     { id: "friend_group", label: "함께 신청한 친구", type: "text" as const, required: false, builtin: true },
   ];
@@ -348,6 +351,7 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
         event_id: eventId,
         name: newAttendeeName.trim(),
         gender: newAttendeeGender || null,
+        school: newAttendeeSchool || null,
         department: newAttendeeDept || null,
         year: newAttendeeYear ? parseInt(newAttendeeYear) : null,
         phone: newAttendeePhone || null,
@@ -360,6 +364,7 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
     if (data) setAttendees((prev) => [...prev, data as Attendee]);
     setNewAttendeeName("");
     setNewAttendeeGender("");
+    setNewAttendeeSchool("");
     setNewAttendeeDept("");
     setNewAttendeeYear("");
     setNewAttendeePhone("");
@@ -921,6 +926,7 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                         <div className="flex items-center gap-2 text-xs text-gray-400 mt-0.5">
                           {a.team && <span>{a.team}</span>}
                           {a.year && <span>{formatYear(a.year)}</span>}
+                          {a.school && <span>{a.school}</span>}
                           {a.department && <span>{a.department}</span>}
                         </div>
                       </div>
@@ -1090,15 +1096,23 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                               <div className="space-y-1.5">
                                 <div className="grid grid-cols-2 gap-1.5">
                                   <div>
-                                    <span className="text-[10px] text-gray-400">연락처</span>
-                                    <input type="tel" value={a.phone || ""} onChange={(e) => updateAttendeeField(a.id, "phone", e.target.value || null)}
-                                      placeholder="연락처" className="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:border-blue-400" />
+                                    <span className="text-[10px] text-gray-400">학교</span>
+                                    <input type="text" value={a.school || ""} onChange={(e) => updateAttendeeField(a.id, "school", e.target.value || null)}
+                                      placeholder="학교" className="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:border-blue-400" />
                                   </div>
                                   <div>
                                     <span className="text-[10px] text-gray-400">학과</span>
                                     <input type="text" value={a.department || ""} onChange={(e) => updateAttendeeField(a.id, "department", e.target.value || null)}
                                       placeholder="학과" className="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:border-blue-400" />
                                   </div>
+                                </div>
+                                <div className="grid grid-cols-2 gap-1.5">
+                                  <div>
+                                    <span className="text-[10px] text-gray-400">연락처</span>
+                                    <input type="tel" value={a.phone || ""} onChange={(e) => updateAttendeeField(a.id, "phone", e.target.value || null)}
+                                      placeholder="연락처" className="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:border-blue-400" />
+                                  </div>
+                                  <div></div>
                                 </div>
                                 <div className="grid grid-cols-2 gap-1.5">
                                   <div>
@@ -1149,6 +1163,7 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                               /* 읽기 전용: 신청폼 답변 전체 표시 */
                               <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs">
                                 {a.phone && (<div><span className="text-gray-400 text-[10px]">연락처</span><p>{a.phone}</p></div>)}
+                                {a.school && (<div><span className="text-gray-400 text-[10px]">학교</span><p>{a.school}</p></div>)}
                                 {a.department && (<div><span className="text-gray-400 text-[10px]">학과</span><p>{a.department}</p></div>)}
                                 {a.gender && (<div><span className="text-gray-400 text-[10px]">성별</span><p>{a.gender}</p></div>)}
                                 {a.year != null && (<div><span className="text-gray-400 text-[10px]">학년</span><p>{formatYear(a.year)}</p></div>)}
@@ -1156,7 +1171,7 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                                 {a.custom_data && Object.entries(a.custom_data).filter(([, v]) => v).map(([key, val]) => (
                                   <div key={key} className="col-span-2"><span className="text-gray-400 text-[10px]">{key}</span><p className="whitespace-pre-wrap">{val}</p></div>
                                 ))}
-                                {!a.phone && !a.department && !a.gender && a.year == null && !a.friend_group && !(a.custom_data && Object.keys(a.custom_data).length > 0) && (
+                                {!a.phone && !a.school && !a.department && !a.gender && a.year == null && !a.friend_group && !(a.custom_data && Object.keys(a.custom_data).length > 0) && (
                                   <p className="col-span-2 text-gray-400">입력된 정보 없음</p>
                                 )}
                               </div>
@@ -1980,6 +1995,8 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                     <option value="0">졸업유예</option>
                   </select>
                 </div>
+                <input type="text" value={newAttendeeSchool} onChange={(e) => setNewAttendeeSchool(e.target.value)}
+                  placeholder="학교" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400" />
                 <input type="text" value={newAttendeeDept} onChange={(e) => setNewAttendeeDept(e.target.value)}
                   placeholder="학과" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400" />
                 <input type="tel" value={newAttendeePhone} onChange={(e) => setNewAttendeePhone(e.target.value)}

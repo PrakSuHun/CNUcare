@@ -132,7 +132,7 @@ export default function RegisterPage() {
     }
 
     // builtin 필드 → DB 컬럼, 나머지 → custom_data
-    const builtinMap: Record<string, string> = { name: "name", gender: "gender", department: "department", phone: "phone", friend_group: "friend_group" };
+    const builtinMap: Record<string, string> = { name: "name", school: "school", gender: "gender", department: "department", phone: "phone", friend_group: "friend_group" };
     // 섭리회원 자동 판별 (이름이 가입된 사용자와 일치하면 섭리회원)
     const { data: matchedUser } = await supabase
       .from("users").select("id").eq("display_name", nameVal).limit(1);
