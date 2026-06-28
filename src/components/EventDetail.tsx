@@ -186,9 +186,11 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
   const [selectedSession, setSelectedSession] = useState<string>("all"); // "all" or session date
   const [aiLoading, setAiLoading] = useState(false);
 
-  // 학교별 명단 공유
+  // 학교별 명단 공유 + 전체 명단 공유
   const [schoolShares, setSchoolShares] = useState<{ id: string; school: string }[]>([]);
+  const [allShare, setAllShare] = useState<{ id: string } | null>(null);
   const [showShareCreate, setShowShareCreate] = useState(false);
+  const [shareCreateMode, setShareCreateMode] = useState<"view" | "all">("view");
   const [sharePwInput, setSharePwInput] = useState("");
   const SCHOOL_LIST = ["충남대학교", "한밭대학교", "한남대학교", "대전대학교", "우송대학교", "배재대학교", "목원대학교"];
 
@@ -220,9 +222,14 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
     if (attendanceRes.data) setAttendanceRecords(attendanceRes.data as AttendanceRecord[]);
     if (feedbackRes.data) setFeedbacks(feedbackRes.data as Feedback[]);
 
-    // 학교별 명단 공유 링크 로드
-    const { data: shareData } = await supabase.from("event_share_links").select("id, school").eq("event_id", eventId);
-    if (shareData) setSchoolShares(shareData as { id: string; school: string }[]);
+    // 명단 공유 링크 로드 (학교별 view + 전체 all)
+    const { data: shareData } = await supabase.from("event_share_links").select("id, school, mode").eq("event_id", eventId);
+    if (shareData) {
+      const arr = shareData as { id: string; school: string | null; mode: string }[];
+      setSchoolShares(arr.filter((s) => s.mode === "view" && s.school).map((s) => ({ id: s.id, school: s.school as string })));
+      const all = arr.find((s) => s.mode === "all");
+      setAllShare(all ? { id: all.id } : null);
+    }
 
     // 회차 설정 로드
     const { data: settingsForm } = await supabase.from("event_forms").select("config").eq("event_id", eventId).eq("type", "settings").limit(1);
@@ -1566,7 +1573,7 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
               <p className="text-sm font-medium text-gray-700 mb-1">학교별 명단 공유</p>
               <p className="text-xs text-gray-500 mb-3">학교별로 개별 링크가 생성됩니다. 비밀번호를 입력해야 명단을 볼 수 있습니다.</p>
               {schoolShares.length === 0 ? (
-                <button onClick={() => { setSharePwInput(""); setShowShareCreate(true); }}
+                <button onClick={() => { setShareCreateMode("view"); setSharePwInput(""); setShowShareCreate(true); }}
                   className="w-full bg-blue-600 text-white rounded-lg py-2 text-sm font-medium">학교별 공유 링크 생성</button>
               ) : (
                 <div className="space-y-2">
@@ -1584,13 +1591,41 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                     );
                   })}
                   <div className="flex gap-2 pt-1">
-                    <button onClick={() => { setSharePwInput(""); setShowShareCreate(true); }}
+                    <button onClick={() => { setShareCreateMode("view"); setSharePwInput(""); setShowShareCreate(true); }}
                       className="flex-1 border border-gray-300 text-gray-700 rounded-lg py-2 text-xs font-medium hover:bg-gray-50">비번 변경 / 재생성</button>
                     <button onClick={async () => {
                       if (!confirm("학교별 공유 링크를 모두 삭제할까요?\n이후 기존 링크로는 접근할 수 없습니다.")) return;
-                      await supabase.from("event_share_links").delete().eq("event_id", eventId);
+                      await supabase.from("event_share_links").delete().eq("event_id", eventId).eq("mode", "view");
                       setSchoolShares([]);
                     }} className="flex-1 bg-red-50 text-red-600 rounded-lg py-2 text-xs font-medium">전체 삭제</button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* 전체 명단 공유 (학교 구분 없이 전부, 읽기 전용) */}
+            <div className="bg-white rounded-lg border border-gray-200 p-4">
+              <p className="text-sm font-medium text-gray-700 mb-1">전체 명단 공유</p>
+              <p className="text-xs text-gray-500 mb-3">학교 구분 없이 전체 신청자 명단을 볼 수 있는 링크입니다. 읽기 전용이며 비밀번호 필요.</p>
+              {!allShare ? (
+                <button onClick={() => { setShareCreateMode("all"); setSharePwInput(""); setShowShareCreate(true); }}
+                  className="w-full bg-blue-600 text-white rounded-lg py-2 text-sm font-medium">전체 명단 링크 생성</button>
+              ) : (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 border border-gray-200 rounded-lg px-3 py-2">
+                    <input readOnly value={`${publicBase()}/event-share/${allShare.id}`}
+                      className="flex-1 text-[11px] text-gray-500 bg-transparent border-none focus:outline-none truncate" />
+                    <button onClick={async () => { await navigator.clipboard.writeText(`${publicBase()}/event-share/${allShare.id}`); alert("복사되었습니다."); }}
+                      className="text-[11px] text-blue-600 border border-blue-300 rounded-full px-2 py-1 hover:bg-blue-50 whitespace-nowrap">복사</button>
+                  </div>
+                  <div className="flex gap-2 pt-1">
+                    <button onClick={() => { setShareCreateMode("all"); setSharePwInput(""); setShowShareCreate(true); }}
+                      className="flex-1 border border-gray-300 text-gray-700 rounded-lg py-2 text-xs font-medium hover:bg-gray-50">비번 변경 / 재생성</button>
+                    <button onClick={async () => {
+                      if (!confirm("전체 명단 공유 링크를 삭제할까요?")) return;
+                      await supabase.from("event_share_links").delete().eq("id", allShare.id);
+                      setAllShare(null);
+                    }} className="flex-1 bg-red-50 text-red-600 rounded-lg py-2 text-xs font-medium">삭제</button>
                   </div>
                 </div>
               )}
@@ -1998,31 +2033,47 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
         </div>
       )}
 
-      {/* 학교별 명단 공유 생성/재생성 비번 모달 */}
+      {/* 명단 공유 링크 생성/재생성 비번 모달 */}
       {showShareCreate && (
         <div className="fixed inset-0 bg-black/50 flex items-end justify-center z-50" onClick={() => setShowShareCreate(false)}>
           <div className="bg-white w-full max-w-lg rounded-t-2xl p-4 space-y-3" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between">
-              <h3 className="text-sm font-bold">{schoolShares.length > 0 ? "비번 변경 / 재생성" : "학교별 공유 링크 생성"}</h3>
+              <h3 className="text-sm font-bold">
+                {shareCreateMode === "view"
+                  ? (schoolShares.length > 0 ? "학교별 비번 변경 / 재생성" : "학교별 공유 링크 생성")
+                  : (allShare ? "전체 명단 비번 변경 / 재생성" : "전체 명단 공유 링크 생성")}
+              </h3>
               <button onClick={() => setShowShareCreate(false)} className="text-xs text-gray-400">닫기</button>
             </div>
-            <p className="text-xs text-gray-500">외부 학교 담당자에게 공유할 비밀번호 4자리를 정해주세요. 학교별 7개 링크 모두 같은 비번을 사용합니다.</p>
+            <p className="text-xs text-gray-500">
+              {shareCreateMode === "view"
+                ? "외부 학교 담당자에게 공유할 비밀번호 4자리를 정해주세요. 학교별 7개 링크 모두 같은 비번을 사용합니다."
+                : "전체 명단을 볼 사람과 공유할 비밀번호 4자리를 정해주세요."}
+            </p>
             <input type="text" inputMode="numeric" pattern="[0-9]*" maxLength={4} value={sharePwInput}
               onChange={(e) => setSharePwInput(e.target.value.replace(/[^0-9]/g, ""))}
               placeholder="4자리 숫자"
               className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400 text-center tracking-widest" />
             <button disabled={sharePwInput.length !== 4}
               onClick={async () => {
-                // 기존 공유 삭제 후 재생성 (재생성/비번 변경 시)
-                await supabase.from("event_share_links").delete().eq("event_id", eventId);
-                const rows = SCHOOL_LIST.map((school) => ({ event_id: eventId, school, password: sharePwInput }));
-                const { data, error } = await supabase.from("event_share_links").insert(rows).select("id, school");
-                if (error) { alert("생성 실패: " + error.message); return; }
-                if (data) setSchoolShares(data as { id: string; school: string }[]);
+                if (shareCreateMode === "view") {
+                  await supabase.from("event_share_links").delete().eq("event_id", eventId).eq("mode", "view");
+                  const rows = SCHOOL_LIST.map((school) => ({ event_id: eventId, school, password: sharePwInput, mode: "view" }));
+                  const { data, error } = await supabase.from("event_share_links").insert(rows).select("id, school");
+                  if (error) { alert("생성 실패: " + error.message); return; }
+                  if (data) setSchoolShares(data as { id: string; school: string }[]);
+                } else {
+                  await supabase.from("event_share_links").delete().eq("event_id", eventId).eq("mode", "all");
+                  const { data, error } = await supabase.from("event_share_links")
+                    .insert({ event_id: eventId, school: null, password: sharePwInput, mode: "all" })
+                    .select("id").single();
+                  if (error) { alert("생성 실패: " + error.message); return; }
+                  if (data) setAllShare({ id: (data as any).id });
+                }
                 setShowShareCreate(false);
               }}
               className="w-full bg-blue-600 text-white rounded-lg py-2.5 text-sm font-medium disabled:opacity-50">
-              {schoolShares.length > 0 ? "재생성" : "생성"}
+              생성
             </button>
           </div>
         </div>

@@ -21,8 +21,9 @@ interface Attendee {
 
 interface Share {
   event_id: string;
-  school: string;
+  school: string | null;
   password: string;
+  mode: string;
 }
 
 export default function EventSharePage() {
@@ -42,11 +43,16 @@ export default function EventSharePage() {
     (async () => {
       const { data } = await supabase
         .from("event_share_links")
-        .select("event_id, school, password, events(name)")
+        .select("event_id, school, password, mode, events(name)")
         .eq("id", shareId)
         .single();
       if (data) {
-        setShare({ event_id: (data as any).event_id, school: (data as any).school, password: (data as any).password });
+        setShare({
+          event_id: (data as any).event_id,
+          school: (data as any).school,
+          password: (data as any).password,
+          mode: (data as any).mode || "view",
+        });
         setEventName((data as any).events?.name || "");
       }
       setLoading(false);
@@ -62,13 +68,15 @@ export default function EventSharePage() {
     }
     setPwError("");
     setUnlocked(true);
-    // 해당 학교 명단 로드
-    const { data } = await supabase
+    // 명단 로드 — mode='view'면 해당 학교, mode='all'이면 전체
+    let query = supabase
       .from("event_attendees")
       .select("id, name, gender, school, department, year, phone, friend_group, memo, custom_data")
-      .eq("event_id", share.event_id)
-      .eq("school", share.school)
-      .order("name");
+      .eq("event_id", share.event_id);
+    if (share.mode === "view" && share.school) {
+      query = query.eq("school", share.school);
+    }
+    const { data } = await query.order("name");
     if (data) setAttendees(data as Attendee[]);
   };
 
@@ -90,7 +98,7 @@ export default function EventSharePage() {
         <form onSubmit={handleUnlock} className="w-full max-w-sm space-y-4">
           <div className="text-center">
             <h1 className="text-lg font-bold text-gray-900">{eventName}</h1>
-            <p className="text-sm text-gray-500 mt-1">{share.school} 명단</p>
+            <p className="text-sm text-gray-500 mt-1">{share.mode === "all" ? "전체 명단" : `${share.school} 명단`}</p>
           </div>
           <input type="text" inputMode="numeric" pattern="[0-9]*" maxLength={4} value={pwInput}
             onChange={(e) => setPwInput(e.target.value.replace(/[^0-9]/g, ""))}
@@ -110,7 +118,7 @@ export default function EventSharePage() {
     <div className="h-full flex flex-col bg-gray-50">
       <header className="bg-white border-b border-gray-200 px-4 py-3 shrink-0">
         <h1 className="text-base font-bold">{eventName}</h1>
-        <p className="text-xs text-gray-500 mt-0.5">{share.school} · {attendees.length}명</p>
+        <p className="text-xs text-gray-500 mt-0.5">{share.mode === "all" ? "전체" : share.school} · {attendees.length}명</p>
       </header>
       <div className="flex-1 overflow-y-auto p-4 space-y-2">
         {attendees.length === 0 ? (
@@ -130,6 +138,7 @@ export default function EventSharePage() {
                     )}
                   </div>
                   <div className="flex items-center gap-2 text-xs text-gray-400 mt-1 flex-wrap">
+                    {a.school && <span>{a.school}</span>}
                     {a.department && <span>{a.department}</span>}
                     {a.year != null && <span>{YEAR_LABELS[a.year] || `${a.year}`}</span>}
                     {a.friend_group && <span>친구: {a.friend_group}</span>}
