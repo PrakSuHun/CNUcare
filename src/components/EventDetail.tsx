@@ -301,25 +301,51 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
   };
 
   const isPresent = (attendeeId: string, date: string) => {
-    return attendanceRecords.some((r) => r.attendee_id === attendeeId && r.date === date && r.present);
+    return attendanceRecords.some((r) => r.attendee_id === attendeeId && r.date === date && r.present === true);
   };
 
+  const isNoShow = (attendeeId: string, date: string) => {
+    return attendanceRecords.some((r) => r.attendee_id === attendeeId && r.date === date && r.present === false);
+  };
+
+  // 현재 보기(주차/회차/일자) 기준 노쇼 여부
+  const isNoShowForView = (attendeeId: string): boolean => {
+    if (selectedSession === "all" && event?.type === "club" && event?.club_unit === "weekly") {
+      return attendanceRecords.some((r) => r.attendee_id === attendeeId && r.present === false);
+    }
+    if (selectedSession.startsWith("week_")) {
+      const weekDates = getWeekDates(selectedSession);
+      return attendanceRecords.some((r) => r.attendee_id === attendeeId && weekDates.includes(r.date) && r.present === false);
+    }
+    return isNoShow(attendeeId, selectedDate);
+  };
+
+  // 3상태 사이클: 빈 → 출석(true) → 노쇼(false) → 빈
   const toggleAttendance = async (attendeeId: string, date: string) => {
     const existing = attendanceRecords.find((r) => r.attendee_id === attendeeId && r.date === date);
-    const newPresent = existing ? !existing.present : true;
+    let newPresent = true; // for journal auto-create
 
-    if (existing) {
-      await supabase.from("event_attendance").update({ present: newPresent }).eq("id", existing.id);
-      setAttendanceRecords((prev) =>
-        prev.map((r) => (r.id === existing.id ? { ...r, present: newPresent } : r))
-      );
-    } else {
+    if (!existing) {
+      // 빈 → 출석
       const { data } = await supabase
         .from("event_attendance")
         .insert({ event_id: eventId, attendee_id: attendeeId, date, present: true })
         .select()
         .single();
       if (data) setAttendanceRecords((prev) => [...prev, data as AttendanceRecord]);
+      newPresent = true;
+    } else if (existing.present === true) {
+      // 출석 → 노쇼
+      await supabase.from("event_attendance").update({ present: false }).eq("id", existing.id);
+      setAttendanceRecords((prev) =>
+        prev.map((r) => (r.id === existing.id ? { ...r, present: false } : r))
+      );
+      newPresent = false;
+    } else {
+      // 노쇼 → 빈 (삭제)
+      await supabase.from("event_attendance").delete().eq("id", existing.id);
+      setAttendanceRecords((prev) => prev.filter((r) => r.id !== existing.id));
+      newPresent = false;
     }
 
     // 생명 연동: 출석 체크 시 life_id가 있으면 일지 자동 생성
@@ -392,6 +418,10 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
   // --- Sorting ---
   const sortAttendees = (list: Attendee[]) => {
     return [...list].sort((a, b) => {
+      // 노쇼는 무조건 맨 아래 (오는 사람이 잘 보이게)
+      const aNo = isNoShowForView(a.id) ? 1 : 0;
+      const bNo = isNoShowForView(b.id) ? 1 : 0;
+      if (aNo !== bNo) return aNo - bNo;
       if (sortBy === "name") return a.name.localeCompare(b.name, "ko");
       if (sortBy === "year") return (a.year || 0) - (b.year || 0);
       if (sortBy === "department") return (a.department || "").localeCompare(b.department || "", "ko");
@@ -923,8 +953,10 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                   {group.items.length === 0 && (
                     <p className="text-xs text-gray-400 text-center py-4">해당 항목이 없습니다.</p>
                   )}
-                  {group.items.map((a) => (
-                    <div key={a.id} className="flex items-center px-3 py-2.5">
+                  {group.items.map((a) => {
+                    const noShow = isNoShow(a.id, selectedDate);
+                    return (
+                    <div key={a.id} className={`flex items-center px-3 py-2.5 ${noShow ? "opacity-40" : ""}`}>
                       {/* 주차별 보기일 때는 체크 비활성, 출석 횟수 표시 */}
                       {selectedSession.startsWith("week_") ? (
                         <div className={`w-6 h-6 rounded border-2 flex items-center justify-center mr-3 shrink-0 text-xs font-bold ${
@@ -936,23 +968,26 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                         <div className={`w-6 h-6 rounded border-2 flex items-center justify-center mr-3 shrink-0 text-xs font-bold ${
                           isPresentForView(a.id) ? "bg-blue-600 border-blue-600 text-white" : "border-gray-300 text-gray-300"
                         }`}>
-                          {attendanceRecords.filter(r => r.attendee_id === a.id && r.present).length || ""}
+                          {attendanceRecords.filter(r => r.attendee_id === a.id && r.present === true).length || ""}
                         </div>
                       ) : (
                       <button
                         onClick={() => toggleAttendance(a.id, selectedDate)}
-                        className={`w-6 h-6 rounded border-2 flex items-center justify-center mr-3 shrink-0 transition-colors ${
+                        title={noShow ? "노쇼 (다시 누르면 빈 칸)" : isPresent(a.id, selectedDate) ? "출석 (다시 누르면 노쇼)" : "체크 안 됨 (누르면 출석)"}
+                        className={`w-6 h-6 rounded border-2 flex items-center justify-center mr-3 shrink-0 transition-colors text-xs font-bold ${
                           isPresent(a.id, selectedDate)
                             ? "bg-blue-600 border-blue-600 text-white"
-                            : "border-gray-300 text-transparent"
+                            : noShow
+                              ? "bg-gray-100 border-gray-300 text-gray-400"
+                              : "border-gray-300 text-transparent"
                         }`}
                       >
-                        ✓
+                        {isPresent(a.id, selectedDate) ? "✓" : noShow ? "✕" : "✓"}
                       </button>
                       )}
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-1.5">
-                          <span className="text-sm font-medium truncate">{a.name}</span>
+                          <span className={`text-sm font-medium truncate ${noShow ? "line-through text-gray-400" : ""}`}>{a.name}</span>
                           {a.gender && (
                             <span className={`text-[10px] px-1.5 py-0.5 rounded-full shrink-0 ${
                               a.gender === "남" ? "bg-blue-100 text-blue-700" : "bg-pink-100 text-pink-700"
@@ -960,6 +995,9 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                           )}
                           {a.is_member && (
                             <span className="text-[10px] bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded-full shrink-0">섭리</span>
+                          )}
+                          {noShow && (
+                            <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full shrink-0">노쇼</span>
                           )}
                         </div>
                         <div className="flex items-center gap-2 text-xs text-gray-400 mt-0.5">
@@ -970,7 +1008,8 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                         </div>
                       </div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             ))}
