@@ -1233,15 +1233,19 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                                     섭리회원
                                   </label>
                                 </div>
-                                {a.custom_data && Object.entries(a.custom_data).map(([key]) => (
-                                  <div key={key}>
-                                    <span className="text-[10px] text-gray-400">{key}</span>
-                                    <input type="text" value={a.custom_data?.[key] || ""} onChange={(e) => {
-                                      const updated = { ...(a.custom_data || {}), [key]: e.target.value };
-                                      updateAttendeeField(a.id, "custom_data", updated);
-                                    }} placeholder={key} className="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:border-blue-400" />
-                                  </div>
-                                ))}
+                                {a.custom_data && Object.entries(a.custom_data).map(([key]) => {
+                                  const labelFromForm = regFields.find((f) => f.id === key)?.label;
+                                  const displayLabel = labelFromForm || key;
+                                  return (
+                                    <div key={key}>
+                                      <span className="text-[10px] text-gray-400">{displayLabel}</span>
+                                      <input type="text" value={a.custom_data?.[key] || ""} onChange={(e) => {
+                                        const updated = { ...(a.custom_data || {}), [key]: e.target.value };
+                                        updateAttendeeField(a.id, "custom_data", updated);
+                                      }} placeholder={displayLabel} className="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:border-blue-400" />
+                                    </div>
+                                  );
+                                })}
                               </div>
                             ) : (
                               /* 읽기 전용: 신청폼 답변 전체 표시 */
@@ -1252,9 +1256,12 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                                 {a.gender && (<div><span className="text-gray-400 text-[10px]">성별</span><p>{a.gender}</p></div>)}
                                 {a.year != null && (<div><span className="text-gray-400 text-[10px]">학년</span><p>{formatYear(a.year)}</p></div>)}
                                 {a.friend_group && (<div className="col-span-2"><span className="text-gray-400 text-[10px]">친구</span><p>{a.friend_group}</p></div>)}
-                                {a.custom_data && Object.entries(a.custom_data).filter(([, v]) => v).map(([key, val]) => (
-                                  <div key={key} className="col-span-2"><span className="text-gray-400 text-[10px]">{key}</span><p className="whitespace-pre-wrap">{val}</p></div>
-                                ))}
+                                {a.custom_data && Object.entries(a.custom_data).filter(([, v]) => v).map(([key, val]) => {
+                                  const labelFromForm = regFields.find((f) => f.id === key)?.label;
+                                  return (
+                                    <div key={key} className="col-span-2"><span className="text-gray-400 text-[10px]">{labelFromForm || key}</span><p className="whitespace-pre-wrap">{val}</p></div>
+                                  );
+                                })}
                                 {!a.phone && !a.school && !a.department && !a.gender && a.year == null && !a.friend_group && !(a.custom_data && Object.keys(a.custom_data).length > 0) && (
                                   <p className="col-span-2 text-gray-400">입력된 정보 없음</p>
                                 )}
