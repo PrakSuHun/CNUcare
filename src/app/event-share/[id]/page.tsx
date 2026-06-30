@@ -37,6 +37,7 @@ export default function EventSharePage() {
   const [pwError, setPwError] = useState("");
   const [unlocked, setUnlocked] = useState(false);
   const [attendees, setAttendees] = useState<Attendee[]>([]);
+  const [noShowIds, setNoShowIds] = useState<Set<string>>(new Set());
   const [expanded, setExpanded] = useState<string | null>(null);
 
   useEffect(() => {
@@ -78,6 +79,23 @@ export default function EventSharePage() {
     }
     const { data } = await query.order("name");
     if (data) setAttendees(data as Attendee[]);
+
+    // 출석 기록 → 노쇼 판정 (present=true 기록이 하나도 없고 present=false 기록만 있으면 노쇼)
+    const { data: att } = await supabase
+      .from("event_attendance")
+      .select("attendee_id, present")
+      .eq("event_id", share.event_id);
+    if (att) {
+      const hasPresent = new Set<string>();
+      const hasNo = new Set<string>();
+      (att as { attendee_id: string; present: boolean | null }[]).forEach((r) => {
+        if (r.present === true) hasPresent.add(r.attendee_id);
+        else if (r.present === false) hasNo.add(r.attendee_id);
+      });
+      const ns = new Set<string>();
+      hasNo.forEach((id) => { if (!hasPresent.has(id)) ns.add(id); });
+      setNoShowIds(ns);
+    }
   };
 
   if (loading) {
@@ -124,17 +142,27 @@ export default function EventSharePage() {
         {attendees.length === 0 ? (
           <p className="text-sm text-gray-400 text-center py-8">신청자가 없습니다.</p>
         ) : (
-          attendees.map((a) => {
+          [...attendees].sort((a, b) => {
+            // 노쇼는 무조건 맨 아래로
+            const an = noShowIds.has(a.id) ? 1 : 0;
+            const bn = noShowIds.has(b.id) ? 1 : 0;
+            if (an !== bn) return an - bn;
+            return a.name.localeCompare(b.name, "ko");
+          }).map((a) => {
             const isExpanded = expanded === a.id;
+            const noShow = noShowIds.has(a.id);
             return (
-              <div key={a.id} className="bg-white rounded-lg border border-gray-200 p-3">
+              <div key={a.id} className={`bg-white rounded-lg border border-gray-200 p-3 ${noShow ? "opacity-40" : ""}`}>
                 <button onClick={() => setExpanded(isExpanded ? null : a.id)} className="w-full text-left">
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium">{a.name}</span>
+                    <span className={`text-sm font-medium ${noShow ? "line-through text-gray-400" : ""}`}>{a.name}</span>
                     {a.gender && (
                       <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
                         a.gender === "남" ? "bg-blue-100 text-blue-700" : "bg-pink-100 text-pink-700"
                       }`}>{a.gender}</span>
+                    )}
+                    {noShow && (
+                      <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full">노쇼</span>
                     )}
                   </div>
                   <div className="flex items-center gap-2 text-xs text-gray-400 mt-1 flex-wrap">
