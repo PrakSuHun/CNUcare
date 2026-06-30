@@ -160,8 +160,12 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
     { id: "department", label: "학과", type: "text" as const, required: false, builtin: true },
     { id: "year", label: "학년", type: "dropdown" as const, required: false, options: ["1학년", "2학년", "3학년", "4학년", "졸업유예"], builtin: true },
     { id: "gender", label: "성별", type: "dropdown" as const, required: false, options: ["남", "여"], builtin: true },
+    { id: "custom_birth", label: "생년월일", type: "text" as const, required: false, description: "예: 2000.01.01" },
     { id: "phone", label: "연락처", type: "text" as const, required: false, builtin: true },
-    { id: "friend_group", label: "함께 신청한 친구", type: "text" as const, required: false, builtin: true },
+    { id: "friend_group", label: "같이 오시는 분 성함", type: "text" as const, required: false, builtin: true },
+    { id: "custom_inflow_event", label: "유입된 행사", type: "text" as const, required: false },
+    { id: "custom_feedback_score", label: "피드백 점수", type: "dropdown" as const, required: false, options: ["1", "2", "3", "4", "5"] },
+    { id: "custom_feedback_text", label: "피드백 내용", type: "textarea" as const, required: false },
   ];
   const [regFields, setRegFields] = useState<{ id: string; label: string; type: "text" | "textarea" | "dropdown" | "checkbox"; required: boolean; options?: string[]; description?: string; builtin?: boolean }[]>([]);
   const [regNewLabel, setRegNewLabel] = useState("");
