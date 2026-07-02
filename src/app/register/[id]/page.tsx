@@ -27,7 +27,6 @@ export default function RegisterPage() {
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
   const [answers, setAnswers] = useState<Record<string, any>>({});
-  const [dupFound, setDupFound] = useState<any>(null); // 중복 발견 시 기존 데이터
 
   useEffect(() => {
     const fetchForm = async () => {
@@ -90,16 +89,13 @@ export default function RegisterPage() {
 
     setSubmitting(true);
 
-    // 중복 체크 (이름 또는 전화번호)
-    const phoneVal = (answers["phone"] || "").trim();
-    const { data: dupByName } = await supabase
-      .from("event_attendees").select("id, name, department, year, is_member").eq("event_id", eventId).eq("name", nameVal).limit(1);
-    const { data: dupByPhone } = phoneVal ? await supabase
-      .from("event_attendees").select("id, name, department, year, is_member").eq("event_id", eventId).eq("phone", phoneVal).limit(1) : { data: null };
-    const dup = dupByName?.[0] || dupByPhone?.[0];
-
-    // 섭리회원이면 중복 안 물어보고 덮어쓰기
-    if (dup?.is_member) {
+    // 일반 신청자는 동명이인/중복 필터 없이 그대로 접수하고, 정리는 관리자가 상세에서 직접 한다.
+    // 단, 섭리회원(이름이 명단에 이미 등록된 회원)은 새로 만들지 않고 기존 항목을 덮어쓴다.
+    // (덮어쓰기는 이름 기준으로만 매칭 — 전화번호 매칭은 번호 오탐/충돌 위험이 있어 사용하지 않는다.)
+    const { data: memberDup } = await supabase
+      .from("event_attendees").select("id").eq("event_id", eventId).eq("name", nameVal).eq("is_member", true).limit(1);
+    const dup = memberDup?.[0];
+    if (dup) {
       const bMap: Record<string, string> = { name: "name", gender: "gender", department: "department", phone: "phone", friend_group: "friend_group" };
       const updateRow: Record<string, any> = {};
       const updateCustom: Record<string, any> = {};
@@ -122,12 +118,6 @@ export default function RegisterPage() {
       await supabase.from("event_attendees").update(updateRow).eq("id", dup.id);
       setSubmitting(false);
       setDone(true);
-      return;
-    }
-
-    if (dup && dupFound !== "confirmed") {
-      setDupFound(dup);
-      setSubmitting(false);
       return;
     }
 
@@ -258,23 +248,6 @@ export default function RegisterPage() {
             )}
           </div>
         ))}
-
-        {dupFound && (
-          <div className="bg-yellow-50 border border-yellow-300 rounded-lg p-4 space-y-3">
-            <p className="text-sm font-medium text-yellow-800">이미 신청된 정보가 있습니다.</p>
-            <div className="text-xs text-yellow-700">
-              <p>이름: {dupFound.name}</p>
-              {dupFound.department && <p>학과: {dupFound.department}</p>}
-              {dupFound.year && <p>학년: {dupFound.year}</p>}
-            </div>
-            <div className="flex gap-2">
-              <button onClick={() => { setDupFound(null); setSubmitting(false); }}
-                className="flex-1 bg-yellow-500 text-white rounded-lg py-2 text-sm font-medium">본인입니다 (취소)</button>
-              <button onClick={() => { setDupFound("confirmed"); handleSubmit(); }}
-                className="flex-1 bg-white text-yellow-700 border border-yellow-400 rounded-lg py-2 text-sm font-medium">동명이인 (신청)</button>
-            </div>
-          </div>
-        )}
 
         <button onClick={handleSubmit} disabled={submitting}
           className="w-full bg-blue-600 text-white rounded-lg py-3 text-base font-semibold disabled:opacity-50">
