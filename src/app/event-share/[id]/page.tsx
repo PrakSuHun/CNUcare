@@ -22,7 +22,6 @@ interface Attendee {
 interface Share {
   event_id: string;
   school: string | null;
-  password: string;
   mode: string;
 }
 
@@ -42,16 +41,16 @@ export default function EventSharePage() {
 
   useEffect(() => {
     (async () => {
+      // 비밀번호는 서버(DB)에서만 검증하므로 클라이언트로 가져오지 않는다.
       const { data } = await supabase
         .from("event_share_links")
-        .select("event_id, school, password, mode, events(name)")
+        .select("event_id, school, mode, events(name)")
         .eq("id", shareId)
         .single();
       if (data) {
         setShare({
           event_id: (data as any).event_id,
           school: (data as any).school,
-          password: (data as any).password,
           mode: (data as any).mode || "view",
         });
         setEventName((data as any).events?.name || "");
@@ -63,7 +62,12 @@ export default function EventSharePage() {
   const handleUnlock = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!share) return;
-    if (pwInput.trim() !== share.password) {
+    // 비밀번호 검증은 DB 함수에서 수행 (password는 클라이언트로 내려오지 않음)
+    const { data: verified, error: verifyError } = await supabase.rpc("verify_share_password", {
+      p_share_id: shareId,
+      p_password: pwInput.trim(),
+    });
+    if (verifyError || !verified || (Array.isArray(verified) && verified.length === 0)) {
       setPwError("비밀번호가 일치하지 않습니다.");
       return;
     }
