@@ -62,7 +62,7 @@ export async function POST(req: NextRequest) {
 아래는 현재 시스템의 데이터 요약입니다. 이 데이터를 바탕으로 사용자의 질문에 한국어로 답변해주세요.
 
 [조직 현황]
-관리자 ${managers.length}명, 대학생 ${students.length}명
+단장단 ${managers.length}명, 팀원 ${students.length}명
 전체 생명 ${lives.length}명 (활성 ${active.length}명, 페일 ${failed.length}명)
 
 [단계별 현황]

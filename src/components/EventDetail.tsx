@@ -869,7 +869,7 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                 {([
                   ["default", "기본"],
                   ["team", "팀별"],
-                  ["manager", "관리자별"],
+                  ["manager", "담당별"],
                   ["school", "학교별"],
                   ["attendance", "출석별"],
                   ...customGroupOptions.map((o) => [o.value, o.label] as [string, string]),
@@ -1101,7 +1101,7 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                 {([
                   ["default", "기본"],
                   ["team", "팀별"],
-                  ["manager", "관리자별"],
+                  ["manager", "담당별"],
                   ["school", "학교별"],
                   ["attendance", "출석별"],
                   ["friend", "친구별"],
@@ -1298,7 +1298,7 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                                 onChange={(e) => updateAttendeeField(a.id, "manager_id", e.target.value || null)}
                                 className="flex-1 text-xs border border-gray-200 rounded px-2 py-1.5 focus:outline-none focus:border-blue-400"
                               >
-                                <option value="">관리자 미배정</option>
+                                <option value="">담당 미배정</option>
                                 {members.map((m) => (
                                   <option key={m.user_id} value={m.user_id}>{m.display_name}</option>
                                 ))}

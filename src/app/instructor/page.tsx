@@ -106,7 +106,7 @@ export default function InstructorPage() {
       <header className="bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between shrink-0">
         <div>
           <h1 className="text-lg font-bold cursor-pointer" onClick={() => window.location.reload()}>CNUcare</h1>
-          <p className="text-xs text-gray-500">{user?.display_name} (강사)</p>
+          <p className="text-xs text-gray-500">{user?.display_name} (전문강사)</p>
         </div>
         <button onClick={logout} className="text-sm text-gray-400 hover:text-gray-600">로그아웃</button>
       </header>
@@ -195,7 +195,7 @@ export default function InstructorPage() {
         {activeLives.length === 0 && !showAdd && (
           <p className="text-center text-sm text-gray-400 py-8">
             연결된 생명이 없습니다.<br />
-            <span className="text-xs">대학생/관리자가 일지에 강의자 이름을 입력하면 자동 연결됩니다.</span>
+            <span className="text-xs">팀원/단장단이 일지에 강의자 이름을 입력하면 자동 연결됩니다.</span>
           </p>
         )}
 

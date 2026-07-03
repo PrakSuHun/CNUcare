@@ -215,7 +215,7 @@ export default function Dashboard() {
 
       {/* 대학생별 성과 */}
       <div className="bg-white rounded-lg border border-gray-200 p-4">
-        <h3 className="text-sm font-bold text-gray-700 mb-3">대학생별 성과</h3>
+        <h3 className="text-sm font-bold text-gray-700 mb-3">팀원별 성과</h3>
         <div className="space-y-1.5">
           {studentPerf.map((s) => (
             <div key={s.display_name} className="flex items-center justify-between text-sm">

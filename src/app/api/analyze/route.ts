@@ -113,9 +113,9 @@ ${context.checks.map((c: any) => `- ${c.lesson?.number}. ${c.lesson?.name} ${c.i
       const active = context.lives.filter((l: any) => !l.is_failed);
       const failed = context.lives.filter((l: any) => l.is_failed);
       prompt = `당신은 교회 선교 활동 분석 전문가입니다.
-아래는 대학생 "${context.student?.display_name}"의 전도 활동 데이터입니다.
+아래는 팀원 "${context.student?.display_name}"의 전도 활동 데이터입니다.
 
-[대학생 정보]
+[팀원 정보]
 ${JSON.stringify(context.student, null, 2)}
 
 [담당 생명 ${context.lives.length}명 (활성 ${active.length}명, 페일 ${failed.length}명)]
@@ -149,12 +149,12 @@ ${context.journals.slice(0, 50).map((j: any) => `- ${j.met_date} | ${j.response?
     } else if (type === "manager") {
       context = await getManagerContext(targetId);
       prompt = `당신은 교회 선교 활동 분석 전문가입니다.
-아래는 관리자 "${context.manager?.display_name}" 팀의 전체 데이터입니다.
+아래는 단장단 "${context.manager?.display_name}" 팀의 전체 데이터입니다.
 
-[관리자 정보]
+[단장단 정보]
 ${context.manager?.display_name}
 
-[소속 대학생 ${context.students.length}명]
+[소속 팀원 ${context.students.length}명]
 ${context.students.map((s: any) => {
   const sLives = context.userLives.filter((ul: any) => ul.user_id === s.id).map((ul: any) => ul.life_id);
   const active = context.lives.filter((l: any) => sLives.includes(l.id) && !l.is_failed);
@@ -170,8 +170,8 @@ ${context.journals.slice(0, 30).map((j: any) => `- ${j.met_date} | ${j.response?
 
 다음 항목을 분석하여 마크다운 보고서를 작성해주세요:
 1. **팀 현황 요약** - 전체 성과, 활성/페일 비율
-2. **대학생별 성과 비교** - 누가 잘하고, 누가 도움이 필요한지
-3. **팀워크 분석** - 관리자와 대학생들의 협력 상태
+2. **팀원별 성과 비교** - 누가 잘하고, 누가 도움이 필요한지
+3. **팀워크 분석** - 단장단과 팀원들의 협력 상태
 4. **병목 구간** - 어디서 진행이 막히는지
 5. **팀 강점과 약점**
 6. **개선 제안** - 구체적인 전략
@@ -203,15 +203,15 @@ ${context.journals.slice(0, 30).map((j: any) => `- ${j.met_date} | ${j.response?
 아래는 전체 선교 조직의 데이터입니다.
 
 [조직 규모]
-관리자 ${managers.length}명, 대학생 ${students.length}명, 생명 ${context.lives.length}명 (활성 ${active.length}명, 페일 ${failed.length}명)
+단장단 ${managers.length}명, 팀원 ${students.length}명, 생명 ${context.lives.length}명 (활성 ${active.length}명, 페일 ${failed.length}명)
 
 [단계별 현황]
 ${Object.entries(stages).map(([k, v]) => `- ${k}: ${v}명`).join("\n")}
 
-[관리자별 현황]
+[단장단별 현황]
 ${managers.map((m: any) => {
   const mStudents = students.filter((s: any) => s.manager_id === m.id);
-  return `- ${m.display_name}: 대학생 ${mStudents.length}명`;
+  return `- ${m.display_name}: 팀원 ${mStudents.length}명`;
 }).join("\n")}
 
 [최근 일지 활동 (${context.journals.length}건)]
@@ -232,7 +232,7 @@ ${failed.length}/${context.lives.length} (${context.lives.length ? Math.round(fa
 2. **단계별 병목 분석** - 어디서 정체가 심한지, 왜 그런지
 3. **성공 패턴** - 수료까지 간 사례의 공통점
 4. **실패 패턴** - 페일이 발생하는 주요 원인
-5. **관리자별 성과** - 어느 팀이 잘하고 어디가 부족한지
+5. **단장단별 성과** - 어느 팀이 잘하고 어디가 부족한지
 6. **전략적 개선 제안** - 전도 효과를 높이기 위한 구체적 방안
 
 한국어로 상세하게 작성해주세요.

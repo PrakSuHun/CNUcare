@@ -196,12 +196,12 @@ export default function AdminPage() {
                       onChange={(e) => changeRole(u.id, e.target.value)}
                       className={`text-xs rounded-full px-2.5 py-1 border-0 font-medium ${ROLE_COLORS[effectiveRole] || "bg-gray-100"}`}
                     >
-                      <option value="student">대학생</option>
-                      <option value="college_leader">대학리더</option>
-                      <option value="manager">관리자</option>
-                      <option value="instructor">강사</option>
-                      <option value="leader">지도자</option>
-                      <option value="admin">어드민</option>
+                      <option value="student">팀원</option>
+                      <option value="college_leader">구장단</option>
+                      <option value="manager">단장단</option>
+                      <option value="instructor">전문강사</option>
+                      <option value="leader">총괄</option>
+                      <option value="admin">어도민</option>
                     </select>
                     <button onClick={() => deleteUser(u)} className="text-gray-300 hover:text-red-400 text-sm px-1">✕</button>
                   </div>
@@ -248,7 +248,7 @@ export default function AdminPage() {
                 </div>
                 {editingUser.role === "student" && (
                   <div>
-                    <label className="text-xs text-gray-500">소속 관리자</label>
+                    <label className="text-xs text-gray-500">소속 단장단</label>
                     <select value={editForm.manager_id} onChange={(e) => setEditForm((f) => ({ ...f, manager_id: e.target.value }))}
                       className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm mt-1">
                       <option value="">없음</option>

@@ -414,7 +414,7 @@ export default function OrgChart({ userRole, userId, basePath, editMode: externa
         id: m.id,
         display_name: m.display_name,
         lives: [] as LifeItem[],
-        managerName: "관리자",
+        managerName: "단장단",
         isManager: true,
       })),
     ...tree
@@ -495,7 +495,7 @@ export default function OrgChart({ userRole, userId, basePath, editMode: externa
             onChange={(e) => setManagerFilter(e.target.value)}
             className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
           >
-            <option value="">전체 관리자</option>
+            <option value="">전체 단장단</option>
             {tree.map((m) => (
               <option key={m.id} value={m.id}>{m.display_name}</option>
             ))}
@@ -609,7 +609,7 @@ export default function OrgChart({ userRole, userId, basePath, editMode: externa
                 >
                   <span className="text-sm font-medium">{s.display_name}</span>
                   <span className={`text-xs ml-2 ${s.isManager ? "text-yellow-600" : "text-gray-400"}`}>
-                    {s.isManager ? "관리자" : s.managerName + " 소속"}
+                    {s.isManager ? "단장단" : s.managerName + " 소속"}
                   </span>
                 </button>
               ))}
@@ -623,8 +623,8 @@ export default function OrgChart({ userRole, userId, basePath, editMode: externa
       {movingStudent && (
         <div className="fixed inset-0 bg-black/50 flex items-end justify-center z-50">
           <div className="bg-white w-full max-w-lg rounded-t-2xl p-4 space-y-3">
-            <h3 className="text-sm font-bold">대학생 이동: {movingStudent.name}</h3>
-            <p className="text-xs text-gray-500">어느 관리자 밑으로 이동할까요?</p>
+            <h3 className="text-sm font-bold">팀원 이동: {movingStudent.name}</h3>
+            <p className="text-xs text-gray-500">어느 단장단 밑으로 이동할까요?</p>
             <div className="space-y-2 max-h-60 overflow-y-auto">
               {tree.filter((m) => m.id !== "unassigned").map((m) => (
                 <button
@@ -635,7 +635,7 @@ export default function OrgChart({ userRole, userId, basePath, editMode: externa
                   className="w-full text-left rounded-lg border border-gray-200 px-4 py-3 hover:bg-blue-50 hover:border-blue-300 transition-colors"
                 >
                   <span className="text-sm font-medium">{m.display_name}</span>
-                  <span className="text-xs text-gray-400 ml-2">대학생 {m.students.length}명</span>
+                  <span className="text-xs text-gray-400 ml-2">팀원 {m.students.length}명</span>
                 </button>
               ))}
               <button
@@ -644,7 +644,7 @@ export default function OrgChart({ userRole, userId, basePath, editMode: externa
                 style={{ touchAction: "manipulation" }}
                 className="w-full text-left rounded-lg border border-dashed border-gray-300 px-4 py-3 hover:bg-gray-50 hover:border-gray-400 transition-colors"
               >
-                <span className="text-sm font-medium text-gray-500">관리자 미배정</span>
+                <span className="text-sm font-medium text-gray-500">단장단 미배정</span>
               </button>
             </div>
             <button onClick={() => setMovingStudent(null)} className="w-full text-center text-sm text-gray-500 py-2">취소</button>
@@ -669,7 +669,7 @@ export default function OrgChart({ userRole, userId, basePath, editMode: externa
                 >
                   <span className="text-sm font-medium">{s.display_name}</span>
                   <span className={`text-xs ml-2 ${s.isManager ? "text-yellow-600" : "text-gray-400"}`}>
-                    {s.isManager ? "관리자" : s.managerName + " 소속"}
+                    {s.isManager ? "단장단" : s.managerName + " 소속"}
                   </span>
                 </button>
               ))}
@@ -710,7 +710,7 @@ function ManagerColumn({
       <div className="px-3 py-2 bg-gray-700 text-white rounded-t-lg flex items-center justify-between">
         <span className="text-xs font-bold">{manager.display_name}</span>
         <span className="text-xs text-gray-300">
-          대학생 {visibleStudents.length}명 · 생명 {totalLives}명
+          팀원 {visibleStudents.length}명 · 생명 {totalLives}명
         </span>
       </div>
 
