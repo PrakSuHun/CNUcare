@@ -71,12 +71,9 @@ export default function LoginPage() {
   return (
     <div className="flex min-h-full items-center justify-center px-4">
       <div className="w-full max-w-sm">
-        <h1 className="text-center text-3xl font-bold text-gray-900 mb-2">
+        <h1 className="text-center text-3xl font-bold text-gray-900 mb-8">
           CNUcare
         </h1>
-        <p className="text-center text-sm text-gray-500 mb-8">
-          충남대 종합 관리 시스템
-        </p>
 
         <form onSubmit={handleLogin} className="space-y-4">
           <div>
