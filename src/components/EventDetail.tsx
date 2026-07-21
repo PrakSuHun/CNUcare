@@ -244,13 +244,16 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
     // 날이 바뀔 때마다 체크가 다른 날짜에 저장/표시돼 "체크가 풀린 것처럼" 보임.
     const evData = eventRes.data;
     const isWeeklyClub = evData?.type === "club" && evData?.club_unit === "weekly";
-    if (loadedSessions.length > 0 && !isWeeklyClub) {
-      // 회차가 있으면 첫 회차를 기본 선택 → 출석일이 회차 날짜로 고정
+    const isSingleOnetime = evData?.type === "onetime" && loadedSessions.length <= 1;
+    if (isSingleOnetime) {
+      // 일회성 단일 행사(회차 0~1개): 회차 UI 없이 단일 날짜로 고정.
+      // 회차가 1개면 그 날짜, 없으면 생성일을 출석일로 사용.
+      const singleDate = loadedSessions[0]?.date || evData?.created_at?.split("T")[0];
+      if (singleDate) setSelectedDate(singleDate);
+    } else if (loadedSessions.length > 0 && !isWeeklyClub) {
+      // 회차를 여러 개 나눈 행사: 첫 회차를 기본 선택 → 출석일이 회차 날짜로 고정
       setSelectedSession(loadedSessions[0].date);
       setSelectedDate(loadedSessions[0].date);
-    } else if (evData?.type === "onetime" && loadedSessions.length === 0 && evData.created_at) {
-      // 일회성+0회차: 단일 출석일을 생성일로 고정 (날짜 입력 UI 없음)
-      setSelectedDate(evData.created_at.split("T")[0]);
     }
 
     // 기존 신청/출석 폼 URL 로드
@@ -805,8 +808,9 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
               </div>
             )}
 
-            {/* 회차 있음 (일회성 또는 club non-weekly): 회차별 드롭다운 */}
-            {!(event.type === "club" && event.club_unit === "weekly") && sessions.length > 0 && (
+            {/* 회차별 드롭다운 — 일회성 단일 행사(회차 0~1개)는 숨김(단일 출석으로 표시).
+                회차를 여러 개 나눈 행사나 club에서만 노출 */}
+            {!(event.type === "club" && event.club_unit === "weekly") && sessions.length > 0 && !(event.type === "onetime" && sessions.length <= 1) && (
               <div className="flex items-center gap-2">
                 <select
                   value={selectedSession}
