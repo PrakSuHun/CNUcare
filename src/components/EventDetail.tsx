@@ -240,9 +240,16 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
     const loadedSessions = (settingsForm?.[0]?.config?.sessions as { number: number; date: string }[] | undefined) || [];
     if (loadedSessions.length > 0) setSessions(loadedSessions);
 
-    // 일회성+0회차 행사는 단일 출석일을 event.created_at으로 고정 (날짜 입력 UI 없음)
+    // 출석일(selectedDate) 고정 규칙 — selectedDate가 기본값 "오늘"로 남으면
+    // 날이 바뀔 때마다 체크가 다른 날짜에 저장/표시돼 "체크가 풀린 것처럼" 보임.
     const evData = eventRes.data;
-    if (evData?.type === "onetime" && loadedSessions.length === 0 && evData.created_at) {
+    const isWeeklyClub = evData?.type === "club" && evData?.club_unit === "weekly";
+    if (loadedSessions.length > 0 && !isWeeklyClub) {
+      // 회차가 있으면 첫 회차를 기본 선택 → 출석일이 회차 날짜로 고정
+      setSelectedSession(loadedSessions[0].date);
+      setSelectedDate(loadedSessions[0].date);
+    } else if (evData?.type === "onetime" && loadedSessions.length === 0 && evData.created_at) {
+      // 일회성+0회차: 단일 출석일을 생성일로 고정 (날짜 입력 UI 없음)
       setSelectedDate(evData.created_at.split("T")[0]);
     }
 
