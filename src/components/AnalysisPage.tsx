@@ -560,8 +560,8 @@ export default function AnalysisPage() {
             <div ref={chatEndRef} />
           </div>
 
-          {/* 입력 영역 */}
-          <div className="border-t border-gray-200 pt-3">
+          {/* 입력 영역 — 하단 고정(바깥이 스크롤돼도 항상 화면 맨 아래) */}
+          <div className="sticky bottom-0 border-t border-gray-200 bg-gray-50 pt-3" style={{ paddingBottom: "max(0.5rem, env(safe-area-inset-bottom))" }}>
             <form
               onSubmit={(e) => { e.preventDefault(); handleChat(); }}
               className="flex gap-2"
