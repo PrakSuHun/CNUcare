@@ -15,22 +15,42 @@ function getFreeKeys(): string[] {
 
 let keyIdx = 0;
 
+// 재시도 가능한 일시 장애: 429(레이트리밋)·500·503(과부하)·네트워크 등
+// 키/모델 만료(401/403/404)나 잘못된 요청(400)은 재시도해도 소용없으므로 제외.
+function isRetryable(err: any): boolean {
+  const m = String(err?.message || err || "");
+  return /(429|500|502|503|504|overloaded|unavailable|high demand|rate limit|ECONNRESET|ETIMEDOUT|fetch failed)/i.test(m);
+}
+
+const CHAT_MODELS = ["gemini-2.5-flash", "gemini-2.0-flash"];
+
 async function callGemini(prompt: string): Promise<string> {
   const keys = getFreeKeys();
-  for (let i = 0; i < keys.length; i++) {
-    const key = keys[keyIdx % keys.length];
-    keyIdx++;
-    try {
-      const ai = new GoogleGenerativeAI(key);
-      const model = ai.getGenerativeModel({ model: "gemini-2.5-flash" });
-      const res = await model.generateContent([{ text: prompt }]);
-      return res.response.text();
-    } catch (err: any) {
-      if (err?.message?.includes("429") && i < keys.length - 1) continue;
-      throw err;
+  if (keys.length === 0) throw new Error("GEMINI_API_KEY not configured");
+
+  let lastErr: any;
+  // 모델별 폴백 → 각 모델마다 모든 키를 2라운드 순회(라운드 사이 백오프)
+  for (const modelName of CHAT_MODELS) {
+    for (let round = 0; round < 2; round++) {
+      for (let i = 0; i < keys.length; i++) {
+        const key = keys[keyIdx % keys.length];
+        keyIdx++;
+        try {
+          const ai = new GoogleGenerativeAI(key);
+          const model = ai.getGenerativeModel({ model: modelName });
+          const res = await model.generateContent([{ text: prompt }]);
+          return res.response.text();
+        } catch (err: any) {
+          lastErr = err;
+          if (isRetryable(err)) continue; // 일시 장애 → 다음 키로
+          throw err; // 만료/무효 등 영구 오류 → 즉시 실패
+        }
+      }
+      // 이 라운드 모든 키가 일시 장애 → 잠깐 대기 후 재시도
+      await new Promise((r) => setTimeout(r, 600 * (round + 1)));
     }
   }
-  throw new Error("All keys exhausted");
+  throw lastErr || new Error("All keys exhausted");
 }
 
 export async function POST(req: NextRequest) {
