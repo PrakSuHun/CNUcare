@@ -46,7 +46,7 @@ interface LessonProgressProps {
 export default function LessonProgress({ lifeId }: LessonProgressProps) {
   const [lessons, setLessons] = useState<Lesson[]>([]);
   const [checks, setChecks] = useState<Map<string, LessonCheck>>(new Map());
-  const [journalMap, setJournalMap] = useState<Map<string, JournalInfo>>(new Map());
+  const [journalMap, setJournalMap] = useState<Map<string, JournalInfo[]>>(new Map());
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
@@ -59,7 +59,7 @@ export default function LessonProgress({ lifeId }: LessonProgressProps) {
       supabase.from("lessons").select("*").order("sort_order"),
       supabase.from("lesson_checks").select("id, lesson_id, is_passed, note").eq("life_id", lifeId),
       supabase.from("journals")
-        .select("lesson_id, met_date, instructor_name, response")
+        .select("lesson_id, lesson_ids, met_date, instructor_name, response")
         .eq("life_id", lifeId)
         .eq("purpose", "lecture")
         .is("deleted_at", null)
@@ -73,15 +73,23 @@ export default function LessonProgress({ lifeId }: LessonProgressProps) {
       setChecks(map);
     }
     if (journalRes.data) {
-      const jMap = new Map<string, JournalInfo>();
+      // 한 일지가 여러 강의에 연결될 수 있고(lesson_ids), 같은 강의를
+      // 여러 번 들을 수도 있어서 강의별로 일지를 배열로 모은다(최신순).
+      const jMap = new Map<string, JournalInfo[]>();
       journalRes.data.forEach((j: any) => {
-        if (j.lesson_id && !jMap.has(j.lesson_id)) {
-          jMap.set(j.lesson_id, {
+        const lids: string[] = (j.lesson_ids && j.lesson_ids.length)
+          ? j.lesson_ids
+          : (j.lesson_id ? [j.lesson_id] : []);
+        lids.forEach((lid) => {
+          const info: JournalInfo = {
             met_date: j.met_date,
             instructor_name: j.instructor_name,
             response: j.response,
-          });
-        }
+          };
+          const arr = jMap.get(lid);
+          if (arr) arr.push(info);
+          else jMap.set(lid, [info]);
+        });
       });
       setJournalMap(jMap);
     }
@@ -141,7 +149,8 @@ export default function LessonProgress({ lifeId }: LessonProgressProps) {
         const showLevelHeader = !isSpecial && LEVEL_LABELS[lesson.level] && lesson.level !== currentLevel;
         if (showLevelHeader) currentLevel = lesson.level;
 
-        const journal = journalMap.get(lesson.id);
+        const journals = journalMap.get(lesson.id) || [];
+        const latestJournal = journals[0];
         const isExpanded = expandedId === lesson.id;
 
         return (
@@ -174,13 +183,18 @@ export default function LessonProgress({ lifeId }: LessonProgressProps) {
                       {isSpecial ? CATEGORY_LABELS[lesson.category] || lesson.name : lesson.name}
                     </span>
                     {isPassed && <span className="text-[10px] bg-yellow-200 text-yellow-700 px-1.5 py-0.5 rounded-full shrink-0">패스</span>}
-                    {journal && <span className="text-[10px] text-blue-400 shrink-0">일지</span>}
+                    {journals.length > 0 && (
+                      <span className="text-[10px] text-blue-400 shrink-0">
+                        일지{journals.length > 1 ? ` ${journals.length}` : ""}
+                      </span>
+                    )}
                   </div>
-                  {/* 강사/날짜 요약 (일지에서) */}
-                  {journal && !isExpanded && (
+                  {/* 강사/날짜 요약 (최신 일지) */}
+                  {latestJournal && !isExpanded && (
                     <div className="flex items-center gap-2 mt-0.5">
-                      <span className="text-[10px] text-gray-400">{journal.met_date}</span>
-                      {journal.instructor_name && <span className="text-[10px] text-gray-400">· {journal.instructor_name}</span>}
+                      <span className="text-[10px] text-gray-400">{latestJournal.met_date}</span>
+                      {latestJournal.instructor_name && <span className="text-[10px] text-gray-400">· {latestJournal.instructor_name}</span>}
+                      {journals.length > 1 && <span className="text-[10px] text-blue-400">· {journals.length}회 수강</span>}
                     </div>
                   )}
                 </button>
@@ -191,24 +205,29 @@ export default function LessonProgress({ lifeId }: LessonProgressProps) {
                   }`}>패스</button>
               </div>
 
-              {/* 확장: 일지 상세 (읽기 전용) */}
+              {/* 확장: 일지 상세 (읽기 전용) — 여러 번 수강했으면 전부 표시(최신순) */}
               {isExpanded && (
-                <div className="px-3 pb-3 border-t border-gray-100 mt-1 pt-2">
-                  {journal ? (
-                    <div className="bg-gray-50 rounded-lg p-3 space-y-1">
-                      <div className="flex items-center gap-3 text-xs text-gray-500">
-                        <span>{journal.met_date}</span>
-                        {journal.instructor_name && (
-                          <span className="bg-blue-50 text-blue-600 px-2 py-0.5 rounded">강사: {journal.instructor_name}</span>
+                <div className="px-3 pb-3 border-t border-gray-100 mt-1 pt-2 space-y-2">
+                  {journals.length > 0 ? (
+                    journals.map((journal, ji) => (
+                      <div key={ji} className="bg-gray-50 rounded-lg p-3 space-y-1">
+                        <div className="flex items-center gap-2 text-xs text-gray-500 flex-wrap">
+                          {journals.length > 1 && (
+                            <span className="text-[10px] bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded-full">{journals.length - ji}회차</span>
+                          )}
+                          <span>{journal.met_date}</span>
+                          {journal.instructor_name && (
+                            <span className="bg-blue-50 text-blue-600 px-2 py-0.5 rounded">강사: {journal.instructor_name}</span>
+                          )}
+                        </div>
+                        {journal.response && (
+                          <div className="mt-2">
+                            <p className="text-[10px] text-gray-400 mb-1">생명 반응</p>
+                            <p className="text-sm text-gray-700 whitespace-pre-wrap">{journal.response}</p>
+                          </div>
                         )}
                       </div>
-                      {(check?.note || journal.response) && (
-                        <div className="mt-2">
-                          <p className="text-[10px] text-gray-400 mb-1">{check?.note ? "요약" : "생명 반응"}</p>
-                          <p className="text-sm text-gray-700 whitespace-pre-wrap">{check?.note || journal.response}</p>
-                        </div>
-                      )}
-                    </div>
+                    ))
                   ) : (
                     <p className="text-xs text-gray-400 text-center py-2">강의 일지가 없습니다. 일지에서 강의를 선택하여 작성해주세요.</p>
                   )}

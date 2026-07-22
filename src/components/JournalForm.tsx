@@ -42,7 +42,7 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
     met_date: new Date().toISOString().split("T")[0],
     location: "",
     purpose: "",
-    lesson_id: "",
+    lesson_ids: [] as string[],
     instructor_name: "",
     response: "",
   });
@@ -114,7 +114,9 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
         met_date: data.met_date,
         location: data.location || "",
         purpose: data.purpose || "",
-        lesson_id: data.lesson_id || "",
+        lesson_ids: (data.lesson_ids && data.lesson_ids.length)
+          ? data.lesson_ids
+          : (data.lesson_id ? [data.lesson_id] : []),
         instructor_name: data.instructor_name || "",
         response: data.response || "",
       });
@@ -157,6 +159,9 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
       return;
     }
 
+    // 강의 다중 선택: "general" 제외한 실제 강의 ID 목록
+    const realLessonIds = form.lesson_ids.filter((id) => id && id !== "general");
+
     // 2. 일지 바로 저장 (변환 중 표시)
     const { data: newJournal } = await supabase.from("journals").insert({
       life_id: lifeId,
@@ -165,21 +170,24 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
       location: form.location,
       response: "(텍스트 변환 중입니다)",
       purpose: form.purpose || null,
-      lesson_id: form.lesson_id && form.lesson_id !== "general" ? form.lesson_id : null,
+      lesson_id: realLessonIds[0] || null,
+      lesson_ids: realLessonIds.length ? realLessonIds : null,
       instructor_name: form.instructor_name || null,
       audio_url: url,
     }).select("id").single();
 
     await supabase.from("lives").update({ last_met_at: form.met_date }).eq("id", lifeId);
 
-    if (form.purpose === "lecture" && form.lesson_id && form.lesson_id !== "general") {
-      await supabase.from("lesson_checks").upsert({
-        life_id: lifeId,
-        lesson_id: form.lesson_id,
-        attended_date: form.met_date,
-        instructor_name: form.instructor_name || null,
-        note: form.response ? form.response.slice(0, 200) : null,
-      }, { onConflict: "life_id,lesson_id" });
+    if (form.purpose === "lecture" && realLessonIds.length > 0) {
+      for (const lid of realLessonIds) {
+        await supabase.from("lesson_checks").upsert({
+          life_id: lifeId,
+          lesson_id: lid,
+          attended_date: form.met_date,
+          instructor_name: form.instructor_name || null,
+          note: form.response ? form.response.slice(0, 200) : null,
+        }, { onConflict: "life_id,lesson_id" });
+      }
     }
 
     // 강의자 이름으로 강사 자동 연결
@@ -332,12 +340,16 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
     const user = getUser();
     if (!user) return;
 
+    // 강의 다중 선택: "general" 제외한 실제 강의 ID 목록
+    const realLessonIds = form.lesson_ids.filter((id) => id && id !== "general");
+
     const journalData: any = {
       met_date: form.met_date,
       location: form.location,
       response: form.response,
       purpose: form.purpose || null,
-      lesson_id: form.lesson_id && form.lesson_id !== "general" ? form.lesson_id : null,
+      lesson_id: realLessonIds[0] || null,
+      lesson_ids: realLessonIds.length ? realLessonIds : null,
       instructor_name: form.instructor_name || null,
       audio_url: audioUrl,
     };
@@ -345,29 +357,30 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
     if (isEdit) {
       await supabase.from("journals").update(journalData).eq("id", journalId);
 
-      // 수정 시에도 강의 진도표 연동
-      if (form.purpose === "lecture" && form.lesson_id && form.lesson_id !== "general") {
-        const { data: existing } = await supabase
-          .from("lesson_checks")
-          .select("id")
-          .eq("life_id", lifeId)
-          .eq("lesson_id", form.lesson_id)
-          .single();
-
+      // 수정 시에도 강의 진도표 연동 (선택된 모든 강의)
+      if (form.purpose === "lecture" && realLessonIds.length > 0) {
         const checkData = {
           attended_date: form.met_date,
           instructor_name: form.instructor_name || null,
           note: form.response ? form.response.slice(0, 200) : null,
         };
+        for (const lid of realLessonIds) {
+          const { data: existing } = await supabase
+            .from("lesson_checks")
+            .select("id")
+            .eq("life_id", lifeId)
+            .eq("lesson_id", lid)
+            .single();
 
-        if (existing) {
-          await supabase.from("lesson_checks").update(checkData).eq("id", existing.id);
-        } else {
-          await supabase.from("lesson_checks").insert({
-            life_id: lifeId,
-            lesson_id: form.lesson_id,
-            ...checkData,
-          });
+          if (existing) {
+            await supabase.from("lesson_checks").update(checkData).eq("id", existing.id);
+          } else {
+            await supabase.from("lesson_checks").insert({
+              life_id: lifeId,
+              lesson_id: lid,
+              ...checkData,
+            });
+          }
         }
       }
     } else {
@@ -378,25 +391,27 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
       });
       await supabase.from("lives").update({ last_met_at: form.met_date }).eq("id", lifeId);
 
-      if (form.purpose === "lecture" && form.lesson_id && form.lesson_id !== "general") {
-        // 강의 진도표 체크 (없으면 추가, 있으면 유지)
-        const { data: existing } = await supabase
-          .from("lesson_checks")
-          .select("id")
-          .eq("life_id", lifeId)
-          .eq("lesson_id", form.lesson_id)
-          .single();
+      if (form.purpose === "lecture" && realLessonIds.length > 0) {
+        // 강의 진도표 체크 (없으면 추가, 있으면 유지) — 선택된 모든 강의
+        for (const lid of realLessonIds) {
+          const { data: existing } = await supabase
+            .from("lesson_checks")
+            .select("id")
+            .eq("life_id", lifeId)
+            .eq("lesson_id", lid)
+            .single();
 
-        if (!existing) {
-          await supabase.from("lesson_checks").insert({
-            life_id: lifeId,
-            lesson_id: form.lesson_id,
-          });
+          if (!existing) {
+            await supabase.from("lesson_checks").insert({
+              life_id: lifeId,
+              lesson_id: lid,
+            });
+          }
         }
       }
 
-      // 강의 일지 요약 → lesson_checks.note에 저장 (비동기)
-      if (form.purpose === "lecture" && form.lesson_id && form.lesson_id !== "general" && form.response?.trim()) {
+      // 강의 일지 요약 → lesson_checks.note에 저장 (비동기, 선택된 모든 강의)
+      if (form.purpose === "lecture" && realLessonIds.length > 0 && form.response?.trim()) {
         fetch("/api/summarize", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -405,7 +420,7 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
           const { summary } = await res.json();
           if (summary) {
             await supabase.from("lesson_checks").update({ note: summary })
-              .eq("life_id", lifeId).eq("lesson_id", form.lesson_id);
+              .eq("life_id", lifeId).in("lesson_id", realLessonIds);
           }
         }).catch(() => {});
       }
@@ -470,7 +485,7 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
                 <button
                   key={opt.value}
                   type="button"
-                  onClick={() => setForm((f) => ({ ...f, purpose: opt.value, lesson_id: opt.value !== "lecture" ? "" : f.lesson_id }))}
+                  onClick={() => setForm((f) => ({ ...f, purpose: opt.value, lesson_ids: opt.value !== "lecture" ? [] : f.lesson_ids }))}
                   className={`py-2 rounded-lg border text-sm font-medium transition-colors ${
                     form.purpose === opt.value
                       ? "bg-blue-600 text-white border-blue-600"
@@ -486,18 +501,41 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
           {form.purpose === "lecture" && (
             <>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">수강 강의</label>
-                <select
-                  value={form.lesson_id}
-                  onChange={(e) => setForm((f) => ({ ...f, lesson_id: e.target.value }))}
-                  className="w-full rounded-lg border border-gray-300 px-4 py-3 text-base focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                >
-                  <option value="">강의를 선택하세요</option>
-                  <option value="general">0. 일반 말씀 (30개론 외)</option>
-                  {lectureOnlyLessons.map((l) => (
-                    <option key={l.id} value={l.id}>{l.number}. {l.name}</option>
-                  ))}
-                </select>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  수강 강의 <span className="text-xs font-normal text-gray-400">(여러 개 선택 가능 · 이어서 들은 강의 모두 체크)</span>
+                </label>
+                <div className="rounded-lg border border-gray-300 divide-y divide-gray-100 max-h-72 overflow-y-auto">
+                  {[{ id: "general", label: "0. 일반 말씀 (30개론 외)" },
+                    ...lectureOnlyLessons.map((l) => ({ id: l.id, label: `${l.number}. ${l.name}` }))
+                  ].map((opt) => {
+                    const checked = form.lesson_ids.includes(opt.id);
+                    return (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        onClick={() => setForm((f) => ({
+                          ...f,
+                          lesson_ids: checked
+                            ? f.lesson_ids.filter((x) => x !== opt.id)
+                            : [...f.lesson_ids, opt.id],
+                        }))}
+                        className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors ${
+                          checked ? "bg-blue-50" : "hover:bg-gray-50"
+                        }`}
+                      >
+                        <span className={`w-5 h-5 rounded border-2 shrink-0 flex items-center justify-center ${
+                          checked ? "bg-blue-600 border-blue-600 text-white" : "border-gray-300"
+                        }`}>
+                          {checked && <span className="text-xs">✓</span>}
+                        </span>
+                        <span className={`text-sm ${checked ? "text-blue-700 font-medium" : "text-gray-700"}`}>{opt.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                {form.lesson_ids.length > 1 && (
+                  <p className="text-xs text-blue-500 mt-1">{form.lesson_ids.length}개 강의 선택됨</p>
+                )}
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">강의자</label>
