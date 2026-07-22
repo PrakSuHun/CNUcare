@@ -232,23 +232,19 @@ export default function AnalysisPage() {
 
   return (
     <div className="space-y-4">
-      {/* 현황 버튼 (4개 탭과 별개) */}
-      <button
-        onClick={() => setShowDashboard(true)}
-        className={`w-full py-2.5 text-sm font-medium rounded-lg border transition-colors ${
-          showDashboard
-            ? "bg-blue-600 text-white border-blue-600"
-            : "bg-white text-gray-600 border-gray-200 hover:border-blue-400"
-        }`}
-      >
-        📊 현황
-      </button>
-
-      {/* 4개 분석 탭 */}
-      <div className="flex bg-white rounded-lg border border-gray-200 overflow-hidden">
+      {/* 탭 바 — 현황 + 4개 분석을 한 줄로 (모바일 세로 공간 절약) */}
+      <div className="flex bg-white rounded-lg border border-gray-200 overflow-hidden text-xs">
+        <button
+          onClick={() => setShowDashboard(true)}
+          className={`flex-1 py-2.5 px-1 font-medium text-center transition-colors ${
+            showDashboard ? "bg-blue-600 text-white" : "text-gray-500"
+          }`}
+        >
+          📊 현황
+        </button>
         <button
           onClick={() => selectTab("new")}
-          className={`flex-1 py-2.5 text-sm font-medium text-center transition-colors ${
+          className={`flex-1 py-2.5 px-1 font-medium text-center transition-colors ${
             !showDashboard && tab === "new" ? "bg-blue-600 text-white" : "text-gray-500"
           }`}
         >
@@ -256,7 +252,7 @@ export default function AnalysisPage() {
         </button>
         <button
           onClick={() => selectTab("history")}
-          className={`flex-1 py-2.5 text-sm font-medium text-center transition-colors ${
+          className={`flex-1 py-2.5 px-1 font-medium text-center transition-colors ${
             !showDashboard && tab === "history" ? "bg-blue-600 text-white" : "text-gray-500"
           }`}
         >
@@ -264,19 +260,19 @@ export default function AnalysisPage() {
         </button>
         <button
           onClick={() => selectTab("lecture")}
-          className={`flex-1 py-2.5 text-sm font-medium text-center transition-colors ${
+          className={`flex-1 py-2.5 px-1 font-medium text-center transition-colors ${
             !showDashboard && tab === "lecture" ? "bg-blue-600 text-white" : "text-gray-500"
           }`}
         >
-          강의 반응
+          강의
         </button>
         <button
           onClick={() => selectTab("chat")}
-          className={`flex-1 py-2.5 text-sm font-medium text-center transition-colors ${
+          className={`flex-1 py-2.5 px-1 font-medium text-center transition-colors ${
             !showDashboard && tab === "chat" ? "bg-blue-600 text-white" : "text-gray-500"
           }`}
         >
-          AI 채팅
+          채팅
         </button>
       </div>
 
@@ -510,11 +506,11 @@ export default function AnalysisPage() {
         </div>
       )}
 
-      {/* AI 채팅 */}
+      {/* AI 채팅 — 100dvh 기준으로 헤더/탭바를 뺀 높이. 모바일 주소창·키보드 대응 */}
       {!showDashboard && tab === "chat" && (
-        <div className="flex flex-col" style={{ height: "calc(100vh - 220px)" }}>
+        <div className="flex flex-col min-h-0" style={{ height: "calc(100dvh - 190px)" }}>
           {/* 메시지 영역 */}
-          <div className="flex-1 overflow-y-auto space-y-3 pb-4">
+          <div className="flex-1 min-h-0 overflow-y-auto space-y-3 pb-4">
             {chatMessages.length === 0 && (
               <div className="text-center py-12">
                 <p className="text-gray-400 text-sm">데이터에 대해 자유롭게 질문해보세요</p>
