@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { getUser, logout, User } from "@/lib/auth";
-import PushToggle from "@/components/PushToggle";
+import { getUser, User } from "@/lib/auth";
+import Settings from "@/components/Settings";
 import OrgChart from "@/components/OrgChart";
 import AnalysisPage from "@/components/AnalysisPage";
 import InstructorCalendar from "@/components/InstructorCalendar";
@@ -49,7 +49,7 @@ export default function LeaderPage() {
               {editMode ? "편집 완료" : "편집"}
             </button>
           )}
-          <div className="flex items-center gap-3"><PushToggle /><button onClick={logout} className="text-sm text-gray-400 hover:text-gray-600">로그아웃</button></div>
+          <Settings />
         </div>
       </header>
 
