@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getUser, logout, User } from "@/lib/auth";
 import OrgChart from "@/components/OrgChart";
-import Dashboard from "@/components/Dashboard";
 import AnalysisPage from "@/components/AnalysisPage";
 import InstructorCalendar from "@/components/InstructorCalendar";
 import MyLives from "@/components/MyLives";
@@ -14,7 +13,7 @@ export default function LeaderPage() {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
   const [editMode, setEditMode] = useState(false);
-  const [tab, setTab] = useState<"org" | "mylives" | "calendar" | "dashboard" | "analysis">("org");
+  const [tab, setTab] = useState<"org" | "mylives" | "calendar" | "analysis">("org");
 
   useEffect(() => {
     const u = getUser();
@@ -58,7 +57,6 @@ export default function LeaderPage() {
           { key: "org", label: "조직도" },
           { key: "mylives", label: "내 생명" },
           { key: "calendar", label: "캘린더" },
-          { key: "dashboard", label: "현황" },
           { key: "analysis", label: "AI 분석" },
         ].map((t) => (
           <button
@@ -77,7 +75,6 @@ export default function LeaderPage() {
         {tab === "org" && <OrgChart userRole="instructor" userId={user.id} basePath="/leader" editMode={editMode} />}
         {tab === "mylives" && <MyLives userId={user.id} basePath="/leader" />}
         {tab === "calendar" && <InstructorCalendar basePath="/leader" />}
-        {tab === "dashboard" && <Dashboard />}
         {tab === "analysis" && <AnalysisPage />}
       </div>
     </div>
