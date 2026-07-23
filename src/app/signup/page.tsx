@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { formatPhone } from "@/lib/phone";
 
 export default function SignupPage() {
   const router = useRouter();
@@ -169,7 +170,7 @@ export default function SignupPage() {
               type="tel"
               placeholder="010-0000-0000"
               value={form.phone}
-              onChange={(e) => updateForm("phone", e.target.value)}
+              onChange={(e) => updateForm("phone", formatPhone(e.target.value))}
               required
               className="w-full rounded-lg border border-gray-300 px-4 py-3 text-base focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
             />

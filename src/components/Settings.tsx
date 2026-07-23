@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { getUser, logout, saveUser } from "@/lib/auth";
 import { supabase } from "@/lib/supabase";
+import { formatPhone } from "@/lib/phone";
 import { isIos, isStandalone, isSubscribed, pushSupported, subscribePush, unsubscribePush } from "@/lib/push";
 
 // 헤더의 "설정" 버튼 + 모달. 계정정보 수정 / 알림 권한 / 로그아웃을 담는다.
@@ -30,7 +31,10 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
   const [confirmPw, setConfirmPw] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [editing, setEditing] = useState(false);
   const [msg, setMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+  // 편집 취소 시 되돌릴 원래 값
+  const [orig, setOrig] = useState({ name: "", phone: "" });
 
   useEffect(() => {
     const u = getUser();
@@ -42,8 +46,11 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
       .single()
       .then(({ data }) => {
         if (data) {
-          setName(data.display_name || data.name || "");
-          setPhone(data.phone || "");
+          const n = data.display_name || data.name || "";
+          const p = formatPhone(data.phone || "");
+          setName(n);
+          setPhone(p);
+          setOrig({ name: n, phone: p });
         }
         setLoading(false);
       });
@@ -89,7 +96,18 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
     saveUser({ ...u, name: name.trim(), display_name: name.trim() });
     setNewPw("");
     setConfirmPw("");
+    setOrig({ name: name.trim(), phone: phone.trim() });
+    setEditing(false);
     setMsg({ type: "ok", text: "저장되었습니다." });
+  };
+
+  const cancelEdit = () => {
+    setName(orig.name);
+    setPhone(orig.phone);
+    setNewPw("");
+    setConfirmPw("");
+    setMsg(null);
+    setEditing(false);
   };
 
   return (
@@ -109,62 +127,100 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
           <p className="text-sm text-gray-400 text-center py-10">불러오는 중...</p>
         ) : (
           <div className="p-4 space-y-6">
-            {/* 계정 정보 수정 */}
+            {/* 계정 정보 수정 — 버튼으로 열기, 저장해야 반영 */}
             <section className="space-y-3">
-              <h3 className="text-sm font-semibold text-gray-700">계정 정보 수정</h3>
-
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">이름</label>
-                <input
-                  type="text"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-base focus:border-blue-500 focus:outline-none"
-                />
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-gray-700">계정 정보</h3>
+                {!editing && (
+                  <button
+                    onClick={() => { setMsg(null); setEditing(true); }}
+                    className="text-xs text-blue-600 border border-blue-300 rounded-full px-3 py-1.5 hover:bg-blue-50"
+                  >
+                    계정 수정
+                  </button>
+                )}
               </div>
 
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">연락처</label>
-                <input
-                  type="tel"
-                  value={phone}
-                  placeholder="010-0000-0000"
-                  onChange={(e) => setPhone(e.target.value)}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-base focus:border-blue-500 focus:outline-none"
-                />
-              </div>
+              {!editing ? (
+                <div className="rounded-lg border border-gray-200 divide-y divide-gray-100 text-sm">
+                  <div className="flex justify-between px-3 py-2.5">
+                    <span className="text-gray-400">이름</span>
+                    <span className="text-gray-700">{orig.name || "-"}</span>
+                  </div>
+                  <div className="flex justify-between px-3 py-2.5">
+                    <span className="text-gray-400">연락처</span>
+                    <span className="text-gray-700">{orig.phone || "-"}</span>
+                  </div>
+                  {msg && msg.type === "ok" && (
+                    <p className="text-xs text-blue-600 px-3 py-2">{msg.text}</p>
+                  )}
+                </div>
+              ) : (
+                <>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">이름</label>
+                    <input
+                      type="text"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-base focus:border-blue-500 focus:outline-none"
+                    />
+                  </div>
 
-              <div className="pt-1">
-                <p className="text-xs text-gray-400 mb-1">비밀번호 변경 (바꿀 때만 입력)</p>
-                <input
-                  type="password"
-                  value={newPw}
-                  placeholder="새 비밀번호"
-                  autoComplete="new-password"
-                  onChange={(e) => setNewPw(e.target.value)}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-base focus:border-blue-500 focus:outline-none mb-2"
-                />
-                <input
-                  type="password"
-                  value={confirmPw}
-                  placeholder="새 비밀번호 확인"
-                  autoComplete="new-password"
-                  onChange={(e) => setConfirmPw(e.target.value)}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-base focus:border-blue-500 focus:outline-none"
-                />
-              </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">연락처</label>
+                    <input
+                      type="tel"
+                      inputMode="numeric"
+                      value={phone}
+                      placeholder="010-0000-0000"
+                      onChange={(e) => setPhone(formatPhone(e.target.value))}
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-base focus:border-blue-500 focus:outline-none"
+                    />
+                  </div>
 
-              {msg && (
-                <p className={`text-xs ${msg.type === "ok" ? "text-blue-600" : "text-red-500"}`}>{msg.text}</p>
+                  <div className="pt-1">
+                    <p className="text-xs text-gray-400 mb-1">비밀번호 변경 (바꿀 때만 입력)</p>
+                    <input
+                      type="password"
+                      value={newPw}
+                      placeholder="새 비밀번호"
+                      autoComplete="new-password"
+                      onChange={(e) => setNewPw(e.target.value)}
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-base focus:border-blue-500 focus:outline-none mb-2"
+                    />
+                    <input
+                      type="password"
+                      value={confirmPw}
+                      placeholder="새 비밀번호 확인"
+                      autoComplete="new-password"
+                      onChange={(e) => setConfirmPw(e.target.value)}
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-base focus:border-blue-500 focus:outline-none"
+                    />
+                  </div>
+
+                  {msg && (
+                    <p className={`text-xs ${msg.type === "ok" ? "text-blue-600" : "text-red-500"}`}>{msg.text}</p>
+                  )}
+
+                  <div className="flex gap-2">
+                    <button
+                      onClick={cancelEdit}
+                      disabled={saving}
+                      className="flex-1 border border-gray-300 text-gray-600 rounded-lg py-2.5 text-sm font-medium disabled:opacity-50 hover:bg-gray-50"
+                    >
+                      취소
+                    </button>
+                    <button
+                      onClick={handleSave}
+                      disabled={saving}
+                      className="flex-1 bg-blue-600 text-white rounded-lg py-2.5 text-sm font-medium disabled:opacity-50 hover:bg-blue-700"
+                    >
+                      {saving ? "저장 중..." : "저장"}
+                    </button>
+                  </div>
+                </>
               )}
-
-              <button
-                onClick={handleSave}
-                disabled={saving}
-                className="w-full bg-blue-600 text-white rounded-lg py-2.5 text-sm font-medium disabled:opacity-50 hover:bg-blue-700"
-              >
-                {saving ? "저장 중..." : "저장"}
-              </button>
             </section>
 
             {/* 알림 권한 */}
