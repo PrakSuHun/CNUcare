@@ -190,6 +190,10 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
   const [selectedSession, setSelectedSession] = useState<string>("all"); // "all" or session date
   const [aiLoading, setAiLoading] = useState(false);
 
+  // 행사 설정 config 전체(세션 저장 시 다른 키 보존용) + 내 알림 수신 여부
+  const [settingsConfig, setSettingsConfig] = useState<Record<string, any>>({});
+  const [notifyOptOut, setNotifyOptOut] = useState(false); // 이 행사 신청 알림 안 받기
+
   // 학교별 명단 공유 + 전체 명단 공유
   const [schoolShares, setSchoolShares] = useState<{ id: string; school: string }[]>([]);
   const [allShare, setAllShare] = useState<{ id: string } | null>(null);
@@ -237,8 +241,13 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
 
     // 회차 설정 로드
     const { data: settingsForm } = await supabase.from("event_forms").select("config").eq("event_id", eventId).eq("type", "settings").limit(1);
-    const loadedSessions = (settingsForm?.[0]?.config?.sessions as { number: number; date: string }[] | undefined) || [];
+    const loadedConfig = (settingsForm?.[0]?.config as Record<string, any>) || {};
+    setSettingsConfig(loadedConfig);
+    const loadedSessions = (loadedConfig.sessions as { number: number; date: string }[] | undefined) || [];
     if (loadedSessions.length > 0) setSessions(loadedSessions);
+    const optOut = (loadedConfig.notify_optout as string[] | undefined) || [];
+    const meId = getUser()?.id;
+    setNotifyOptOut(!!meId && optOut.includes(meId));
 
     // 출석일(selectedDate) 고정 규칙 — selectedDate가 기본값 "오늘"로 남으면
     // 날이 바뀔 때마다 체크가 다른 날짜에 저장/표시돼 "체크가 풀린 것처럼" 보임.
@@ -1557,6 +1566,43 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
         {/* ===== 설정 Tab ===== */}
         {activeTab === "settings" && (
           <div className="p-4 space-y-4">
+            {/* 내 행사 알림 (개인 설정) */}
+            <div className="bg-white rounded-lg border border-gray-200 p-4">
+              <p className="text-sm font-medium text-gray-700 mb-1">행사 알림</p>
+              <p className="text-xs text-gray-500 mb-3">이 행사에 신청이 들어오면 연결된 사람 전원에게 알림이 갑니다. 원치 않으면 아래에서 나만 끌 수 있어요.</p>
+              <div className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2.5">
+                <div>
+                  <p className="text-sm text-gray-700">이 행사 신청 알림 받기</p>
+                  <p className="text-xs text-gray-400">끄면 이 행사 신청 알림만 안 받습니다 (다른 행사는 영향 없음)</p>
+                </div>
+                <button
+                  onClick={async () => {
+                    const meId = getUser()?.id;
+                    if (!meId) return;
+                    const cur = (settingsConfig.notify_optout as string[] | undefined) || [];
+                    // 현재 opt-out 상태면 → 받기로(제거), 아니면 → 안 받기로(추가)
+                    const nextArr = notifyOptOut
+                      ? cur.filter((id) => id !== meId)
+                      : Array.from(new Set([...cur, meId]));
+                    const nextConfig = { ...settingsConfig, notify_optout: nextArr };
+                    const { data: existing } = await supabase.from("event_forms").select("id").eq("event_id", eventId).eq("type", "settings").limit(1);
+                    if (existing && existing.length > 0) {
+                      await supabase.from("event_forms").update({ config: nextConfig }).eq("id", existing[0].id);
+                    } else {
+                      await supabase.from("event_forms").insert({ event_id: eventId, type: "settings", config: nextConfig, created_by: meId });
+                    }
+                    setSettingsConfig(nextConfig);
+                    setNotifyOptOut(!notifyOptOut);
+                  }}
+                  className={`text-sm font-medium px-3 py-1.5 rounded-full border transition-colors shrink-0 ${
+                    !notifyOptOut ? "bg-blue-600 text-white border-blue-600" : "bg-white text-gray-500 border-gray-300"
+                  }`}
+                >
+                  {!notifyOptOut ? "받는 중 🔔" : "안 받음 🔕"}
+                </button>
+              </div>
+            </div>
+
             {/* 포스터 */}
             <div className="bg-white rounded-lg border border-gray-200 p-4">
               <p className="text-sm font-medium text-gray-700 mb-1">포스터</p>
@@ -1746,12 +1792,14 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
               <button
                 onClick={async () => {
                   // settings 폼에 저장
+                  const nextConfig = { ...settingsConfig, sessions };
                   const { data: existing } = await supabase.from("event_forms").select("id").eq("event_id", eventId).eq("type", "settings").limit(1);
                   if (existing && existing.length > 0) {
-                    await supabase.from("event_forms").update({ config: { sessions } }).eq("id", existing[0].id);
+                    await supabase.from("event_forms").update({ config: nextConfig }).eq("id", existing[0].id);
                   } else {
-                    await supabase.from("event_forms").insert({ event_id: eventId, type: "settings", config: { sessions }, created_by: getUser()?.id });
+                    await supabase.from("event_forms").insert({ event_id: eventId, type: "settings", config: nextConfig, created_by: getUser()?.id });
                   }
+                  setSettingsConfig(nextConfig);
                   alert("저장되었습니다.");
                 }}
                 className="w-full mt-2 bg-blue-600 text-white rounded-lg py-2.5 text-sm font-medium"
