@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { createClient } from "@supabase/supabase-js";
+import { tryClaude } from "@/lib/claudeBridge";
 
 function getSb() {
   return createClient(
@@ -104,7 +105,8 @@ ${active.slice(0, 30).map((l) => `- ${l.name} | ${l.age || "?"}세 | ${l.departm
 
 중요: 마크다운 문법(**, ##, ---, - 등)을 절대 사용하지 마세요. 일반 텍스트로만 답변하세요. 줄바꿈과 숫자 번호만 사용하세요.`;
 
-    const reply = await callGemini(context);
+    // 로컬 Claude(구독) 우선 → 터널 꺼져 있으면 Gemini 폴백
+    const reply = (await tryClaude(context)) ?? (await callGemini(context));
     return NextResponse.json({ reply });
   } catch (err: any) {
     return NextResponse.json({ error: err?.message || "답변 생성에 실패했습니다." }, { status: 500 });

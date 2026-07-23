@@ -116,6 +116,7 @@ export default function RegisterPage() {
       }
       if (Object.keys(updateCustom).length > 0) updateRow.custom_data = updateCustom;
       await supabase.from("event_attendees").update(updateRow).eq("id", dup.id);
+      fetch("/api/notify-registration", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ event_id: eventId, name: nameVal }) }).catch(() => {});
       setSubmitting(false);
       setDone(true);
       return;
@@ -152,6 +153,7 @@ export default function RegisterPage() {
     if (Object.keys(customData).length > 0) row.custom_data = customData;
 
     await supabase.from("event_attendees").insert(row);
+    fetch("/api/notify-registration", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ event_id: eventId, name: nameVal }) }).catch(() => {});
     setSubmitting(false);
     setDone(true);
   };

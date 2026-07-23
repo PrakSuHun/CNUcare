@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { getUser, logout, User } from "@/lib/auth";
+import PushToggle from "@/components/PushToggle";
 import { STAGE_LABELS, STAGE_COLORS, STAGE_NAME_COLORS } from "@/lib/stages";
 import InstructorAnalysis from "@/components/InstructorAnalysis";
 import InstructorCalendar from "@/components/InstructorCalendar";
@@ -108,7 +109,7 @@ export default function InstructorPage() {
           <h1 className="text-lg font-bold cursor-pointer" onClick={() => window.location.reload()}>CNUcare</h1>
           <p className="text-xs text-gray-500">{user?.display_name} (전문강사)</p>
         </div>
-        <button onClick={logout} className="text-sm text-gray-400 hover:text-gray-600">로그아웃</button>
+        <div className="flex items-center gap-3"><PushToggle /><button onClick={logout} className="text-sm text-gray-400 hover:text-gray-600">로그아웃</button></div>
       </header>
 
       <div className="flex border-b border-gray-200 bg-white overflow-x-auto shrink-0">

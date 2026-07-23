@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getUser, logout, User } from "@/lib/auth";
+import PushToggle from "@/components/PushToggle";
 import { supabase } from "@/lib/supabase";
 import OrgChart from "@/components/OrgChart";
 import AnalysisPage from "@/components/AnalysisPage";
@@ -113,7 +114,7 @@ export default function ManagerPage() {
               {editMode ? "편집 완료" : "편집"}
             </button>
           )}
-          <button onClick={logout} className="text-sm text-gray-400 hover:text-gray-600">로그아웃</button>
+          <div className="flex items-center gap-3"><PushToggle /><button onClick={logout} className="text-sm text-gray-400 hover:text-gray-600">로그아웃</button></div>
         </div>
       </header>
 
