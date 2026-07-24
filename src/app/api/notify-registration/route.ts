@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { expandLinkedUsers } from "@/lib/accountLinks";
 
 // 외부 폼 신청 발생 시 → 그 행사에 연결된 모니터링 인원 전원에게 푸시.
 // (연결된 사람 = event_members. 관리자가 아니라 모니터링 인원이다.)
@@ -20,9 +21,11 @@ export async function POST(req: NextRequest) {
     ]);
     const ev = evRes.data;
     const optOut: string[] = (cfgRes.data?.[0]?.config?.notify_optout as string[]) || [];
-    const userIds = Array.from(
+    const memberIds = Array.from(
       new Set((membersRes.data || []).map((m: any) => m.user_id).filter(Boolean)),
     ).filter((uid) => !optOut.includes(uid as string));
+    // 연결된 계정(동일 인물의 다른 계정)에도 함께 발송
+    const userIds = expandLinkedUsers(memberIds as string[]);
     if (userIds.length === 0) return NextResponse.json({ ok: true, sent: 0 });
 
     const res = await fetch(`${url}/functions/v1/cnu-notify`, {

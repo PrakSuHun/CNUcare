@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { expandLinkedUsers } from "@/lib/accountLinks";
 
 // 매일 저녁 9시(KST) — 지난 약속인데 아직 일지를 안 쓴 건을 찾아 약속 만든 사람에게 알림.
 // 판별: appointment.date 지남 + 그 이후(met_date >= date) deleted 안 된 일지 부재 + 생명 미실패.
@@ -71,7 +72,7 @@ export async function GET(req: NextRequest) {
     await fetch(`${url}/functions/v1/cnu-notify`, {
       method: "POST",
       headers: { "content-type": "application/json", apikey: anon, Authorization: `Bearer ${anon}` },
-      body: JSON.stringify({ action: "send", secret: process.env.CNU_NOTIFY_SECRET, user_ids: [userId], title: "일지 미작성 알림", body, url: "/", tag: "journal-reminder" }),
+      body: JSON.stringify({ action: "send", secret: process.env.CNU_NOTIFY_SECRET, user_ids: expandLinkedUsers([userId]), title: "일지 미작성 알림", body, url: "/", tag: "journal-reminder" }),
     }).catch(() => {});
     sentUsers++;
   }
