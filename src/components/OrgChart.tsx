@@ -766,9 +766,12 @@ function ManagerColumn({
                       role="button"
                       onClick={() => editMode ? onToggleSelect(life.id) : router.push(`${basePath}/life/${life.id}`)}
                       className={`grid items-center rounded border px-2 py-1.5 cursor-pointer transition-colors ${
-                        editMode
-                          ? selectedLives.has(life.id) ? "border-blue-400 bg-blue-50" : "border-gray-100"
-                          : "border-gray-100 hover:bg-blue-50 hover:border-blue-300"
+                        editMode && selectedLives.has(life.id)
+                          ? "border-blue-400 bg-blue-50"
+                          : life.has_unread
+                            // 새 일지(안 읽음) → 채도 낮은 초록. 일지 확인하면 흰색으로 돌아감.
+                            ? "border-green-200 bg-green-100 hover:bg-green-200"
+                            : "border-gray-100 hover:bg-blue-50 hover:border-blue-300"
                       }`}
                       style={{ gridColumn: "1 / -1", gridTemplateColumns: "subgrid" }}
                     >
@@ -788,7 +791,6 @@ function ManagerColumn({
                         >
                           {life.name}
                         </span>
-                        {life.has_unread && <span className="w-1.5 h-1.5 bg-yellow-400 rounded-full shrink-0" />}
                       </div>
                       <span className="text-[11px] text-gray-400 whitespace-nowrap truncate">
                         {life.age ? `${life.age}세` : ""}
