@@ -4,6 +4,8 @@ import { useEffect, useState, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import { getUser } from "@/lib/auth";
 import { STAGE_LABELS } from "@/lib/stages";
+import { parseFiles, type ParsedImage, type ParsedSheet } from "@/lib/parseUpload";
+import { renderMarkdown } from "@/lib/miniMarkdown";
 import Dashboard from "./Dashboard";
 
 interface Report {
@@ -59,11 +61,124 @@ export default function AnalysisPage() {
   const [error, setError] = useState("");
   const printRef = useRef<HTMLDivElement>(null);
 
-  // 채팅
-  const [chatMessages, setChatMessages] = useState<{ role: "user" | "ai"; text: string }[]>([]);
+  // 채팅 (계정별 기록 + 백그라운드 답변; 명단분석과 공유)
+  type ChatMsg = { id?: string; role: "user" | "ai"; text: string; files?: string[]; status?: string };
+  const [chatMessages, setChatMessages] = useState<ChatMsg[]>([]);
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
+  const [chatImages, setChatImages] = useState<ParsedImage[]>([]);
+  const [chatSheets, setChatSheets] = useState<ParsedSheet[]>([]);
+  const [chatEngine, setChatEngine] = useState<"claude" | "gemini">("claude");
+  const [parsingFiles, setParsingFiles] = useState(false);
+  const [chatConvId, setChatConvId] = useState<string | null>(null);
+  const [conversations, setConversations] = useState<{ id: string; title: string; updated_at: string }[]>([]);
+  const [showChatHistory, setShowChatHistory] = useState(false);
+  const chatFileRef = useRef<HTMLInputElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const chatShellRef = useRef<HTMLDivElement>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const loginId = () => getUser()?.login_id || "";
+  const [kbFixed, setKbFixed] = useState(false); // 키보드 열림(입력 포커스) → 채팅 셸을 보이는 영역에 고정
+
+  // 키보드가 뜨면 visualViewport 크기에 맞춰 채팅 셸을 화면 보이는 영역에 고정(iOS 대응)
+  useEffect(() => {
+    const el = chatShellRef.current;
+    const vv = typeof window !== "undefined" ? window.visualViewport : null;
+    if (!el) return;
+    if (!kbFixed || !vv) {
+      el.style.position = ""; el.style.height = ""; el.style.transform = "";
+      el.style.left = ""; el.style.right = ""; el.style.top = ""; el.style.zIndex = "";
+      el.style.background = ""; el.style.paddingLeft = ""; el.style.paddingRight = "";
+      return;
+    }
+    const apply = () => {
+      el.style.position = "fixed";
+      el.style.left = "0"; el.style.right = "0"; el.style.top = "0";
+      el.style.zIndex = "50";
+      el.style.background = "#f9fafb";
+      el.style.paddingLeft = "1rem"; el.style.paddingRight = "1rem";
+      el.style.height = vv.height + "px";
+      el.style.transform = `translateY(${vv.offsetTop}px)`;
+      chatEndRef.current?.scrollIntoView({ block: "end" });
+    };
+    apply();
+    vv.addEventListener("resize", apply);
+    vv.addEventListener("scroll", apply);
+    return () => { vv.removeEventListener("resize", apply); vv.removeEventListener("scroll", apply); };
+  }, [kbFixed]);
+
+  // 대화 목록 로드
+  const loadConversations = async () => {
+    const lid = loginId();
+    if (!lid) return;
+    try {
+      const res = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "list", login_id: lid }) });
+      const d = await res.json();
+      setConversations(d.conversations || []);
+    } catch { /* noop */ }
+  };
+
+  // 특정 대화 열기 (기록 불러오기)
+  const openConversation = async (convId: string) => {
+    setShowChatHistory(false);
+    setChatConvId(convId);
+    try {
+      const res = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "history", conversation_id: convId }) });
+      const d = await res.json();
+      const msgs: ChatMsg[] = (d.messages || []).map((m: any) => ({
+        id: m.id, role: m.role === "user" ? "user" : "ai",
+        text: m.status === "pending" ? "" : m.content, files: m.files || undefined, status: m.status,
+      }));
+      setChatMessages(msgs);
+      const pending = (d.messages || []).find((m: any) => m.status === "pending");
+      if (pending) pollAnswer(pending.id);
+      setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: "auto" }), 50);
+    } catch { /* noop */ }
+  };
+
+  const newChat = () => {
+    if (pollRef.current) clearInterval(pollRef.current);
+    setChatConvId(null);
+    setChatMessages([]);
+    setShowChatHistory(false);
+  };
+
+  // pending 답변 폴링 → 완료되면 해당 메시지 갱신
+  const pollAnswer = (assistantId: string) => {
+    if (pollRef.current) clearInterval(pollRef.current);
+    setChatLoading(true);
+    let tries = 0;
+    pollRef.current = setInterval(async () => {
+      tries++;
+      try {
+        const res = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "poll", ids: [assistantId] }) });
+        const d = await res.json();
+        const m = (d.messages || [])[0];
+        if (m && m.status !== "pending") {
+          setChatMessages((prev) => prev.map((x) => x.id === assistantId ? { ...x, text: m.content, status: m.status } : x));
+          setChatLoading(false);
+          if (pollRef.current) clearInterval(pollRef.current);
+        }
+      } catch { /* keep polling */ }
+      if (tries > 160) { setChatLoading(false); if (pollRef.current) clearInterval(pollRef.current); } // ~4분 안전장치
+    }, 1500);
+  };
+
+  const onChatFiles = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    setParsingFiles(true);
+    try {
+      const { images, sheets, skipped } = await parseFiles(files);
+      setChatImages((p) => [...p, ...images].slice(0, 6));
+      setChatSheets((p) => [...p, ...sheets].slice(0, 6));
+      if (skipped.length) alert(`지원하지 않는 파일은 제외됐어요: ${skipped.join(", ")}\n(이미지·엑셀·CSV만 가능)`);
+    } catch {
+      alert("파일을 읽지 못했습니다.");
+    } finally {
+      setParsingFiles(false);
+      if (chatFileRef.current) chatFileRef.current.value = "";
+    }
+  };
 
   useEffect(() => {
     fetchReports();
@@ -72,8 +187,17 @@ export default function AnalysisPage() {
   }, []);
 
   const fetchAllLives = async () => {
-    const { data } = await supabase.from("lives").select("id, name, stage").eq("is_failed", false).order("name");
-    if (data) setAllLives(data);
+    // 강의 탭 목록은 "실제로 강의를 들은" 생명만 — 강의 일지 또는 강의 진도표 체크가 있는 생명.
+    // (1차 만남 등 강의를 안 들은 생명은 제외)
+    const [jRes, cRes, lRes] = await Promise.all([
+      supabase.from("journals").select("life_id").eq("purpose", "lecture").is("deleted_at", null),
+      supabase.from("lesson_checks").select("life_id"),
+      supabase.from("lives").select("id, name, stage").eq("is_failed", false).order("name"),
+    ]);
+    const tookLecture = new Set<string>();
+    (jRes.data || []).forEach((j: any) => { if (j.life_id) tookLecture.add(j.life_id); });
+    (cRes.data || []).forEach((c: any) => { if (c.life_id) tookLecture.add(c.life_id); });
+    if (lRes.data) setAllLives(lRes.data.filter((l: any) => tookLecture.has(l.id)));
   };
 
   const fetchLectureReactions = async (lifeId: string) => {
@@ -167,27 +291,45 @@ export default function AnalysisPage() {
     setSubmitting(false);
   };
 
-  // 채팅 전송
+  // 채팅 전송 (백그라운드 답변 → 폴링)
   const handleChat = async () => {
-    if (!chatInput.trim() || chatLoading) return;
     const msg = chatInput.trim();
+    const hasFiles = chatImages.length > 0 || chatSheets.length > 0;
+    if ((!msg && !hasFiles) || chatLoading) return;
+    const lid = loginId();
+    if (!lid) { alert("로그인이 필요합니다."); return; }
+
+    const fileNames = [...chatImages.map((i) => i.name), ...chatSheets.map((s) => s.name)];
+    const media = chatImages.map((i) => ({ mime: i.mime, data: i.data })); // 이미지+PDF
+    const sheets = chatSheets.map((s) => ({ name: s.name, text: s.text, rows: s.rows, headers: s.headers }));
     setChatInput("");
-    setChatMessages((prev) => [...prev, { role: "user", text: msg }]);
+    setChatImages([]);
+    setChatSheets([]);
+    // 낙관적 표시: 사용자 메시지 + 대기 답변
+    setChatMessages((prev) => [...prev, { role: "user", text: msg, files: fileNames.length ? fileNames : undefined }, { role: "ai", text: "", status: "pending" }]);
     setChatLoading(true);
+    setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: "smooth" }), 80);
 
     try {
       const res = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: msg }),
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ login_id: lid, cnu_user_id: getUser()?.id || "", conversation_id: chatConvId, message: msg, engine: chatEngine, media, sheets, fileNames }),
       });
       const data = await res.json();
-      setChatMessages((prev) => [...prev, { role: "ai", text: data.reply || data.error || "답변 실패" }]);
+      if (data.error || !data.assistant_id) {
+        setChatMessages((prev) => prev.map((x, i) => i === prev.length - 1 ? { ...x, text: data.error || "요청 실패", status: "error" } : x));
+        setChatLoading(false);
+        return;
+      }
+      if (!chatConvId) setChatConvId(data.conversation_id);
+      // 대기 메시지에 실제 id 연결 후 폴링
+      setChatMessages((prev) => prev.map((x, i) => i === prev.length - 1 ? { ...x, id: data.assistant_id } : x));
+      pollAnswer(data.assistant_id);
+      loadConversations();
     } catch {
-      setChatMessages((prev) => [...prev, { role: "ai", text: "서버 연결에 실패했습니다." }]);
+      setChatMessages((prev) => prev.map((x, i) => i === prev.length - 1 ? { ...x, text: "서버 연결에 실패했습니다.", status: "error" } : x));
+      setChatLoading(false);
     }
-    setChatLoading(false);
-    setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
   };
 
   const handleDelete = async (reportId: string) => {
@@ -228,12 +370,16 @@ export default function AnalysisPage() {
     setShowDashboard(false);
     setTab(t);
     if (t === "new") setViewingReport(null);
+    if (t === "chat") loadConversations();
   };
 
+  // 폴링 인터벌 정리 (언마운트)
+  useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
+
   return (
-    <div className="space-y-4">
+    <div className="flex flex-col h-full min-h-0 gap-3">
       {/* 탭 바 — 현황 + 4개 분석을 한 줄로 (모바일 세로 공간 절약) */}
-      <div className="flex bg-white rounded-lg border border-gray-200 overflow-hidden text-xs">
+      <div className="flex bg-white rounded-lg border border-gray-200 overflow-hidden text-xs shrink-0">
         <button
           onClick={() => setShowDashboard(true)}
           className={`flex-1 py-2.5 px-1 font-medium text-center transition-colors ${
@@ -275,6 +421,9 @@ export default function AnalysisPage() {
           채팅
         </button>
       </div>
+
+      {/* 콘텐츠 영역 — 채팅일 땐 내부 스크롤만(부모 스크롤 방지), 그 외엔 세로 스크롤 */}
+      <div className={`flex-1 min-h-0 ${!showDashboard && tab === "chat" ? "overflow-hidden" : "overflow-y-auto"}`}>
 
       {showDashboard && <Dashboard />}
 
@@ -506,26 +655,47 @@ export default function AnalysisPage() {
         </div>
       )}
 
-      {/* AI 채팅 — 100dvh 기준으로 헤더/탭바를 뺀 높이. 모바일 주소창·키보드 대응 */}
+      {/* AI 채팅 — 콘텐츠 영역을 꽉 채우는 flex 셸. 높이는 visualViewport로 바인딩(키보드 대응). */}
       {!showDashboard && tab === "chat" && (
-        <div className="flex flex-col min-h-0" style={{ height: "calc(100dvh - 190px)" }}>
+        <div ref={chatShellRef} className="flex flex-col min-h-0 h-full">
+          {/* 상단: 새 대화 / 기록 */}
+          <div className="flex items-center justify-between pb-2 shrink-0">
+            <button onClick={newChat} className="text-xs font-medium text-blue-600 border border-blue-200 rounded-full px-3 py-1 hover:bg-blue-50">
+              + 새 대화
+            </button>
+            <div className="relative">
+              <button onClick={() => { setShowChatHistory((v) => !v); loadConversations(); }} className="text-xs text-gray-500 border border-gray-200 rounded-full px-3 py-1 hover:bg-gray-50">
+                기록 {conversations.length > 0 && `(${conversations.length})`}
+              </button>
+              {showChatHistory && (
+                <div className="absolute right-0 top-full mt-1 w-64 max-h-72 overflow-y-auto bg-white border border-gray-200 rounded-lg shadow-lg z-20">
+                  {conversations.length === 0 && <p className="text-xs text-gray-400 text-center py-4">기록이 없습니다</p>}
+                  {conversations.map((c) => (
+                    <div key={c.id} className={`flex items-center gap-1 px-2 py-1.5 hover:bg-gray-50 ${chatConvId === c.id ? "bg-blue-50" : ""}`}>
+                      <button onClick={() => openConversation(c.id)} className="flex-1 min-w-0 text-left">
+                        <span className="text-sm text-gray-800 block truncate">{c.title || "제목 없음"}</span>
+                        <span className="text-[10px] text-gray-400">{new Date(c.updated_at).toLocaleDateString("ko-KR")}</span>
+                      </button>
+                      <button
+                        onClick={async () => { await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "delete", login_id: loginId(), conversation_id: c.id }) }); if (chatConvId === c.id) newChat(); loadConversations(); }}
+                        className="text-gray-300 hover:text-red-400 text-xs px-1 shrink-0"
+                      >삭제</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
           {/* 메시지 영역 */}
           <div className="flex-1 min-h-0 overflow-y-auto space-y-3 pb-4">
             {chatMessages.length === 0 && (
               <div className="text-center py-12">
-                <p className="text-gray-400 text-sm">데이터에 대해 자유롭게 질문해보세요</p>
+                <p className="text-gray-400 text-sm">데이터·명단에 대해 자유롭게 질문해보세요</p>
+                <p className="text-gray-300 text-xs mt-1">명단 파일(이미지·엑셀·PDF)을 올리고 “조회해줘” 하면 중복 의심자를 뽑아줍니다</p>
                 <div className="mt-4 space-y-2">
-                  {[
-                    "현재 전도 현황을 요약해줘",
-                    "가장 잘 진행되고 있는 생명은?",
-                    "페일 비율이 높은 이유는?",
-                    "1차 만남에서 전초로 넘어가려면?",
-                  ].map((q) => (
-                    <button
-                      key={q}
-                      onClick={() => { setChatInput(q); }}
-                      className="block mx-auto text-xs text-blue-500 border border-blue-200 rounded-full px-4 py-1.5 hover:bg-blue-50"
-                    >
+                  {["현재 전도 현황을 요약해줘", "가장 잘 진행되고 있는 생명은?", "이 명단 중복 참여자 조회해줘"].map((q) => (
+                    <button key={q} onClick={() => { setChatInput(q); }} className="block mx-auto text-xs text-blue-500 border border-blue-200 rounded-full px-4 py-1.5 hover:bg-blue-50">
                       {q}
                     </button>
                   ))}
@@ -534,56 +704,95 @@ export default function AnalysisPage() {
             )}
 
             {chatMessages.map((msg, i) => (
-              <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+              <div key={msg.id || i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
                 <div className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-sm ${
-                  msg.role === "user"
-                    ? "bg-blue-600 text-white rounded-br-md"
-                    : "bg-white border border-gray-200 text-gray-800 rounded-bl-md"
+                  msg.role === "user" ? "bg-blue-600 text-white rounded-br-md" : "bg-white border border-gray-200 text-gray-800 rounded-bl-md"
                 }`}>
-                  <div className="whitespace-pre-wrap">{msg.text}</div>
+                  {msg.files && msg.files.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mb-1.5">
+                      {msg.files.map((f, k) => (
+                        <span key={k} className={`text-[11px] px-2 py-0.5 rounded-full ${msg.role === "user" ? "bg-blue-500/60" : "bg-gray-100 text-gray-600"}`}>📎 {f}</span>
+                      ))}
+                    </div>
+                  )}
+                  {msg.status === "pending" && !msg.text ? (
+                    <div className="flex gap-1 py-0.5">
+                      <span className="w-2 h-2 bg-gray-300 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
+                      <span className="w-2 h-2 bg-gray-300 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
+                      <span className="w-2 h-2 bg-gray-300 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+                    </div>
+                  ) : msg.role === "ai" && msg.status !== "error" ? (
+                    <div className="mdbody" dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.text) }} />
+                  ) : (
+                    <div className={`whitespace-pre-wrap ${msg.status === "error" ? "text-red-500" : ""}`}>{msg.text}</div>
+                  )}
                 </div>
               </div>
             ))}
-
-            {chatLoading && (
-              <div className="flex justify-start">
-                <div className="bg-white border border-gray-200 rounded-2xl rounded-bl-md px-4 py-2.5">
-                  <div className="flex gap-1">
-                    <span className="w-2 h-2 bg-gray-300 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
-                    <span className="w-2 h-2 bg-gray-300 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
-                    <span className="w-2 h-2 bg-gray-300 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
-                  </div>
-                </div>
-              </div>
-            )}
-
             <div ref={chatEndRef} />
           </div>
 
-          {/* 입력 영역 — 하단 고정(바깥이 스크롤돼도 항상 화면 맨 아래) */}
-          <div className="sticky bottom-0 border-t border-gray-200 bg-gray-50 pt-3" style={{ paddingBottom: "max(0.5rem, env(safe-area-inset-bottom))" }}>
-            <form
-              onSubmit={(e) => { e.preventDefault(); handleChat(); }}
-              className="flex gap-2"
-            >
-              <input
-                type="text"
+          {/* 입력 카드 — 셸 하단 고정(shrink-0). 텍스트 + 하단 툴바(첨부·모델·전송)를 한 박스에 */}
+          <div className="shrink-0 bg-gray-50 pt-1" style={{ paddingBottom: "max(0.5rem, env(safe-area-inset-bottom))" }}>
+            <div className="rounded-2xl border border-gray-300 bg-white shadow-sm focus-within:border-blue-400 transition-colors">
+              {/* 첨부 파일 칩 */}
+              {(chatImages.length > 0 || chatSheets.length > 0 || parsingFiles) && (
+                <div className="flex flex-wrap gap-1.5 px-3 pt-2.5">
+                  {chatImages.map((img, i) => (
+                    <span key={"i" + i} className="flex items-center gap-1 text-[11px] bg-gray-50 border border-gray-200 rounded-full pl-1 pr-2 py-0.5">
+                      {img.kind === "pdf" ? <span className="w-5 h-5 flex items-center justify-center">📄</span> : <img src={img.previewUrl} alt="" className="w-5 h-5 rounded object-cover" />}
+                      <span className="max-w-[90px] truncate">{img.name}</span>
+                      <button onClick={() => setChatImages((p) => p.filter((_, k) => k !== i))} className="text-gray-400">×</button>
+                    </span>
+                  ))}
+                  {chatSheets.map((s, i) => (
+                    <span key={"s" + i} className="flex items-center gap-1 text-[11px] bg-gray-50 border border-gray-200 rounded-full px-2 py-0.5">
+                      📊 <span className="max-w-[110px] truncate">{s.name}</span>
+                      <button onClick={() => setChatSheets((p) => p.filter((_, k) => k !== i))} className="text-gray-400">×</button>
+                    </span>
+                  ))}
+                  {parsingFiles && <span className="text-[11px] text-gray-400 py-0.5">파일 읽는 중…</span>}
+                </div>
+              )}
+
+              {/* 텍스트 입력 (여러 줄) */}
+              <textarea
                 value={chatInput}
                 onChange={(e) => setChatInput(e.target.value)}
-                placeholder="질문을 입력하세요..."
-                className="flex-1 rounded-full border border-gray-300 px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none"
+                onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleChat(); } }}
+                onFocus={() => setKbFixed(true)}
+                onBlur={() => setTimeout(() => setKbFixed(false), 80)}
+                placeholder="메시지를 입력하세요..."
+                rows={2}
+                className="w-full resize-none bg-transparent px-4 pt-3 pb-1 text-sm focus:outline-none max-h-40"
               />
-              <button
-                type="submit"
-                disabled={!chatInput.trim() || chatLoading}
-                className="bg-blue-600 text-white rounded-full px-4 py-2.5 text-sm font-medium disabled:opacity-50 hover:bg-blue-700 shrink-0"
-              >
-                전송
-              </button>
-            </form>
+
+              {/* 하단 툴바 */}
+              <div className="flex items-center justify-between px-2 pb-2">
+                <div className="flex items-center gap-1">
+                  <input ref={chatFileRef} type="file" accept="image/*,.xlsx,.xls,.csv,.tsv,.pdf" multiple onChange={(e) => onChatFiles(e.target.files)} className="hidden" />
+                  <button type="button" onClick={() => chatFileRef.current?.click()} title="이미지·엑셀·PDF 첨부 (여러 개)"
+                    className="w-8 h-8 flex items-center justify-center rounded-full text-gray-500 hover:bg-gray-100 text-lg">+</button>
+                </div>
+                <div className="flex items-center gap-2">
+                  <select value={chatEngine} onChange={(e) => setChatEngine(e.target.value as "claude" | "gemini")}
+                    title="답변 모델 (이미지·PDF는 자동 Gemini)"
+                    className="rounded-lg text-xs text-gray-600 bg-transparent px-1 py-1 focus:outline-none cursor-pointer">
+                    <option value="claude">Claude</option>
+                    <option value="gemini">Gemini</option>
+                  </select>
+                  <button type="button" onClick={handleChat}
+                    disabled={(!chatInput.trim() && chatImages.length === 0 && chatSheets.length === 0) || chatLoading}
+                    className="w-8 h-8 flex items-center justify-center rounded-full bg-blue-600 text-white disabled:opacity-40 hover:bg-blue-700">
+                    <span className="text-sm">↑</span>
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 }
