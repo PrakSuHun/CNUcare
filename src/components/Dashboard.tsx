@@ -112,6 +112,7 @@ export default function Dashboard() {
 
     const now = new Date();
     const stuck: StuckLife[] = active
+      .filter((l) => l.stage !== "completed") // 수료는 완료 상태 → 병목에서 제외
       .map((l) => {
         const lastDate = lastJournalMap.get(l.id) || l.updated_at;
         const days = Math.floor((now.getTime() - new Date(lastDate).getTime()) / (1000 * 60 * 60 * 24));
