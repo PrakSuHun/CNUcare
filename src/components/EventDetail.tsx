@@ -2321,19 +2321,28 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
           <div className="bg-white w-full max-w-lg rounded-t-2xl p-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-bold">참석자 추가</h3>
-              <div className="flex gap-2 items-center">
-                <label className={`text-xs text-green-600 hover:underline cursor-pointer ${rosterUploading ? "opacity-50 pointer-events-none" : ""}`}>
-                  {rosterUploading ? "처리 중…" : "📎 파일로 추가(이미지·엑셀)"}
-                  <input
-                    type="file"
-                    accept="image/*,.xlsx,.xls,.csv,.tsv"
-                    multiple
-                    className="hidden"
-                    onChange={(e) => { handleRosterUpload(e.target.files); e.target.value = ""; }}
-                  />
-                </label>
-                <button onClick={() => setShowAddModal(false)} className="text-xs text-gray-400">닫기</button>
+              <button onClick={() => setShowAddModal(false)} className="text-xs text-gray-400">닫기</button>
+            </div>
+
+            {/* 파일로 명단 추가 (이미지·엑셀) — 새 행사 등록과 동일한 큰 버튼 */}
+            <label className={`block mb-3 cursor-pointer ${rosterUploading ? "opacity-60 pointer-events-none" : ""}`}>
+              <input
+                type="file"
+                accept="image/*,.xlsx,.xls,.csv,.tsv"
+                multiple
+                className="hidden"
+                onChange={(e) => { handleRosterUpload(e.target.files); e.target.value = ""; }}
+              />
+              <div className="w-full border border-dashed border-gray-300 rounded-lg py-2.5 text-sm text-center text-gray-500 hover:border-blue-400 hover:text-blue-500 transition-colors">
+                {rosterUploading ? "명단 처리 중…" : "📎 이미지·엑셀로 명단 불러오기"}
               </div>
+              <p className="text-[11px] text-gray-400 mt-1">캡처 이미지나 엑셀/CSV를 올리면 이름·연락처를 자동 추출해 참석자로 넣어요.</p>
+            </label>
+
+            <div className="flex items-center gap-2 mb-3">
+              <div className="flex-1 h-px bg-gray-100" />
+              <span className="text-[11px] text-gray-400">또는 직접 입력</span>
+              <div className="flex-1 h-px bg-gray-100" />
             </div>
             {/* 섭리/게스트 분기 */}
             <div className="flex bg-gray-100 rounded-lg p-0.5 mb-3">
