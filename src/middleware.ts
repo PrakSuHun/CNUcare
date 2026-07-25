@@ -1,10 +1,16 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-// "폼 전용" 배포(genforms 등)에서만 켜짐: NEXT_PUBLIC_FORMS_ONLY=1
-// 공개 폼 경로만 통과시키고, 홈·내부 페이지·그 외 API는 전부 중립 폼 홈(/forms)으로 보낸다.
-// (CNUcare 본 배포는 이 값이 없어 middleware가 아무 것도 하지 않음)
-const FORMS_ONLY = process.env.NEXT_PUBLIC_FORMS_ONLY === "1";
+// "폼 전용" 배포(genforms 등)에서만 켜짐.
+// 판별: ① 호스트에 "genforms" 포함(런타임, env 없이도 즉시 동작) 또는
+//       ② NEXT_PUBLIC_FORMS_ONLY=1 (커스텀 도메인용 override)
+// 켜지면 공개 폼 경로만 통과, 홈·내부 페이지·그 외 API는 중립 폼 홈(/forms)/404로.
+// (CNUcare 본 배포는 호스트가 다르고 env도 없어 아무 것도 하지 않음)
+function isFormsOnly(req: NextRequest): boolean {
+  if (process.env.NEXT_PUBLIC_FORMS_ONLY === "1") return true;
+  const host = (req.headers.get("host") || "").toLowerCase();
+  return host.includes("genforms");
+}
 
 // 통과 허용: 공개 폼 페이지 + 폼이 쓰는 API + 중립 홈 자신
 const ALLOW = [
@@ -18,7 +24,7 @@ const ALLOW = [
 ];
 
 export function middleware(req: NextRequest) {
-  if (!FORMS_ONLY) return NextResponse.next();
+  if (!isFormsOnly(req)) return NextResponse.next();
 
   const { pathname } = req.nextUrl;
   if (ALLOW.some((re) => re.test(pathname))) return NextResponse.next();
