@@ -72,7 +72,7 @@ export default function Dashboard() {
 
   const fetchAll = async () => {
     // 모든 생명
-    const { data: lives } = await supabase.from("lives").select("id, name, stage, is_failed, last_met_at, updated_at");
+    const { data: lives } = await supabase.from("lives").select("id, name, stage, is_failed, last_met_at, updated_at, primary_user_id");
 
     if (!lives) { setLoading(false); return; }
 
@@ -113,6 +113,7 @@ export default function Dashboard() {
     const now = new Date();
     const stuck: StuckLife[] = active
       .filter((l) => l.stage !== "completed") // 수료는 완료 상태 → 병목에서 제외
+      .filter((l) => l.primary_user_id)       // 담당자 없는(생명 리스트에 안 뜨는) 생명은 병목에서 제외
       .map((l) => {
         const lastDate = lastJournalMap.get(l.id) || l.updated_at;
         const days = Math.floor((now.getTime() - new Date(lastDate).getTime()) / (1000 * 60 * 60 * 24));
