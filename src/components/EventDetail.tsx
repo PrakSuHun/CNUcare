@@ -457,13 +457,26 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
       });
       const { attendees: extracted } = await res.json();
 
-      // 이미 명단에 있는 이름은 제외
-      const existing = new Set(attendees.map((a) => a.name.trim()));
-      const rows = (extracted || [])
-        .filter((a: any) => a?.name && !existing.has(String(a.name).trim()))
-        .map((a: any) => ({
+      // 이미 명단에 있는 사람은 제외 — 이름(공백무시) 또는 전화번호가 겹치면 중복으로 본다.
+      const nk = (s: unknown) => String(s ?? "").replace(/\s+/g, "").toLowerCase();
+      const pk = (s: unknown) => String(s ?? "").replace(/\D/g, "");
+      const existNames = new Set(attendees.map((a) => nk(a.name)).filter(Boolean));
+      const existPhones = new Set(attendees.map((a) => pk(a.phone)).filter((p) => p.length >= 9));
+
+      const seenNames = new Set<string>(); // 파일 안에서의 중복도 제거
+      let dupCount = 0;
+      const rows: Record<string, unknown>[] = [];
+      for (const a of (extracted || []) as any[]) {
+        if (!a?.name) continue;
+        const name = String(a.name).trim();
+        const nkey = nk(name);
+        const pkey = pk(a.phone);
+        const isDup = existNames.has(nkey) || (pkey.length >= 9 && existPhones.has(pkey)) || seenNames.has(nkey);
+        if (isDup) { dupCount++; continue; }
+        seenNames.add(nkey);
+        rows.push({
           event_id: eventId,
-          name: String(a.name).trim(),
+          name,
           gender: a.gender || null,
           department: a.department || null,
           year: Number.isFinite(a.year) ? a.year : null,
@@ -474,15 +487,20 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
           custom_data: a.custom && Object.keys(a.custom).length ? a.custom : null,
           is_member: addType === "member",
           status: "pending",
-        }));
+        });
+      }
 
-      if (rows.length === 0) { alert("파일에서 새로 추가할 참석자를 찾지 못했어요."); return; }
+      if (rows.length === 0) {
+        alert(dupCount > 0 ? `모두 이미 명단에 있어요 (중복 ${dupCount}명 제외).` : "파일에서 참석자를 찾지 못했어요.");
+        return;
+      }
 
       const { data: inserted, error } = await supabase.from("event_attendees").insert(rows).select("*");
       if (error) { alert("추가에 실패했어요: " + error.message); return; }
       if (inserted) setAttendees((prev) => [...prev, ...(inserted as Attendee[])]);
       setShowAddModal(false);
-      alert(`${inserted?.length ?? rows.length}명 추가했어요.`);
+      const added = inserted?.length ?? rows.length;
+      alert(`${added}명 추가했어요${dupCount > 0 ? ` · 이미 있는 ${dupCount}명은 제외` : ""}.`);
     } catch {
       alert("파일 처리에 실패했어요.");
     } finally {
