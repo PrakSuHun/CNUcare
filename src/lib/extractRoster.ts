@@ -1,6 +1,7 @@
 // 명단 파일에서 참석자 추출 (서버 공용). 엑셀 rows → 컬럼 매칭, 이미지/PDF → Gemini 비전.
 // 기본 항목(이름·성별·학과·학년·연락처·학교·친구·메모)에 매칭하고, 없는 컬럼은 custom(항목 생성)으로 보존.
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import { tryClaude } from "./claudeBridge";
 
 export type Attendee = {
   name: string;
@@ -96,10 +97,25 @@ async function extractOneMedia(m: MediaPart, keys: string[]): Promise<Attendee[]
   return [];
 }
 
-// 이미지·PDF → Gemini 비전으로 명단 추출. 한 장씩 개별 호출(정확도↑, 용량·타임아웃↓) 후 합침.
+// 이미지·PDF → 명단 추출.
+// CLAUDE_VISION=1 이면 Claude 비전 우선(로컬 터널이 이미지 지원 시), 실패/빈결과면 Gemini 폴백.
+// Gemini 는 한 장씩 개별 호출(정확도↑, 용량·타임아웃↓) 후 합침.
 export async function extractFromMedia(media: MediaPart[]): Promise<Attendee[]> {
+  if (media.length === 0) return [];
+
+  // Claude 비전 우선 (플래그 켜진 경우에만 — 로컬 터널이 이미지를 지원해야 함)
+  if (process.env.CLAUDE_VISION === "1") {
+    try {
+      const ans = await tryClaude(MEDIA_PROMPT, media.map((m) => ({ mime: m.mime, data: m.data })));
+      if (ans) {
+        const parsed = parseAttendeeJson(ans);
+        if (parsed.length) return parsed; // 유효 결과면 사용, 아니면 Gemini 폴백
+      }
+    } catch { /* Gemini 폴백 */ }
+  }
+
   const keys = (process.env.GEMINI_API_KEY || "").split(",").map((k) => k.trim()).filter(Boolean);
-  if (keys.length === 0 || media.length === 0) return [];
+  if (keys.length === 0) return [];
   const all: Attendee[] = [];
   for (const m of media) {
     all.push(...(await extractOneMedia(m, keys)));
