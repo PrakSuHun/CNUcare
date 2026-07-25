@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { createClient } from "@supabase/supabase-js";
+import { cleanupOldRecordings } from "@/lib/cleanupRecordings";
 
 function getSupabaseAdmin() {
   return createClient(
@@ -98,6 +99,9 @@ export async function GET(req: NextRequest) {
   if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+
+  // 음성 오디오 7일 보관 정리 (매 실행 시. 실패해도 본 작업엔 영향 없음)
+  try { await cleanupOldRecordings(sb, 7); } catch {}
 
   const freeKeys = getFreeKeys();
   const paidKey = getPaidKey();

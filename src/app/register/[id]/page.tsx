@@ -75,6 +75,7 @@ export default function RegisterPage() {
   const handleSubmit = async () => {
     const nameVal = (answers["name"] || "").trim();
     if (!nameVal) return;
+    const phoneVal = (answers["phone"] || "").trim();
 
     // 필수 체크
     for (const f of fields) {
@@ -116,7 +117,7 @@ export default function RegisterPage() {
       }
       if (Object.keys(updateCustom).length > 0) updateRow.custom_data = updateCustom;
       await supabase.from("event_attendees").update(updateRow).eq("id", dup.id);
-      fetch("/api/notify-registration", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ event_id: eventId, name: nameVal }) }).catch(() => {});
+      fetch("/api/notify-registration", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ event_id: eventId, name: nameVal, phone: phoneVal }) }).catch(() => {});
       setSubmitting(false);
       setDone(true);
       return;
@@ -153,7 +154,7 @@ export default function RegisterPage() {
     if (Object.keys(customData).length > 0) row.custom_data = customData;
 
     await supabase.from("event_attendees").insert(row);
-    fetch("/api/notify-registration", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ event_id: eventId, name: nameVal }) }).catch(() => {});
+    fetch("/api/notify-registration", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ event_id: eventId, name: nameVal, phone: phoneVal }) }).catch(() => {});
     setSubmitting(false);
     setDone(true);
   };

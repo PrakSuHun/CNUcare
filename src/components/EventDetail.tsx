@@ -194,6 +194,16 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
   const [settingsConfig, setSettingsConfig] = useState<Record<string, any>>({});
   const [notifyOptOut, setNotifyOptOut] = useState(false); // 이 행사 신청 알림 안 받기
 
+  // 중복 의심자 배너 (다른 행사·프로젠·생명과 이름이 겹치는 참여자). 확인 누르면 사라짐(설정에 저장).
+  type DupSuspect = {
+    attendeeId: string; name: string; summary: string; isLife: boolean; lifeManager: string | null;
+    cnuEvents: { eventName: string; how: string; status: string | null }[];
+    progenEvents: { event: string; kind: string; date: string | null }[];
+  };
+  const [dupSuspects, setDupSuspects] = useState<DupSuspect[]>([]);
+  const [dupConfirming, setDupConfirming] = useState<string | null>(null);
+  const [dupDetail, setDupDetail] = useState<DupSuspect | null>(null); // 상세 팝업 대상
+
   // 학교별 명단 공유 + 전체 명단 공유
   const [schoolShares, setSchoolShares] = useState<{ id: string; school: string }[]>([]);
   const [allShare, setAllShare] = useState<{ id: string } | null>(null);
@@ -243,6 +253,16 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
     const { data: settingsForm } = await supabase.from("event_forms").select("config").eq("event_id", eventId).eq("type", "settings").limit(1);
     const loadedConfig = (settingsForm?.[0]?.config as Record<string, any>) || {};
     setSettingsConfig(loadedConfig);
+
+    // 중복 의심자 조회 (확인 처리된 사람은 제외)
+    const confirmed = (loadedConfig.dup_confirmed as string[] | undefined) || [];
+    fetch(`/api/event-duplicates?event_id=${eventId}`)
+      .then((r) => r.json())
+      .then((d) => {
+        const list = (d.suspects || []) as DupSuspect[];
+        setDupSuspects(list.filter((s) => !confirmed.includes(s.attendeeId)));
+      })
+      .catch(() => setDupSuspects([]));
     const loadedSessions = (loadedConfig.sessions as { number: number; date: string }[] | undefined) || [];
     if (loadedSessions.length > 0) setSessions(loadedSessions);
     const optOut = (loadedConfig.notify_optout as string[] | undefined) || [];
@@ -297,6 +317,28 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
       if (responses) setFeedbackResponses(responses);
     }
     setLoading(false);
+  };
+
+  // 중복 의심자 "확인" — 설정에 저장하고 배너에서 제거 (다시 안 뜸, 모든 담당자 공통)
+  const confirmDup = async (attendeeId: string) => {
+    const meId = getUser()?.id;
+    if (!meId || dupConfirming) return;
+    setDupConfirming(attendeeId);
+    try {
+      const cur = (settingsConfig.dup_confirmed as string[] | undefined) || [];
+      const nextArr = Array.from(new Set([...cur, attendeeId]));
+      const nextConfig = { ...settingsConfig, dup_confirmed: nextArr };
+      const { data: existing } = await supabase.from("event_forms").select("id").eq("event_id", eventId).eq("type", "settings").limit(1);
+      if (existing && existing.length > 0) {
+        await supabase.from("event_forms").update({ config: nextConfig }).eq("id", existing[0].id);
+      } else {
+        await supabase.from("event_forms").insert({ event_id: eventId, type: "settings", config: nextConfig, created_by: meId });
+      }
+      setSettingsConfig(nextConfig);
+      setDupSuspects((prev) => prev.filter((s) => s.attendeeId !== attendeeId));
+    } finally {
+      setDupConfirming(null);
+    }
   };
 
   // --- Attendance helpers ---
@@ -725,6 +767,36 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
           </span>
         </div>
       </header>
+
+      {/* 중복 의심자 배너 — 다른 행사·프로젠·생명과 이름이 겹치는 참여자. 확인 눌러야 사라짐. */}
+      {dupSuspects.length > 0 && (
+        <div className="bg-amber-50 border-b border-amber-200 px-3 py-2 shrink-0 max-h-44 overflow-y-auto">
+          <p className="text-xs font-bold text-amber-800 mb-1.5 flex items-center gap-1">
+            ⚠️ 중복 신청 의심 {dupSuspects.length}명 <span className="font-normal text-amber-600">(동명이인일 수 있으니 확인 후 처리)</span>
+          </p>
+          <div className="space-y-1.5">
+            {dupSuspects.map((s) => (
+              <div key={s.attendeeId} className="flex items-center gap-2 bg-white border border-amber-200 rounded-lg px-2.5 py-1.5">
+                <button onClick={() => setDupDetail(s)} className="min-w-0 flex-1 text-left">
+                  <span className="text-sm font-semibold text-gray-900 underline decoration-amber-300 underline-offset-2">{s.name}</span>
+                  {s.isLife && <span className="ml-1 text-[10px] font-bold text-rose-600">생명</span>}
+                  <span className="block text-xs text-gray-500 truncate">{s.summary}</span>
+                </button>
+                <button onClick={() => setDupDetail(s)} className="shrink-0 text-xs font-medium px-2.5 py-1 rounded-full border border-amber-300 text-amber-700">
+                  상세
+                </button>
+                <button
+                  onClick={() => confirmDup(s.attendeeId)}
+                  disabled={dupConfirming === s.attendeeId}
+                  className="shrink-0 text-xs font-medium px-3 py-1 rounded-full bg-amber-600 text-white disabled:opacity-50"
+                >
+                  {dupConfirming === s.attendeeId ? "…" : "확인"}
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="flex border-b border-gray-200 bg-white shrink-0">
@@ -2538,6 +2610,73 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                 </button>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* 중복 의심자 상세 팝업 — 어떤 행사들이 겹치는지 보고 판단 */}
+      {dupDetail && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-0 sm:p-4" onClick={() => setDupDetail(null)}>
+          <div className="bg-white w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="sticky top-0 bg-white border-b border-gray-100 px-4 py-3 flex items-center justify-between">
+              <div>
+                <span className="text-base font-bold text-gray-900">{dupDetail.name}</span>
+                {dupDetail.isLife && <span className="ml-1.5 text-[11px] font-bold text-rose-600">생명</span>}
+                <p className="text-xs text-gray-400">중복 참여 의심 · 동명이인일 수 있음</p>
+              </div>
+              <button onClick={() => setDupDetail(null)} className="text-gray-400 text-xl leading-none px-1">&times;</button>
+            </div>
+
+            <div className="p-4 space-y-4">
+              {dupDetail.isLife && (
+                <div className="rounded-lg bg-rose-50 border border-rose-100 px-3 py-2">
+                  <p className="text-sm font-semibold text-rose-700">이미 우리 생명</p>
+                  <p className="text-xs text-rose-500 mt-0.5">말씀을 전하거나 듣고 있는 사람{dupDetail.lifeManager ? ` · 담당 전도자 ${dupDetail.lifeManager}` : ""}</p>
+                </div>
+              )}
+
+              <div>
+                <p className="text-xs font-bold text-gray-500 mb-1.5">CNU 행사 참여 {dupDetail.cnuEvents.length}건</p>
+                {dupDetail.cnuEvents.length === 0 ? (
+                  <p className="text-xs text-gray-400">없음</p>
+                ) : (
+                  <div className="space-y-1.5">
+                    {dupDetail.cnuEvents.map((e, i) => (
+                      <div key={i} className="flex items-center justify-between gap-2 rounded-lg border border-gray-150 bg-gray-50 px-3 py-2">
+                        <span className="text-sm font-medium text-gray-800 min-w-0 truncate">{e.eventName}</span>
+                        <span className="shrink-0 text-[11px] text-gray-500">{e.how}{e.status ? ` · ${e.status}` : ""}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <p className="text-xs font-bold text-gray-500 mb-1.5">프로젠 참여 {dupDetail.progenEvents.length}건</p>
+                {dupDetail.progenEvents.length === 0 ? (
+                  <p className="text-xs text-gray-400">없음</p>
+                ) : (
+                  <div className="space-y-1.5">
+                    {dupDetail.progenEvents.map((e, i) => (
+                      <div key={i} className="flex items-center justify-between gap-2 rounded-lg border border-gray-150 bg-gray-50 px-3 py-2">
+                        <span className="text-sm font-medium text-gray-800 min-w-0 truncate">{e.event}</span>
+                        <span className="shrink-0 text-[11px] text-gray-500">{e.kind}{e.date ? ` · ${e.date}` : ""}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="sticky bottom-0 bg-white border-t border-gray-100 p-3 flex gap-2">
+              <button onClick={() => setDupDetail(null)} className="flex-1 py-2.5 rounded-lg border border-gray-200 text-sm font-medium text-gray-600">닫기</button>
+              <button
+                onClick={async () => { const id = dupDetail.attendeeId; setDupDetail(null); await confirmDup(id); }}
+                className="flex-1 py-2.5 rounded-lg bg-amber-600 text-white text-sm font-semibold"
+              >
+                확인 완료 (배너에서 제거)
+              </button>
+            </div>
           </div>
         </div>
       )}

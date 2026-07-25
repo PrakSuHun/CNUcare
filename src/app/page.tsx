@@ -19,6 +19,12 @@ function routeForUser(u: { role: string; is_college_leader?: boolean }): string 
 
 export default function LoginPage() {
   const router = useRouter();
+  // 알림 등에서 넘어온 복귀 경로 (?next=/event/xxx) — 로그인 후 그곳으로.
+  const nextPath = () => {
+    if (typeof window === "undefined") return null;
+    const n = new URLSearchParams(window.location.search).get("next");
+    return n && n.startsWith("/") ? n : null;
+  };
   const [loginId, setLoginId] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -38,7 +44,7 @@ export default function LoginPage() {
         .single();
       if (!active) return;
       if (data) saveUser(data); // 세션 갱신
-      router.replace(routeForUser(data ?? cached));
+      router.replace(nextPath() ?? routeForUser(data ?? cached));
     })();
     return () => { active = false; };
   }, [router]);
@@ -64,8 +70,8 @@ export default function LoginPage() {
     // 세션 저장 (localStorage + 쿠키)
     saveUser(data);
 
-    // 역할별 리다이렉트
-    router.push(routeForUser(data));
+    // 역할별 리다이렉트 (알림 복귀 경로가 있으면 우선)
+    router.push(nextPath() ?? routeForUser(data));
   };
 
   return (

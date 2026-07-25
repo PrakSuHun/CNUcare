@@ -5,7 +5,8 @@ self.addEventListener("push", (event) => {
   let data = { title: "CNU Care", body: "새 알림", url: "/" };
   try { if (event.data) data = { ...data, ...event.data.json() }; } catch { if (event.data) data.body = event.data.text(); }
   event.waitUntil(self.registration.showNotification(data.title, {
-    body: data.body, icon: "/icon-192.png", badge: "/icon-192.png", data: { url: data.url || "/" }, tag: data.tag,
+    body: data.body, icon: "/icon-192.png", badge: "/icon-192.png", data: { url: data.url || "/" },
+    tag: data.tag, renotify: Boolean(data.tag), // 같은 tag여도 매번 다시 알림
   }));
 });
 self.addEventListener("notificationclick", (event) => {

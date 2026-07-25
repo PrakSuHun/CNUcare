@@ -4,6 +4,7 @@ import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { getUser } from "@/lib/auth";
+import { parseFiles, type ParsedImage, type ParsedSheet } from "@/lib/parseUpload";
 
 interface Event {
   id: string;
@@ -42,6 +43,28 @@ export default function EventList({ basePath }: EventListProps) {
   const [creating, setCreating] = useState(false);
   const [menuEventId, setMenuEventId] = useState<string | null>(null);
   const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // 새 행사 만들 때 첨부하는 명단 파일 (이미지·엑셀) — 생성 후 참석자로 자동 추가
+  const [rosterImages, setRosterImages] = useState<ParsedImage[]>([]);
+  const [rosterSheets, setRosterSheets] = useState<ParsedSheet[]>([]);
+  const [rosterParsing, setRosterParsing] = useState(false);
+  const rosterFileRef = useRef<HTMLInputElement>(null);
+
+  const onRosterFiles = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    setRosterParsing(true);
+    try {
+      const { images, sheets, skipped } = await parseFiles(files);
+      setRosterImages((p) => [...p, ...images].slice(0, 6));
+      setRosterSheets((p) => [...p, ...sheets].slice(0, 6));
+      if (skipped.length) alert(`지원하지 않는 파일 제외: ${skipped.join(", ")} (이미지·엑셀·CSV만)`);
+    } catch {
+      alert("파일을 읽지 못했습니다.");
+    } finally {
+      setRosterParsing(false);
+      if (rosterFileRef.current) rosterFileRef.current.value = "";
+    }
+  };
 
   // Join form state
   const [joinName, setJoinName] = useState("");
@@ -171,14 +194,58 @@ export default function EventList({ basePath }: EventListProps) {
 
     await supabase.from("event_members").insert(members);
 
+    // 첨부한 명단 파일(이미지·엑셀)이 있으면 → 참석자로 추출·삽입
+    let importedCount = 0;
+    if (rosterImages.length > 0 || rosterSheets.length > 0) {
+      try {
+        const res = await fetch("/api/extract-roster", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            images: rosterImages.map((i) => ({ mime: i.mime, data: i.data })),
+            sheets: rosterSheets.map((s) => ({ name: s.name, rows: s.rows, headers: s.headers })),
+          }),
+        });
+        const { attendees } = await res.json();
+        const rows = (attendees || []).filter((a: any) => a?.name).map((a: any) => ({
+          event_id: newEvent.id,
+          name: String(a.name).trim(),
+          gender: a.gender || null,
+          department: a.department || null,
+          year: Number.isFinite(a.year) ? a.year : null,
+          phone: a.phone || null,
+          school: a.school || null,
+          friend_group: a.friendGroup || null,
+          memo: a.memo || null,
+          // 기본 항목에 없던 열은 커스텀 항목으로 보존
+          custom_data: a.custom && Object.keys(a.custom).length ? a.custom : null,
+          is_member: false,
+          status: "pending",
+        }));
+        if (rows.length) {
+          await supabase.from("event_attendees").insert(rows);
+          importedCount = rows.length;
+        }
+      } catch {
+        // 명단 추출 실패해도 행사는 생성됨 — 알림만
+        alert("명단 파일 처리에 실패했어요. 행사는 만들어졌으니 상세에서 직접 추가해주세요.");
+      }
+    }
+
     // Reset and refresh
     setCreateName("");
     setCreateType("onetime");
     setClubUnit("weekly");
     setShareTargets([]);
+    setRosterImages([]);
+    setRosterSheets([]);
     setMode("list");
     setCreating(false);
     fetchEvents();
+    if (importedCount > 0) {
+      // 바로 행사로 이동해 확인
+      router.push(`${basePath}/event/${newEvent.id}`);
+    }
   };
 
   const handleJoin = async () => {
@@ -366,6 +433,45 @@ export default function EventList({ basePath }: EventListProps) {
             </div>
           </div>
 
+          {/* 명단 파일 업로드 (선택) — 다른 곳에서 받은 명단을 이미지·엑셀로 바로 추가 */}
+          <div>
+            <label className="text-xs text-gray-500 block mb-1">명단 파일 (선택)</label>
+            <input
+              ref={rosterFileRef}
+              type="file"
+              accept="image/*,.xlsx,.xls,.csv,.tsv"
+              multiple
+              onChange={(e) => onRosterFiles(e.target.files)}
+              className="hidden"
+            />
+            <button
+              type="button"
+              onClick={() => rosterFileRef.current?.click()}
+              className="w-full border border-dashed border-gray-300 rounded-lg py-2.5 text-sm text-gray-500 hover:border-blue-400 hover:text-blue-500 transition-colors"
+            >
+              📎 이미지·엑셀로 명단 불러오기 {rosterParsing && "(읽는 중…)"}
+            </button>
+            <p className="text-[11px] text-gray-400 mt-1">캡처 이미지나 엑셀/CSV를 올리면 이름·연락처를 자동 추출해 참석자로 넣어요.</p>
+            {(rosterImages.length > 0 || rosterSheets.length > 0) && (
+              <div className="flex flex-wrap gap-1.5 mt-2">
+                {rosterImages.map((img, i) => (
+                  <span key={"ri" + i} className="flex items-center gap-1 text-[11px] bg-gray-50 border border-gray-200 rounded-full pl-1 pr-2 py-0.5">
+                    <img src={img.previewUrl} alt="" className="w-5 h-5 rounded object-cover" />
+                    <span className="max-w-[90px] truncate">{img.name}</span>
+                    <button type="button" onClick={() => setRosterImages((p) => p.filter((_, k) => k !== i))} className="text-gray-400">×</button>
+                  </span>
+                ))}
+                {rosterSheets.map((s, i) => (
+                  <span key={"rs" + i} className="flex items-center gap-1 text-[11px] bg-gray-50 border border-gray-200 rounded-full px-2 py-0.5">
+                    📊 <span className="max-w-[110px] truncate">{s.name}</span>
+                    <span className="text-gray-400">({s.rows.length}명)</span>
+                    <button type="button" onClick={() => setRosterSheets((p) => p.filter((_, k) => k !== i))} className="text-gray-400">×</button>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+
           <div className="flex gap-2 pt-1">
             <button
               onClick={() => {
@@ -374,6 +480,8 @@ export default function EventList({ basePath }: EventListProps) {
                 setShareTargets([]);
                 setUserSearch("");
                 setUserResults([]);
+                setRosterImages([]);
+                setRosterSheets([]);
               }}
               className="flex-1 border border-gray-200 text-gray-500 rounded-lg py-2.5 text-sm hover:bg-gray-50 transition-colors"
             >
@@ -381,10 +489,10 @@ export default function EventList({ basePath }: EventListProps) {
             </button>
             <button
               onClick={handleCreate}
-              disabled={!createName.trim() || creating}
+              disabled={!createName.trim() || creating || rosterParsing}
               className="flex-1 bg-blue-600 text-white rounded-lg py-2.5 text-sm font-medium hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {creating ? "생성 중..." : "만들기"}
+              {creating ? (rosterImages.length || rosterSheets.length ? "생성·명단 처리 중..." : "생성 중...") : "만들기"}
             </button>
           </div>
         </div>
