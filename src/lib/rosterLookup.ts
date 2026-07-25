@@ -31,10 +31,12 @@ function db() {
 
 // ── CNU Care 인덱스 ─────────────────────────────────────
 interface AttendeeRec {
-  eventId: string; eventName: string; nameKey: string; phoneKey: string;
+  eventId: string; eventName: string; name: string; nameKey: string; phoneKey: string;
   isMember: boolean; team: string | null; status: string | null;
   managerId: string | null; lifeId: string | null;
 }
+// 팀 문자열 정규화 (공백 제거)
+const normTeam = (t: string | null | undefined) => String(t ?? "").replace(/\s+/g, "");
 interface LifeRec { name: string; managerId: string | null; }
 interface CnuIndex {
   attendees: AttendeeRec[];
@@ -92,6 +94,7 @@ async function loadIndex(): Promise<CnuIndex> {
   const attendees: AttendeeRec[] = ((ea.data ?? []) as Record<string, unknown>[]).map((r) => ({
     eventId: String(r.event_id ?? ""),
     eventName: String((r.events as { name?: string } | null)?.name ?? "행사"),
+    name: String(r.name ?? ""),
     nameKey: normalizeName(r.name),
     phoneKey: normalizePhone(r.phone),
     isMember: Boolean(r.is_member),
@@ -129,7 +132,7 @@ interface ProgenRow {
 interface ProgenIndex {
   byPhone: Map<string, ProgenRow[]>;
   byName: Map<string, ProgenRow[]>;
-  podoByEvent: Map<string, string[]>;
+  podoByEventTeam: Map<string, string[]>; // key: `${event}||${normTeam(team)}` — 팀 단위 포도
 }
 let progenIdx: ProgenIndex | null = null;
 let progenTried = false;
@@ -144,19 +147,20 @@ async function loadProgen(): Promise<ProgenIndex | null> {
     if (error || data?.error || !Array.isArray(data?.rows)) return null;
     const byPhone = new Map<string, ProgenRow[]>();
     const byName = new Map<string, ProgenRow[]>();
-    const podoByEvent = new Map<string, string[]>();
+    const podoByEventTeam = new Map<string, string[]>();
     for (const r of data.rows as ProgenRow[]) {
       const pk = normalizePhone(r.phone);
       const nk = normalizeName(r.name);
       if (isUsablePhone(pk)) (byPhone.get(pk) ?? byPhone.set(pk, []).get(pk)!).push(r);
       if (nk) (byName.get(nk) ?? byName.set(nk, []).get(nk)!).push(r);
       if (r.kind === "포도" && r.event) {
-        const l = podoByEvent.get(r.event) ?? [];
+        const key = `${r.event}||${normTeam(r.team)}`; // 같은 팀 포도만 묶는다
+        const l = podoByEventTeam.get(key) ?? [];
         if (r.name && !l.includes(r.name)) l.push(r.name);
-        podoByEvent.set(r.event, l);
+        podoByEventTeam.set(key, l);
       }
     }
-    progenIdx = { byPhone, byName, podoByEvent };
+    progenIdx = { byPhone, byName, podoByEventTeam };
     return progenIdx;
   } catch {
     return null;
@@ -166,7 +170,27 @@ async function loadProgen(): Promise<ProgenIndex | null> {
 // ── 결과 포맷 ───────────────────────────────────────────
 interface EventHit {
   eventName: string; how: string; team: string | null; status: string | null;
-  manager: string | null; exposedManagers: string[];
+  manager: string | null;   // 이 사람에게 직접 배정된 담당 관리자(manager_id)
+  teamPodo: string[];       // 같은 팀에 배치된 섭리회원(포도) — 다른 팀은 포함하지 않음
+}
+
+// CNU 행사에서 같은 팀에 배치된 섭리회원(포도) 이름 목록. 팀이 없으면 빈 배열(=미배정).
+function cnuTeamPodo(idx: CnuIndex, eventId: string, team: string | null, selfNameKey: string): string[] {
+  const t = normTeam(team);
+  if (!t) return [];
+  const out: string[] = [];
+  for (const a of idx.attendees) {
+    if (a.eventId !== eventId || !a.isMember) continue;
+    if (normTeam(a.team) !== t || a.nameKey === selfNameKey) continue;
+    if (a.name && !out.includes(a.name)) out.push(a.name);
+  }
+  return out;
+}
+// 프로젠 행사에서 같은 팀 포도 목록. 팀이 없으면 빈 배열(=미배정).
+function progenTeamPodo(pg: ProgenIndex | null, event: string, team: string | null): string[] {
+  const t = normTeam(team);
+  if (!pg || !t) return [];
+  return pg.podoByEventTeam.get(`${event}||${t}`) ?? [];
 }
 interface PersonHit {
   name: string; phone: string; life: LifeRec | null;
@@ -184,19 +208,22 @@ function hitLines(h: PersonHit, idx: CnuIndex, pg: ProgenIndex | null): string[]
     lines.push(`   ⭐ [생명] 우리 생명 명단에 있음 — 이미 말씀 듣는 중${mgr ? ` (담당 전도자: ${mgr})` : ""}`);
   }
   for (const e of h.events) {
-    lines.push(`   - [CNU 행사] "${e.eventName}" ${e.how}${e.team ? ` · 팀 ${e.team}` : ""}${e.status ? ` · ${e.status}` : ""}`);
-    if (e.manager) lines.push(`       담당 관리자: ${e.manager}`);
-    if (e.exposedManagers.length)
-      lines.push(`       ⚠️ 이 행사 참여 관리자(얼굴 노출 가능) ${e.exposedManagers.length}명: ${capList(e.exposedManagers)}`);
+    lines.push(`   - [CNU 행사] "${e.eventName}" ${e.how}${e.team ? ` · 팀 ${e.team}` : " · 팀 미배정"}${e.status ? ` · ${e.status}` : ""}`);
+    // 관리자는 팀 기준으로만. 다른 팀 사람은 절대 안 붙인다.
+    if (e.manager) lines.push(`       담당 관리자(직접 배정): ${e.manager}`);
+    else if (e.teamPodo.length) lines.push(`       같은 팀 포도: ${capList(e.teamPodo)}`);
+    else lines.push(`       ⚠️ 이 행사에선 관리자 미배정 — 아무도 안 붙음 (다른 팀 관리자를 끌어오지 말 것)`);
   }
   const seenEv = new Set<string>();
   for (const r of h.progen) {
     if (seenEv.has(r.event)) continue;
     seenEv.add(r.event);
-    lines.push(`   - [프로젠] "${r.event}" ${r.kind}${r.team ? ` · 팀 ${r.team}` : ""}${r.status ? ` · ${r.status}` : ""}${r.event_date ? ` (${fmtDate(r.event_date)})` : ""}`);
-    const podo = pg?.podoByEvent.get(r.event) ?? [];
-    if (podo.length && r.kind !== "포도")
-      lines.push(`       ⚠️ 이 행사 참여 포도(얼굴 노출 가능) ${podo.length}명: ${capList(podo)}`);
+    lines.push(`   - [프로젠] "${r.event}" ${r.kind}${r.team ? ` · 팀 ${r.team}` : " · 팀 미배정"}${r.status ? ` · ${r.status}` : ""}${r.event_date ? ` (${fmtDate(r.event_date)})` : ""}`);
+    if (r.kind !== "포도") {
+      const teamPodo = progenTeamPodo(pg, r.event, r.team);
+      if (teamPodo.length) lines.push(`       같은 팀 포도: ${capList(teamPodo)}`);
+      else lines.push(`       ⚠️ ${normTeam(r.team) ? `팀 ${r.team}에 포도 기록 없음` : "팀 미배정"} — 이 행사에선 관리자 안 붙음 (다른 팀 포도를 끌어오지 말 것)`);
+    }
   }
   if (h.events.length === 0 && h.progen.length === 0 && h.life)
     lines.push("   - 행사 참여 기록은 없음 (생명 명단에만 존재)");
@@ -252,7 +279,7 @@ async function rosterTextContext(roster: RosterLine[]): Promise<string> {
       eventName: a.eventName, how: a.isMember ? "섭리회원" : "게스트",
       team: a.team, status: a.status,
       manager: a.managerId ? idx.userName.get(a.managerId) ?? null : null,
-      exposedManagers: idx.managersByEvent.get(a.eventId) ?? [],
+      teamPodo: cnuTeamPodo(idx, a.eventId, a.team, a.nameKey),
     }));
     const found = life || events.length > 0 || progen.length > 0;
     if (found) lines.push(...hitLines({ name: r.name, phone: progen[0]?.phone ?? "", life, events, progen }, idx, pg));
@@ -453,7 +480,7 @@ async function tokenLookupContext(message: string): Promise<string | null> {
       eventName: a.eventName, how: a.isMember ? "섭리회원" : "게스트",
       team: a.team, status: a.status,
       manager: a.managerId ? idx.userName.get(a.managerId) ?? null : null,
-      exposedManagers: idx.managersByEvent.get(a.eventId) ?? [],
+      teamPodo: cnuTeamPodo(idx, a.eventId, a.team, a.nameKey),
     }));
     hits.push({ name, phone: progen[0]?.phone ?? "", life, events, progen });
   }
@@ -466,6 +493,8 @@ async function tokenLookupContext(message: string): Promise<string | null> {
   const lines = [
     `[인물 조회: CNU Care + 프로젠] 메시지에 등장한 이름 중 우리 시스템에 있는 사람들의 기록이다 (이름 기준 — 동명이인 가능).`,
     "주의: 메시지의 형식·의도(누가 참여자이고 누가 담당자인지 등)가 불명확하면 추측으로 단정하지 말고 사용자에게 먼저 확인 질문을 하라.",
+    "관리자를 물으면 ①생명 담당 전도자 ②그 행사에서 '같은 팀 포도'만 답하라. 아래에 '관리자 미배정/안 붙음'이라 돼 있으면 그대로 '이 행사에선 관리자가 안 붙었다'고 말하고, 절대 다른 팀 관리자·포도를 끌어와 붙이지 마라. 노쇼면 참여 안 한 것이니 관리자도 안 붙은 것으로 간주하라.",
+    "역할(게스트/섭리회원)은 사용자가 묻지 않는 한 굳이 앞세우지 마라.",
     "",
   ];
   if (managerNames.length)
