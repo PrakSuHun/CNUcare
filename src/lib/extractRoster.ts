@@ -54,44 +54,57 @@ export function mapSheetRows(rows: Record<string, string>[], headers: string[]):
   return out;
 }
 
-// 이미지·PDF → Gemini 비전으로 명단 추출 (기본 항목 + 기타는 extra 로)
-export async function extractFromMedia(media: MediaPart[]): Promise<Attendee[]> {
-  const keys = (process.env.GEMINI_API_KEY || "").split(",").map((k) => k.trim()).filter(Boolean);
-  if (keys.length === 0 || media.length === 0) return [];
-  const prompt = `이 파일(이미지 또는 PDF)은 사람 명단이다. 각 사람 정보를 JSON 배열로만 답하라.
+const MEDIA_PROMPT = `이 파일(이미지 또는 PDF)은 사람 명단이다. 각 사람 정보를 JSON 배열로만 답하라.
 형식: [{"name":"이름","phone":"전화","gender":"남/여","department":"학과","year":학년숫자,"school":"학교","friendGroup":"함께신청","memo":"비고","extra":{"그외항목명":"값"}}]
 이름은 반드시 포함. 표에 있는 열 중 위 기본 항목에 해당하지 않는 것은 extra 객체에 "열이름":"값" 으로 넣어라.
-없는 값은 생략. 설명·마크다운 없이 JSON 배열만 출력.`;
+없는 값은 생략. 설명·마크다운 없이 JSON 배열만 출력.
+글자가 흐릿해도 표의 행/열 정렬을 유지해 한 사람의 값이 옆줄로 섞이지 않게 정확히 읽어라.`;
+
+function parseAttendeeJson(txt: string): Attendee[] {
+  const m = txt.match(/\[[\s\S]*\]/);
+  if (!m) return [];
+  let arr: any[];
+  try { arr = JSON.parse(m[0]); } catch { return []; }
+  return arr.filter((x) => x && String(x.name || "").trim()).map((x) => {
+    const a: Attendee = { name: String(x.name).trim() };
+    if (x.phone) a.phone = String(x.phone).trim();
+    if (x.gender) a.gender = String(x.gender).trim();
+    if (x.department) a.department = String(x.department).trim();
+    if (x.school) a.school = String(x.school).trim();
+    if (x.friendGroup) a.friendGroup = String(x.friendGroup).trim();
+    if (x.memo) a.memo = String(x.memo).trim();
+    if (x.year != null && Number.isFinite(Number(x.year))) a.year = Number(x.year);
+    if (x.extra && typeof x.extra === "object") {
+      const custom: Record<string, string> = {};
+      for (const [k, v] of Object.entries(x.extra)) { const s = String(v ?? "").trim(); if (s) custom[k] = s; }
+      if (Object.keys(custom).length) a.custom = custom;
+    }
+    return a;
+  });
+}
+
+// 이미지 한 장을 Gemini 비전으로 추출 (키 로테이션)
+async function extractOneMedia(m: MediaPart, keys: string[]): Promise<Attendee[]> {
   for (const key of keys) {
     try {
       const ai = new GoogleGenerativeAI(key);
       const model = ai.getGenerativeModel({ model: "gemini-2.5-flash" });
-      const parts: any[] = [{ text: prompt }];
-      for (const m of media) parts.push({ inlineData: { mimeType: m.mime, data: m.data } });
-      const res = await model.generateContent(parts);
-      const txt = res.response.text();
-      const m = txt.match(/\[[\s\S]*\]/);
-      if (!m) continue;
-      const arr = JSON.parse(m[0]) as any[];
-      return arr.filter((x) => x && String(x.name || "").trim()).map((x) => {
-        const a: Attendee = { name: String(x.name).trim() };
-        if (x.phone) a.phone = String(x.phone).trim();
-        if (x.gender) a.gender = String(x.gender).trim();
-        if (x.department) a.department = String(x.department).trim();
-        if (x.school) a.school = String(x.school).trim();
-        if (x.friendGroup) a.friendGroup = String(x.friendGroup).trim();
-        if (x.memo) a.memo = String(x.memo).trim();
-        if (x.year != null && Number.isFinite(Number(x.year))) a.year = Number(x.year);
-        if (x.extra && typeof x.extra === "object") {
-          const custom: Record<string, string> = {};
-          for (const [k, v] of Object.entries(x.extra)) { const s = String(v ?? "").trim(); if (s) custom[k] = s; }
-          if (Object.keys(custom).length) a.custom = custom;
-        }
-        return a;
-      });
-    } catch { continue; }
+      const res = await model.generateContent([{ text: MEDIA_PROMPT }, { inlineData: { mimeType: m.mime, data: m.data } }]);
+      return parseAttendeeJson(res.response.text());
+    } catch { continue; } // 다음 키로 재시도
   }
   return [];
+}
+
+// 이미지·PDF → Gemini 비전으로 명단 추출. 한 장씩 개별 호출(정확도↑, 용량·타임아웃↓) 후 합침.
+export async function extractFromMedia(media: MediaPart[]): Promise<Attendee[]> {
+  const keys = (process.env.GEMINI_API_KEY || "").split(",").map((k) => k.trim()).filter(Boolean);
+  if (keys.length === 0 || media.length === 0) return [];
+  const all: Attendee[] = [];
+  for (const m of media) {
+    all.push(...(await extractOneMedia(m, keys)));
+  }
+  return all;
 }
 
 export function dedupeAttendees(list: Attendee[]): Attendee[] {

@@ -32,9 +32,34 @@ function fileToBase64(f: File): Promise<string> {
   });
 }
 
+// 큰 스크린샷은 리사이즈·JPEG 재인코딩해 용량을 줄인다(요청 초과 방지).
+// 명단 글자 가독성을 위해 긴 변 최대 2200px 유지.
+async function compressImage(f: File): Promise<{ data: string; mime: string }> {
+  try {
+    if (typeof document === "undefined" || typeof createImageBitmap === "undefined") throw new Error("no-canvas");
+    const bitmap = await createImageBitmap(f);
+    const MAX = 2200;
+    const scale = Math.min(1, MAX / Math.max(bitmap.width, bitmap.height));
+    const w = Math.max(1, Math.round(bitmap.width * scale));
+    const h = Math.max(1, Math.round(bitmap.height * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("no-ctx");
+    ctx.drawImage(bitmap, 0, 0, w, h);
+    bitmap.close?.();
+    const dataUrl = canvas.toDataURL("image/jpeg", 0.82);
+    const b64 = dataUrl.split(",")[1] || "";
+    if (!b64) throw new Error("empty");
+    return { data: b64, mime: "image/jpeg" };
+  } catch {
+    // 압축 실패 시 원본 사용
+    return { data: await fileToBase64(f), mime: f.type || "image/jpeg" };
+  }
+}
+
 export async function parseImage(f: File): Promise<ParsedImage> {
-  const data = await fileToBase64(f);
-  const mime = f.type || "image/jpeg";
+  const { data, mime } = await compressImage(f);
   return { name: f.name, mime, data, previewUrl: `data:${mime};base64,${data}`, kind: "image" };
 }
 export async function parsePdf(f: File): Promise<ParsedImage> {
