@@ -27,7 +27,7 @@ export default function RootLayout({
         <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-        <meta name="apple-mobile-web-app-title" content="CNUcare" />
+        <meta name="apple-mobile-web-app-title" content={process.env.NEXT_PUBLIC_SITE_NAME || "CNUcare"} />
         <meta name="mobile-web-app-capable" content="yes" />
       </head>
       <body className="h-full bg-gray-50 text-gray-900 overflow-hidden">{children}</body>
