@@ -4,6 +4,8 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { getUser } from "@/lib/auth";
+import { parseFiles } from "@/lib/parseUpload";
+import { formatPhone } from "@/lib/phone";
 import * as XLSX from "xlsx";
 
 const YEAR_LABELS: Record<number, string> = { 1: "1학년", 2: "2학년", 3: "3학년", 4: "4학년", 0: "졸업유예" };
@@ -184,6 +186,7 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
   const [excelHeaders, setExcelHeaders] = useState<string[]>([]);
   const [excelMapping, setExcelMapping] = useState<Record<string, string>>({});
   const [excelUploading, setExcelUploading] = useState(false);
+  const [rosterUploading, setRosterUploading] = useState(false); // 이미지·엑셀 파일로 참석자 추가
 
   // Sessions (동아리 회차)
   const [sessions, setSessions] = useState<{ number: number; date: string }[]>([]);
@@ -433,6 +436,58 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
     if (allUsers.length > 0) return;
     const { data } = await supabase.from("users").select("id, display_name").order("display_name");
     if (data) setAllUsers(data as { id: string; display_name: string }[]);
+  };
+
+  // 이미지·엑셀 파일 → 참석자 일괄 추가 (행사 생성 때와 동일한 추출 흐름)
+  const handleRosterUpload = async (files: FileList | null) => {
+    if (!files || files.length === 0 || rosterUploading) return;
+    setRosterUploading(true);
+    try {
+      const { images, sheets, skipped } = await parseFiles(files);
+      if (skipped.length) alert(`지원하지 않는 파일 제외: ${skipped.join(", ")} (이미지·엑셀·CSV만)`);
+      if (images.length === 0 && sheets.length === 0) return;
+
+      const res = await fetch("/api/extract-roster", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          images: images.map((i) => ({ mime: i.mime, data: i.data })),
+          sheets: sheets.map((s) => ({ name: s.name, rows: s.rows, headers: s.headers })),
+        }),
+      });
+      const { attendees: extracted } = await res.json();
+
+      // 이미 명단에 있는 이름은 제외
+      const existing = new Set(attendees.map((a) => a.name.trim()));
+      const rows = (extracted || [])
+        .filter((a: any) => a?.name && !existing.has(String(a.name).trim()))
+        .map((a: any) => ({
+          event_id: eventId,
+          name: String(a.name).trim(),
+          gender: a.gender || null,
+          department: a.department || null,
+          year: Number.isFinite(a.year) ? a.year : null,
+          phone: a.phone ? formatPhone(a.phone) : null,
+          school: a.school || null,
+          friend_group: a.friendGroup || null,
+          memo: a.memo || null,
+          custom_data: a.custom && Object.keys(a.custom).length ? a.custom : null,
+          is_member: addType === "member",
+          status: "pending",
+        }));
+
+      if (rows.length === 0) { alert("파일에서 새로 추가할 참석자를 찾지 못했어요."); return; }
+
+      const { data: inserted, error } = await supabase.from("event_attendees").insert(rows).select("*");
+      if (error) { alert("추가에 실패했어요: " + error.message); return; }
+      if (inserted) setAttendees((prev) => [...prev, ...(inserted as Attendee[])]);
+      setShowAddModal(false);
+      alert(`${inserted?.length ?? rows.length}명 추가했어요.`);
+    } catch {
+      alert("파일 처리에 실패했어요.");
+    } finally {
+      setRosterUploading(false);
+    }
   };
 
   const addMemberAttendee = async (displayName: string) => {
@@ -2266,8 +2321,17 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
           <div className="bg-white w-full max-w-lg rounded-t-2xl p-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-bold">참석자 추가</h3>
-              <div className="flex gap-2">
-                <button onClick={() => { setShowAddModal(false); setShowExcelModal(true); }} className="text-xs text-green-600 hover:underline">엑셀 업로드</button>
+              <div className="flex gap-2 items-center">
+                <label className={`text-xs text-green-600 hover:underline cursor-pointer ${rosterUploading ? "opacity-50 pointer-events-none" : ""}`}>
+                  {rosterUploading ? "처리 중…" : "📎 파일로 추가(이미지·엑셀)"}
+                  <input
+                    type="file"
+                    accept="image/*,.xlsx,.xls,.csv,.tsv"
+                    multiple
+                    className="hidden"
+                    onChange={(e) => { handleRosterUpload(e.target.files); e.target.value = ""; }}
+                  />
+                </label>
                 <button onClick={() => setShowAddModal(false)} className="text-xs text-gray-400">닫기</button>
               </div>
             </div>
