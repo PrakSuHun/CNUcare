@@ -130,6 +130,7 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
 
   // Detail tab state
   const [detailMode, setDetailMode] = useState<"before" | "after">("before");
+  const [detailSearch, setDetailSearch] = useState(""); // 상세 탭 사람 검색
   const [expandedAttendee, setExpandedAttendee] = useState<string | null>(null);
   const [editingAttendee, setEditingAttendee] = useState<string | null>(null);
   const [feedbackMap, setFeedbackMap] = useState<Record<string, string>>({});
@@ -826,6 +827,15 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
     );
   }
 
+  // 상세 탭: 검색어로 참가자 필터 (이름·연락처·학과·학교)
+  const detailShown = (() => {
+    const q = detailSearch.trim().toLowerCase();
+    if (!q) return attendees;
+    return attendees.filter((a) =>
+      [a.name, a.phone, a.department, a.school].some((v) => String(v ?? "").toLowerCase().includes(q)),
+    );
+  })();
+
   return (
     <div className="h-full flex flex-col bg-gray-50">
       {/* Header */}
@@ -1285,8 +1295,26 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
               </div>
             </div>
 
+            {/* 사람 검색 */}
+            <div className="relative">
+              <input
+                type="text"
+                value={detailSearch}
+                onChange={(e) => setDetailSearch(e.target.value)}
+                placeholder="이름·연락처·학과 검색"
+                className="w-full border border-gray-200 rounded-lg pl-8 pr-8 py-2 text-sm focus:outline-none focus:border-blue-400"
+              />
+              <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-300 text-sm">🔍</span>
+              {detailSearch && (
+                <button onClick={() => setDetailSearch("")} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm">✕</button>
+              )}
+            </div>
+
             {/* Attendee detail cards */}
-            {groupAttendees(attendees).map((group, gi) => (
+            {detailSearch.trim() && detailShown.length === 0 && (
+              <p className="text-xs text-gray-400 text-center py-6">검색 결과가 없습니다.</p>
+            )}
+            {groupAttendees(detailShown).map((group, gi) => (
               <div key={gi}>
                 {group.label && <p className="text-xs font-semibold text-gray-500 mt-3 mb-1">{group.label}</p>}
                 <div className="space-y-2">
