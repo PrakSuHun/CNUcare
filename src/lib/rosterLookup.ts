@@ -369,6 +369,7 @@ export interface EventDupSuspect {
   summary: string;            // "빵끗 · 프로젠 템플스테이(크루)" 형태 (배너 한 줄용)
   isLife: boolean;
   lifeManager: string | null; // 생명이면 담당 전도자
+  matchType: "phone" | "name"; // phone=이름+번호 일치(확정 중복) / name=이름만 일치(동명이인 의심)
   cnuEvents: { eventName: string; how: string; status: string | null }[]; // 겹친 다른 CNU 행사
   progenEvents: { event: string; kind: string; date: string | null }[];   // 프로젠 참여 이력
 }
@@ -379,20 +380,25 @@ export async function lookupEventDuplicates(eventId: string): Promise<EventDupSu
   const [idx, pg, rows] = await Promise.all([
     loadIndex(),
     loadProgen(),
-    s.from("event_attendees").select("id, name").eq("event_id", eventId),
+    s.from("event_attendees").select("id, name, phone").eq("event_id", eventId),
   ]);
-  const attendees = (rows.data ?? []) as { id: string; name: string }[];
+  const attendees = (rows.data ?? []) as { id: string; name: string; phone: string | null }[];
 
   const out: EventDupSuspect[] = [];
   for (const a of attendees) {
     const nk = normalizeName(a.name);
     if (!nk) continue;
+    const myPhone = normalizePhone(a.phone);
+    const hasPhone = isUsablePhone(myPhone);
+    // 이름이 겹친 상대 중 "번호까지 같은" 사람이 하나라도 있으면 확정 중복(phone).
+    let phoneMatch = false;
 
     // 다른 CNU 행사 (이 행사 제외, 행사명 중복 제거 — 대표 상태 하나 유지)
     const cnuMap = new Map<string, { eventName: string; how: string; status: string | null }>();
     for (const at of idx.attendees) {
       if (at.eventId === eventId) continue;
       if (at.nameKey !== nk) continue;
+      if (hasPhone && at.phoneKey === myPhone) phoneMatch = true;
       if (!cnuMap.has(at.eventName))
         cnuMap.set(at.eventName, { eventName: at.eventName, how: at.isMember ? "섭리회원" : "게스트", status: at.status });
     }
@@ -401,6 +407,7 @@ export async function lookupEventDuplicates(eventId: string): Promise<EventDupSu
     const progenRows = pg ? (pg.byName.get(nk) ?? []) : [];
     const pgMap = new Map<string, { event: string; kind: string; date: string | null }>();
     for (const r of progenRows) {
+      if (hasPhone && normalizePhone(r.phone) === myPhone) phoneMatch = true;
       if (!r.event || pgMap.has(r.event)) continue;
       pgMap.set(r.event, { event: r.event, kind: r.kind, date: r.event_date ? String(r.event_date).slice(0, 10) : null });
     }
@@ -408,6 +415,11 @@ export async function lookupEventDuplicates(eventId: string): Promise<EventDupSu
     // 생명
     const life = idx.livesByName.get(nk) ?? null;
     const lifeManager = life?.managerId ? idx.userName.get(life.managerId) ?? null : null;
+    // 같은 번호의 생명이 같은 이름이면 번호 일치
+    if (hasPhone) {
+      const lifeByPhone = idx.livesByPhone.get(myPhone);
+      if (lifeByPhone && normalizeName(lifeByPhone.name) === nk) phoneMatch = true;
+    }
 
     if (cnuEvents.length === 0 && progenEvents.length === 0 && !life) continue;
 
@@ -422,6 +434,7 @@ export async function lookupEventDuplicates(eventId: string): Promise<EventDupSu
       summary: parts.join(" · "),
       isLife: !!life,
       lifeManager,
+      matchType: phoneMatch ? "phone" : "name",
       cnuEvents,
       progenEvents,
     });

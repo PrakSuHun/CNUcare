@@ -201,6 +201,7 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
   // 중복 의심자 배너 (다른 행사·프로젠·생명과 이름이 겹치는 참여자). 확인 누르면 사라짐(설정에 저장).
   type DupSuspect = {
     attendeeId: string; name: string; summary: string; isLife: boolean; lifeManager: string | null;
+    matchType?: "phone" | "name"; // phone=이름+번호 일치(확정 중복,빨강) / name=이름만(의심,주황)
     cnuEvents: { eventName: string; how: string; status: string | null }[];
     progenEvents: { event: string; kind: string; date: string | null }[];
   };
@@ -264,7 +265,11 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
       .then((r) => r.json())
       .then((d) => {
         const list = (d.suspects || []) as DupSuspect[];
-        setDupSuspects(list.filter((s) => !confirmed.includes(s.attendeeId)));
+        const shown = list
+          .filter((s) => !confirmed.includes(s.attendeeId))
+          // 확정(번호까지 일치)을 위로
+          .sort((a, b) => (a.matchType === "phone" ? 0 : 1) - (b.matchType === "phone" ? 0 : 1));
+        setDupSuspects(shown);
       })
       .catch(() => setDupSuspects([]));
     const loadedSessions = (loadedConfig.sessions as { number: number; date: string }[] | undefined) || [];
@@ -854,29 +859,34 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
       {/* 중복 의심자 배너 — 다른 행사·프로젠·생명과 이름이 겹치는 참여자. 확인 눌러야 사라짐. */}
       {dupSuspects.length > 0 && (
         <div className="bg-amber-50 border-b border-amber-200 px-3 py-2 shrink-0 max-h-44 overflow-y-auto">
-          <p className="text-xs font-bold text-amber-800 mb-1.5 flex items-center gap-1">
-            ⚠️ 중복 신청 의심 {dupSuspects.length}명 <span className="font-normal text-amber-600">(동명이인일 수 있으니 확인 후 처리)</span>
+          <p className="text-xs font-bold text-amber-800 mb-1.5 flex items-center gap-1 flex-wrap">
+            ⚠️ 중복 신청 {dupSuspects.length}명
+            <span className="font-normal">— <span className="text-red-600 font-semibold">빨강=이름+번호 일치(확정)</span> · <span className="text-amber-600 font-semibold">주황=이름만 일치(의심)</span></span>
           </p>
           <div className="space-y-1.5">
-            {dupSuspects.map((s) => (
-              <div key={s.attendeeId} className="flex items-center gap-2 bg-white border border-amber-200 rounded-lg px-2.5 py-1.5">
+            {dupSuspects.map((s) => {
+              const confirmed = s.matchType === "phone";
+              return (
+              <div key={s.attendeeId} className={`flex items-center gap-2 bg-white border rounded-lg px-2.5 py-1.5 ${confirmed ? "border-red-300" : "border-amber-200"}`}>
                 <button onClick={() => setDupDetail(s)} className="min-w-0 flex-1 text-left">
-                  <span className="text-sm font-semibold text-gray-900 underline decoration-amber-300 underline-offset-2">{s.name}</span>
+                  <span className={`text-sm font-semibold text-gray-900 underline underline-offset-2 ${confirmed ? "decoration-red-300" : "decoration-amber-300"}`}>{s.name}</span>
+                  <span className={`ml-1 text-[10px] font-bold ${confirmed ? "text-red-600" : "text-amber-600"}`}>{confirmed ? "중복" : "의심"}</span>
                   {s.isLife && <span className="ml-1 text-[10px] font-bold text-rose-600">생명</span>}
                   <span className="block text-xs text-gray-500 truncate">{s.summary}</span>
                 </button>
-                <button onClick={() => setDupDetail(s)} className="shrink-0 text-xs font-medium px-2.5 py-1 rounded-full border border-amber-300 text-amber-700">
+                <button onClick={() => setDupDetail(s)} className={`shrink-0 text-xs font-medium px-2.5 py-1 rounded-full border ${confirmed ? "border-red-300 text-red-700" : "border-amber-300 text-amber-700"}`}>
                   상세
                 </button>
                 <button
                   onClick={() => confirmDup(s.attendeeId)}
                   disabled={dupConfirming === s.attendeeId}
-                  className="shrink-0 text-xs font-medium px-3 py-1 rounded-full bg-amber-600 text-white disabled:opacity-50"
+                  className={`shrink-0 text-xs font-medium px-3 py-1 rounded-full text-white disabled:opacity-50 ${confirmed ? "bg-red-600" : "bg-amber-600"}`}
                 >
                   {dupConfirming === s.attendeeId ? "…" : "확인"}
                 </button>
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
@@ -2740,8 +2750,11 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
             <div className="sticky top-0 bg-white border-b border-gray-100 px-4 py-3 flex items-center justify-between">
               <div>
                 <span className="text-base font-bold text-gray-900">{dupDetail.name}</span>
+                {dupDetail.matchType === "phone"
+                  ? <span className="ml-1.5 text-[11px] font-bold text-red-600">중복 확정</span>
+                  : <span className="ml-1.5 text-[11px] font-bold text-amber-600">의심</span>}
                 {dupDetail.isLife && <span className="ml-1.5 text-[11px] font-bold text-rose-600">생명</span>}
-                <p className="text-xs text-gray-400">중복 참여 의심 · 동명이인일 수 있음</p>
+                <p className="text-xs text-gray-400">{dupDetail.matchType === "phone" ? "이름+번호까지 일치 — 같은 사람" : "이름만 일치 — 동명이인일 수 있음"}</p>
               </div>
               <button onClick={() => setDupDetail(null)} className="text-gray-400 text-xl leading-none px-1">&times;</button>
             </div>
