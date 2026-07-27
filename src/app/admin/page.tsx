@@ -7,7 +7,7 @@ import { getUser, User } from "@/lib/auth";
 import Settings from "@/components/Settings";
 import OrgChart from "@/components/OrgChart";
 import AnalysisPage from "@/components/AnalysisPage";
-import InstructorCalendar from "@/components/InstructorCalendar";
+import EventList from "@/components/EventList";
 import PlaceholderManagerAdmin from "@/components/PlaceholderManagerAdmin";
 
 interface UserRow {
@@ -36,7 +36,8 @@ export default function AdminPage() {
   const [user, setUser] = useState<User | null>(null);
   const [users, setUsers] = useState<UserRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<"org" | "calendar" | "dashboard" | "analysis" | "users" | "placeholders">("org");
+  const [tab, setTab] = useState<"org" | "events" | "analysis" | "users">("org");
+  const [showPlaceholders, setShowPlaceholders] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [editingUser, setEditingUser] = useState<UserRow | null>(null);
   const [editForm, setEditForm] = useState({ display_name: "", name: "", phone: "", birth_date: "", password: "", manager_id: "" });
@@ -151,10 +152,9 @@ export default function AdminPage() {
       <div className="flex border-b border-gray-200 bg-white overflow-x-auto">
         {[
           { key: "org", label: "조직도" },
-          { key: "calendar", label: "캘린더" },
+          { key: "events", label: "행사" },
           { key: "analysis", label: "AI 분석" },
           { key: "users", label: "권한 관리" },
-          { key: "placeholders", label: "미가입 관리자" },
         ].map((t) => (
           <button
             key={t.key}
@@ -172,12 +172,31 @@ export default function AdminPage() {
         {tab === "org" && (
           <OrgChart userRole="instructor" userId={user.id} basePath="/admin" editMode={editMode} />
         )}
-        {tab === "calendar" && <InstructorCalendar basePath="/admin" />}
+        {/* 어도민 행사탭: 참여 여부와 무관하게 모든 행사. 클릭 시 /manager/event/[id] 상세로 이동 */}
+        {tab === "events" && <EventList basePath="/manager" allEvents />}
         {tab === "analysis" && <AnalysisPage />}
-        {tab === "placeholders" && <PlaceholderManagerAdmin />}
-        {tab === "users" && (
+        {tab === "users" && showPlaceholders && (
+          <div className="space-y-3">
+            <button
+              onClick={() => setShowPlaceholders(false)}
+              className="text-sm text-gray-500 hover:text-gray-700"
+            >
+              ← 권한 관리로
+            </button>
+            <PlaceholderManagerAdmin />
+          </div>
+        )}
+        {tab === "users" && !showPlaceholders && (
           <div className="space-y-2">
-            <p className="text-xs text-gray-500 mb-2">전체 {users.length}명</p>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs text-gray-500">전체 {users.length}명</p>
+              <button
+                onClick={() => setShowPlaceholders(true)}
+                className="text-xs text-amber-600 border border-amber-200 rounded-full px-3 py-1 hover:bg-amber-50 font-medium"
+              >
+                미가입 관리자 관리
+              </button>
+            </div>
             {users.map((u) => {
               const roleRoute: Record<string, string> = { admin: "/admin", leader: "/leader", instructor: "/instructor", manager: "/manager", student: "/student" };
               const effectiveRole = u.is_college_leader && u.role === "student" ? "college_leader" : u.role;

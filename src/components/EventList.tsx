@@ -22,11 +22,12 @@ interface UserChip {
 
 interface EventListProps {
   basePath: string;
+  allEvents?: boolean; // 어도민: 참여 여부와 무관하게 모든 행사 표시
 }
 
 type Mode = "list" | "add-menu" | "create" | "join";
 
-export default function EventList({ basePath }: EventListProps) {
+export default function EventList({ basePath, allEvents = false }: EventListProps) {
   const router = useRouter();
   const [events, setEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(true);
@@ -79,26 +80,33 @@ export default function EventList({ basePath }: EventListProps) {
 
   const fetchEvents = async () => {
     if (!user) return;
-    const { data } = await supabase
-      .from("event_members")
-      .select("event_id, events(id, name, type, slug, club_unit)")
-      .eq("user_id", user.id);
-
-    if (data) {
-      const eventList: Event[] = [];
-      for (const em of data as any[]) {
-        const ev = em.events;
-        if (!ev) continue;
-        // 참여 = 게스트(섭리회원이 아닌 신청자) 수
-        const { count } = await supabase
-          .from("event_attendees")
-          .select("*", { count: "exact", head: true })
-          .eq("event_id", ev.id)
-          .eq("is_member", false);
-        eventList.push({ ...ev, guest_count: count || 0 });
-      }
-      setEvents(eventList);
+    // 어도민(allEvents)은 events 테이블에서 전부, 일반 사용자는 참여(event_members)한 것만
+    let evs: any[] = [];
+    if (allEvents) {
+      const { data } = await supabase
+        .from("events")
+        .select("id, name, type, slug, club_unit")
+        .order("name");
+      evs = data || [];
+    } else {
+      const { data } = await supabase
+        .from("event_members")
+        .select("event_id, events(id, name, type, slug, club_unit)")
+        .eq("user_id", user.id);
+      evs = (data || []).map((em: any) => em.events).filter(Boolean);
     }
+
+    const eventList: Event[] = [];
+    for (const ev of evs) {
+      // 참여 = 게스트(섭리회원이 아닌 신청자) 수
+      const { count } = await supabase
+        .from("event_attendees")
+        .select("*", { count: "exact", head: true })
+        .eq("event_id", ev.id)
+        .eq("is_member", false);
+      eventList.push({ ...ev, guest_count: count || 0 });
+    }
+    setEvents(eventList);
     setLoading(false);
   };
 
