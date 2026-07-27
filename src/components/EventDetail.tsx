@@ -1308,7 +1308,7 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                       )}
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-1.5">
-                          <span className={`text-sm font-medium truncate ${noShow ? "line-through text-gray-400" : ""}`}>{a.name}</span>
+                          <span className={`text-sm font-medium shrink-0 whitespace-nowrap ${noShow ? "line-through text-gray-400" : ""}`}>{a.name}</span>
                           {a.gender && (
                             <span className={`text-[10px] px-1.5 py-0.5 rounded-full shrink-0 ${
                               a.gender === "남" ? "bg-blue-100 text-blue-700" : "bg-pink-100 text-pink-700"
@@ -1321,7 +1321,7 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                             <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full shrink-0">노쇼</span>
                           )}
                           {a.memo && (
-                            <span className="text-[11px] text-gray-400 truncate min-w-0" title={a.memo}>{a.memo}</span>
+                            <span className="text-[11px] text-gray-400 truncate min-w-0 flex-1" title={a.memo}>{a.memo}</span>
                           )}
                         </div>
                         <div className="flex items-center gap-2 text-xs text-gray-400 mt-0.5">
