@@ -1321,7 +1321,7 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                             <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full shrink-0">노쇼</span>
                           )}
                           {a.memo && (
-                            <span className="text-[10px] bg-amber-50 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded-full shrink-0 truncate max-w-[120px]" title={a.memo}>📝 {a.memo}</span>
+                            <span className="text-[11px] text-gray-400 truncate min-w-0" title={a.memo}>{a.memo}</span>
                           )}
                         </div>
                         <div className="flex items-center gap-2 text-xs text-gray-400 mt-0.5">
@@ -1495,7 +1495,7 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                             {a.department && <span>{a.department}</span>}
                             {a.year && <span>{formatYear(a.year)}</span>}
                             {a.friend_group && <span>친구: {a.friend_group}</span>}
-                            {a.memo && <span>메모: {a.memo}</span>}
+                            {a.memo && <span>{a.memo}</span>}
                           </div>
                         </button>
 
