@@ -436,12 +436,13 @@ export async function lookupEventDuplicates(eventId: string): Promise<EventDupSu
   const [idx, pg, rows] = await Promise.all([
     loadIndex(),
     loadProgen(),
-    s.from("event_attendees").select("id, name, phone").eq("event_id", eventId),
+    s.from("event_attendees").select("id, name, phone, is_member").eq("event_id", eventId),
   ]);
-  const attendees = (rows.data ?? []) as { id: string; name: string; phone: string | null }[];
+  const attendees = (rows.data ?? []) as { id: string; name: string; phone: string | null; is_member: boolean }[];
 
   const out: EventDupSuspect[] = [];
   for (const a of attendees) {
+    if (a.is_member) continue; // 섭리회원(관리자)은 원래 등록된 사람 — 중복 검사 대상 아님
     const nk = normalizeName(a.name);
     if (!nk) continue;
     const myPhone = normalizePhone(a.phone);
