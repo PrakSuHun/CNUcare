@@ -602,7 +602,7 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
       const parts: string[] = [];
       if (added > 0) parts.push(`${added}명 추가`);
       if (updates.length > 0) parts.push(`${updates.length}명 정보 보완`);
-      if (mgrMatchCount > 0) parts.push(`담당 ${mgrMatchCount}명 매칭`);
+      if (mgrMatchCount > 0) parts.push(`관리자 ${mgrMatchCount}명 매칭`);
       if (dupCount > 0) parts.push(`중복 ${dupCount}명 제외`);
       alert(parts.join(" · ") + ".");
     } catch {
@@ -729,18 +729,32 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
         if (!groups[key]) groups[key] = [];
         groups[key].push(a);
       });
-      return Object.entries(groups).map(([label, items]) => ({ label, items }));
+      // 1팀부터 팀 번호 오름차순, 숫자 없는 팀명·미배정은 맨 아래
+      return Object.entries(groups)
+        .sort(([a], [b]) => {
+          if (a === "미배정") return 1;
+          if (b === "미배정") return -1;
+          const na = parseInt(a), nb = parseInt(b);
+          const va = Number.isFinite(na) ? na : Infinity;
+          const vb = Number.isFinite(nb) ? nb : Infinity;
+          return va !== vb ? va - vb : a.localeCompare(b, "ko");
+        })
+        .map(([label, items]) => ({ label, items }));
     }
 
     if (groupBy === "manager") {
       const groups: Record<string, Attendee[]> = {};
       sorted.forEach((a) => {
         const mgr = members.find((m) => m.user_id === a.manager_id);
-        const key = mgr ? mgr.display_name : "미배정";
+        // 섭리회원(관리자 본인)은 배정된 관리자가 없어도 미배정이 아니라 본인 이름 그룹으로
+        const key = mgr ? mgr.display_name : (a.is_member ? a.name : "미배정");
         if (!groups[key]) groups[key] = [];
         groups[key].push(a);
       });
-      return Object.entries(groups).map(([label, items]) => ({ label, items }));
+      // 관리자 이름 가나다순, 미배정은 맨 아래
+      return Object.entries(groups)
+        .sort(([a], [b]) => (a === "미배정" ? 1 : b === "미배정" ? -1 : a.localeCompare(b, "ko")))
+        .map(([label, items]) => ({ label, items }));
     }
 
     if (groupBy === "friend") {
@@ -1186,7 +1200,7 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                 {([
                   ["default", "기본"],
                   ["team", "팀별"],
-                  ["manager", "담당별"],
+                  ["manager", "관리자별"],
                   ["school", "학교별"],
                   ["attendance", "출석별"],
                   ...customGroupOptions.map((o) => [o.value, o.label] as [string, string]),
@@ -1421,7 +1435,7 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                 {([
                   ["default", "기본"],
                   ["team", "팀별"],
-                  ["manager", "담당별"],
+                  ["manager", "관리자별"],
                   ["school", "학교별"],
                   ["attendance", "출석별"],
                   ["friend", "친구별"],
@@ -2994,7 +3008,7 @@ function ManagerAssign({
         onClick={() => setOpen(true)}
         className="flex-1 text-xs text-left border border-gray-200 rounded px-2 py-1.5 focus:outline-none focus:border-blue-400"
       >
-        {curName ? <span className="text-gray-900">{curName}</span> : <span className="text-gray-400">담당 미배정</span>}
+        {curName ? <span className="text-gray-900">{curName}</span> : <span className="text-gray-400">관리자 미배정</span>}
       </button>
     );
   }
@@ -3015,7 +3029,7 @@ function ManagerAssign({
           disabled={busy}
           className="w-full text-left px-2.5 py-1.5 text-xs text-gray-400 hover:bg-gray-50"
         >
-          담당 미배정
+          관리자 미배정
         </button>
         {filtered.map((u) => (
           <button
