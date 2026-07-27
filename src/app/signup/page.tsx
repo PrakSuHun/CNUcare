@@ -67,6 +67,38 @@ export default function SignupPage() {
 
     const displayName = form.name;
 
+    // 행사 상세에서 이름만으로 미리 등록된 placeholder(강사식 미가입 관리자)가 있으면
+    // 새 계정을 만들지 않고 그 레코드를 이어받는다(claim). 이러면 이미 배정된
+    // event_members / attendee.manager_id 연결이 그대로 살아있는 채로 실제 계정이 된다.
+    const { data: placeholder } = await supabase
+      .from("users")
+      .select("id")
+      .eq("name", form.name)
+      .eq("is_placeholder", true)
+      .limit(1);
+
+    if (placeholder && placeholder.length > 0) {
+      const { error: claimError } = await supabase
+        .from("users")
+        .update({
+          login_id: form.loginId,
+          password: form.password,
+          birth_date: form.birthDate,
+          phone: form.phone,
+          display_name: displayName,
+          is_placeholder: false,
+        })
+        .eq("id", placeholder[0].id);
+      if (claimError) {
+        setError("가입에 실패했습니다. 다시 시도해주세요.");
+        setLoading(false);
+        return;
+      }
+      alert("가입이 완료되었습니다! 기존에 배정된 행사 담당 정보가 연결되었어요.");
+      router.push("/");
+      return;
+    }
+
     const { error: insertError } = await supabase.from("users").insert({
       login_id: form.loginId,
       password: form.password,

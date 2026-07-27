@@ -7,6 +7,7 @@ export type Attendee = {
   name: string;
   gender?: string; department?: string; year?: number | null;
   phone?: string; school?: string; friendGroup?: string; memo?: string;
+  manager?: string; // 담당(관리자) 이름 — 파일에 적혀 있으면 추출. 나중에 실제 유저로 resolve해 manager_id로 저장
   custom?: Record<string, string>; // 기본 항목에 없는 값 (그대로 custom_data 로 저장)
 };
 export type MediaPart = { mime: string; data: string }; // 이미지 또는 application/pdf
@@ -20,6 +21,7 @@ const FIELD_GUESS: Record<string, string[]> = {
   year: ["학년", "학번", "year", "grade"],
   school: ["학교", "대학", "school", "univ"],
   friendGroup: ["친구", "함께", "동반", "friend", "지인"],
+  manager: ["담당", "담당자", "관리자", "섭리", "멘토", "manager", "인도자"],
   memo: ["메모", "비고", "특이", "memo", "note", "기타"],
 };
 
@@ -29,6 +31,19 @@ function matchField(header: string): string | null {
     if (gs.some((g) => low.includes(g))) return field;
   }
   return null;
+}
+
+// 이름에 붙은 괄호/대괄호 내용을 메모로 분리한다 — 이름으로 조회를 많이 하므로 이름은 순수하게 둔다.
+// "곽소영(박수훈 연결)" → { name: "곽소영", note: "박수훈 연결" }
+export function splitNameNote(raw: unknown): { name: string; note: string } {
+  const s = String(raw ?? "").trim();
+  if (!s) return { name: "", note: "" };
+  const m = s.match(/^([^(（【\[{]+?)\s*[(（【\[{](.*)$/);
+  if (m && m[1].trim()) {
+    const note = m[2].replace(/[)）】\]}]/g, " ").replace(/\s+/g, " ").trim();
+    return { name: m[1].trim(), note };
+  }
+  return { name: s, note: "" };
 }
 
 export function mapSheetRows(rows: Record<string, string>[], headers: string[]): Attendee[] {
@@ -49,6 +64,10 @@ export function mapSheetRows(rows: Record<string, string>[], headers: string[]):
       else if (field) (a as any)[field] = v;
       else a.custom![h] = v; // 기본 항목에 없는 건 항목 생성
     }
+    // 이름 옆 괄호/기호는 메모로 분리
+    const { name, note } = splitNameNote(a.name);
+    a.name = name;
+    if (note) a.memo = a.memo ? `${a.memo} · ${note}` : note;
     if (a.custom && Object.keys(a.custom).length === 0) delete a.custom;
     if (a.name) out.push(a);
   }
@@ -56,7 +75,8 @@ export function mapSheetRows(rows: Record<string, string>[], headers: string[]):
 }
 
 const MEDIA_PROMPT = `이 파일(이미지 또는 PDF)은 사람 명단이다. 각 사람 정보를 JSON 배열로만 답하라.
-형식: [{"name":"이름","phone":"전화","gender":"남/여","department":"학과","year":학년숫자,"school":"학교","friendGroup":"함께신청","memo":"비고","extra":{"그외항목명":"값"}}]
+형식: [{"name":"이름","phone":"전화","gender":"남/여","department":"학과","year":학년숫자,"school":"학교","friendGroup":"함께신청","manager":"담당자이름","memo":"비고","extra":{"그외항목명":"값"}}]
+manager는 이 사람의 담당자(관리자/섭리/멘토/인도자) 이름이 열에 있으면 넣어라. 참가자 본인 이름과 헷갈리지 마라.
 이름은 반드시 포함. 표에 있는 열 중 위 기본 항목에 해당하지 않는 것은 extra 객체에 "열이름":"값" 으로 넣어라.
 없는 값은 생략. 설명·마크다운 없이 JSON 배열만 출력.
 글자가 흐릿해도 표의 행/열 정렬을 유지해 한 사람의 값이 옆줄로 섞이지 않게 정확히 읽어라.`;
@@ -67,13 +87,16 @@ function parseAttendeeJson(txt: string): Attendee[] {
   let arr: any[];
   try { arr = JSON.parse(m[0]); } catch { return []; }
   return arr.filter((x) => x && String(x.name || "").trim()).map((x) => {
-    const a: Attendee = { name: String(x.name).trim() };
+    const { name, note } = splitNameNote(x.name); // 이름 옆 괄호/기호 → 메모
+    const a: Attendee = { name };
     if (x.phone) a.phone = String(x.phone).trim();
     if (x.gender) a.gender = String(x.gender).trim();
     if (x.department) a.department = String(x.department).trim();
     if (x.school) a.school = String(x.school).trim();
     if (x.friendGroup) a.friendGroup = String(x.friendGroup).trim();
+    if (x.manager) a.manager = String(x.manager).trim();
     if (x.memo) a.memo = String(x.memo).trim();
+    if (note) a.memo = a.memo ? `${a.memo} · ${note}` : note;
     if (x.year != null && Number.isFinite(Number(x.year))) a.year = Number(x.year);
     if (x.extra && typeof x.extra === "object") {
       const custom: Record<string, string> = {};

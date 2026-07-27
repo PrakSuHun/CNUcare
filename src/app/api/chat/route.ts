@@ -89,9 +89,11 @@ async function generate(
   try {
     const sheetText = sheets.map((s) => `[첨부: ${s.name}]\n${s.text || ""}`).join("\n\n");
     const lookupIntent = /조회|대조|중복|겹치|확인|명단|참여|등록|만들/.test(message);
+    // 담당(관리자) 배정 의도 — 텍스트만으로도 배정 플로우 진입시키기 위함
+    const assignIntent = /(담당|관리자|섭리|멘토).*(넣|붙|배정|지정|매칭|연결|맡)|(넣|붙|배정|지정|매칭).*(담당|관리자|섭리|멘토)/.test(message);
 
-    // 명단 워크플로: 파일 업로드→표+중복→제외→확인→행사등록 (진행 중 세션이면 응답 처리)
-    const rosterReply = await runRosterFlow(sb, convId, cnuUserId, message, sheets as any, media, lookupIntent);
+    // 명단 워크플로: 파일 업로드→표+중복→제외→확인→행사등록 / 담당 배정 (진행 중 세션이면 응답 처리)
+    const rosterReply = await runRosterFlow(sb, convId, cnuUserId, message, sheets as any, media, lookupIntent, assignIntent);
     if (rosterReply !== null) {
       await sb.from("chat_messages").update({ content: rosterReply, status: "done", engine: "roster" }).eq("id", assistantId);
       return;

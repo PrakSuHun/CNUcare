@@ -325,6 +325,7 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
       const { data: responses } = await supabase.from("event_feedback_responses").select("*").eq("form_id", form.id).order("created_at", { ascending: false });
       if (responses) setFeedbackResponses(responses);
     }
+    loadAllUsers(); // 담당 관리자 검색용 전체 CNUcare 사용자 미리 로드
     setLoading(false);
   };
 
@@ -463,23 +464,85 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
       });
       const { attendees: extracted } = await res.json();
 
-      // 이미 명단에 있는 사람은 제외 — 이름(공백무시) 또는 전화번호가 겹치면 중복으로 본다.
+      // 이미 명단에 있는 사람은 새로 만들지 않는다 — 이름(공백무시) 또는 전화번호가 겹치면 같은 사람으로 본다.
+      // 다만 강소은처럼 급한대로 "이름만" 넣어둔 사람은, 파일에 정보가 있으면 빈 칸만 채워준다(기존 값은 덮지 않음).
       const nk = (s: unknown) => String(s ?? "").replace(/\s+/g, "").toLowerCase();
       const pk = (s: unknown) => String(s ?? "").replace(/\D/g, "");
-      const existNames = new Set(attendees.map((a) => nk(a.name)).filter(Boolean));
-      const existPhones = new Set(attendees.map((a) => pk(a.phone)).filter((p) => p.length >= 9));
+      const byName = new Map<string, Attendee>();
+      const byPhone = new Map<string, Attendee>();
+      attendees.forEach((a) => {
+        const n = nk(a.name); if (n) byName.set(n, a);
+        const p = pk(a.phone); if (p.length >= 9) byPhone.set(p, a);
+      });
+
+      // 빈 값일 때만 채우기 (빈 = null/undefined/공백문자열)
+      const isEmpty = (v: unknown) => v === null || v === undefined || String(v).trim() === "";
+      const hasVal = (v: unknown) => v !== null && v !== undefined && String(v).trim() !== "";
+
+      // 파일의 담당자 이름 → CNUcare 유저 매칭 (완전일치 또는 성 제외 유일일치만; 애매·미존재는 미배정).
+      // 비대화형 대량 업로드라 placeholder 자동 생성은 하지 않는다.
+      const resolveMgrLocal = (q: unknown): { id: string; display_name: string } | null => {
+        const key = nk(q);
+        if (!key) return null;
+        const exact = allUsers.filter((u) => nk(u.display_name) === key);
+        if (exact.length === 1) return exact[0];
+        if (exact.length > 1) return null; // 동명이인 → 애매
+        const given = allUsers.filter((u) => nk(u.display_name).length >= 2 && nk(u.display_name).slice(1) === key);
+        return given.length === 1 ? given[0] : null;
+      };
+      const matchedMgrIds = new Set<string>(); // event_members 반영용
+      let mgrMatchCount = 0;
 
       const seenNames = new Set<string>(); // 파일 안에서의 중복도 제거
       let dupCount = 0;
       const rows: Record<string, unknown>[] = [];
+      const updates: { id: string; patch: Record<string, unknown> }[] = [];
       for (const a of (extracted || []) as any[]) {
         if (!a?.name) continue;
         const name = String(a.name).trim();
         const nkey = nk(name);
         const pkey = pk(a.phone);
-        const isDup = existNames.has(nkey) || (pkey.length >= 9 && existPhones.has(pkey)) || seenNames.has(nkey);
-        if (isDup) { dupCount++; continue; }
+        const existing = byName.get(nkey) || (pkey.length >= 9 ? byPhone.get(pkey) : undefined);
+
+        // 이미 있는 사람 → 빈 정보만 보완
+        if (existing) {
+          const patch: Record<string, unknown> = {};
+          const fill = (field: keyof Attendee, newVal: unknown) => {
+            if (isEmpty(existing[field]) && hasVal(newVal)) patch[field] = newVal;
+          };
+          fill("gender", a.gender);
+          fill("department", a.department);
+          fill("school", a.school);
+          fill("phone", a.phone ? formatPhone(a.phone) : null);
+          fill("friend_group", a.friendGroup);
+          fill("memo", a.memo);
+          if (existing.year == null && Number.isFinite(a.year)) patch.year = a.year;
+          // 담당 비어있고 파일에 담당자 있으면 매칭해 채움
+          if (isEmpty(existing.manager_id) && a.manager) {
+            const mgr = resolveMgrLocal(a.manager);
+            if (mgr) { patch.manager_id = mgr.id; matchedMgrIds.add(mgr.id); mgrMatchCount++; }
+          }
+          if (a.custom && Object.keys(a.custom).length) {
+            const merged = { ...(existing.custom_data || {}) };
+            let changed = false;
+            for (const [k, v] of Object.entries(a.custom)) {
+              if (isEmpty(merged[k]) && hasVal(v)) { merged[k] = v as string; changed = true; }
+            }
+            if (changed) patch.custom_data = merged;
+          }
+          if (Object.keys(patch).length > 0) {
+            updates.push({ id: existing.id, patch });
+            Object.assign(existing, patch); // 같은 파일 내 뒤 행이 또 덮지 않도록 로컬 반영
+          } else {
+            dupCount++;
+          }
+          continue;
+        }
+
+        if (seenNames.has(nkey)) { dupCount++; continue; }
         seenNames.add(nkey);
+        const mgr = a.manager ? resolveMgrLocal(a.manager) : null;
+        if (mgr) { matchedMgrIds.add(mgr.id); mgrMatchCount++; }
         rows.push({
           event_id: eventId,
           name,
@@ -490,28 +553,97 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
           school: a.school || null,
           friend_group: a.friendGroup || null,
           memo: a.memo || null,
+          manager_id: mgr?.id || null,
           custom_data: a.custom && Object.keys(a.custom).length ? a.custom : null,
           is_member: addType === "member",
           status: "pending",
         });
       }
 
-      if (rows.length === 0) {
-        alert(dupCount > 0 ? `모두 이미 명단에 있어요 (중복 ${dupCount}명 제외).` : "파일에서 참석자를 찾지 못했어요.");
+      if (rows.length === 0 && updates.length === 0) {
+        alert(dupCount > 0 ? `모두 이미 명단에 있어요 (중복 ${dupCount}명 제외). 보완할 정보도 없었어요.` : "파일에서 참석자를 찾지 못했어요.");
         return;
       }
 
-      const { data: inserted, error } = await supabase.from("event_attendees").insert(rows).select("*");
-      if (error) { alert("추가에 실패했어요: " + error.message); return; }
-      if (inserted) setAttendees((prev) => [...prev, ...(inserted as Attendee[])]);
+      // 빈 정보 보완 (기존 사람 업데이트)
+      for (const u of updates) {
+        await supabase.from("event_attendees").update(u.patch).eq("id", u.id);
+      }
+
+      // 새 사람 추가
+      let inserted: Attendee[] = [];
+      if (rows.length > 0) {
+        const { data, error } = await supabase.from("event_attendees").insert(rows).select("*");
+        if (error) { alert("추가에 실패했어요: " + error.message); return; }
+        inserted = (data as Attendee[]) || [];
+      }
+
+      // 매칭된 담당자를 이 행사 담당 목록(event_members)에 반영 (없던 사람만)
+      const newMemberIds = [...matchedMgrIds].filter((id) => !members.some((m) => m.user_id === id));
+      if (newMemberIds.length) {
+        const { data: mems } = await supabase
+          .from("event_members")
+          .insert(newMemberIds.map((id) => ({ event_id: eventId, user_id: id })))
+          .select("id, user_id");
+        if (mems) setMembers((prev) => [
+          ...prev,
+          ...(mems as any[]).map((m) => ({ id: m.id, user_id: m.user_id, display_name: allUsers.find((u) => u.id === m.user_id)?.display_name || "알 수 없음" })),
+        ]);
+      }
+
+      // 로컬 상태 반영 (보완 patch + 신규)
+      const patchMap = new Map(updates.map((u) => [u.id, u.patch]));
+      setAttendees((prev) => [
+        ...prev.map((a) => (patchMap.has(a.id) ? { ...a, ...patchMap.get(a.id) } : a)),
+        ...inserted,
+      ]);
       setShowAddModal(false);
-      const added = inserted?.length ?? rows.length;
-      alert(`${added}명 추가했어요${dupCount > 0 ? ` · 이미 있는 ${dupCount}명은 제외` : ""}.`);
+      const added = inserted.length;
+      const parts: string[] = [];
+      if (added > 0) parts.push(`${added}명 추가`);
+      if (updates.length > 0) parts.push(`${updates.length}명 정보 보완`);
+      if (mgrMatchCount > 0) parts.push(`담당 ${mgrMatchCount}명 매칭`);
+      if (dupCount > 0) parts.push(`중복 ${dupCount}명 제외`);
+      alert(parts.join(" · ") + ".");
     } catch {
       alert("파일 처리에 실패했어요.");
     } finally {
       setRosterUploading(false);
     }
+  };
+
+  // 담당 관리자 배정 — 전체 CNUcare 사용자 대상. 이 행사 event_members에 없으면 우선 추가한 뒤 배정한다.
+  // (배정된 관리자가 members에 있어야 "담당별" 그룹/드롭다운에서 이름이 제대로 뜬다)
+  const assignManager = async (attendeeId: string, userId: string | null) => {
+    if (userId && !members.some((m) => m.user_id === userId)) {
+      const u = allUsers.find((x) => x.id === userId);
+      const { data: mem } = await supabase
+        .from("event_members")
+        .insert({ event_id: eventId, user_id: userId })
+        .select("id")
+        .single();
+      if (mem) setMembers((prev) => [...prev, { id: mem.id, user_id: userId, display_name: u?.display_name || "알 수 없음" }]);
+    }
+    await updateAttendeeField(attendeeId, "manager_id", userId);
+  };
+
+  // 씨엔유 케어에 없는 이름 → 이름만으로 관리자(팀원) placeholder 생성 후 배정. event_members에도 추가된다.
+  // 강사처럼 본인이 직접 가입하기 전까지는 백엔드 데이터로만 존재하고 조직도에는 안 뜬다.
+  // 나중에 같은 이름으로 회원가입하면 이 레코드를 이어받아(claim) 자동 연결된다. (signup 참고)
+  const createManagerAndAssign = async (attendeeId: string, rawName: string) => {
+    const nm = rawName.trim();
+    if (!nm) return;
+    const exist = allUsers.find((u) => u.display_name === nm); // 혹시 이미 있으면 그대로 배정
+    if (exist) { await assignManager(attendeeId, exist.id); return; }
+    const loginId = `mgr_${Date.now().toString(36)}`;
+    const { data: created, error } = await supabase
+      .from("users")
+      .insert({ login_id: loginId, password: loginId, name: nm, display_name: nm, birth_date: "2000-01-01", phone: "", role: "student", is_placeholder: true })
+      .select("id, display_name")
+      .single();
+    if (error || !created) { alert("관리자 추가에 실패했어요: " + (error?.message || "")); return; }
+    setAllUsers((prev) => [...prev, { id: created.id, display_name: created.display_name }].sort((a, b) => a.display_name.localeCompare(b.display_name, "ko")));
+    await assignManager(attendeeId, created.id);
   };
 
   const addMemberAttendee = async (displayName: string) => {
@@ -1188,6 +1320,9 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                           {noShow && (
                             <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full shrink-0">노쇼</span>
                           )}
+                          {a.memo && (
+                            <span className="text-[10px] bg-amber-50 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded-full shrink-0 truncate max-w-[120px]" title={a.memo}>📝 {a.memo}</span>
+                          )}
                         </div>
                         <div className="flex items-center gap-2 text-xs text-gray-400 mt-0.5">
                           {a.team && <span>{a.team}</span>}
@@ -1430,6 +1565,12 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                                     placeholder="함께 신청한 친구" className="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:border-blue-400" />
                                 </div>
                                 <div>
+                                  <span className="text-[10px] text-gray-400">메모</span>
+                                  <textarea value={a.memo || ""} onChange={(e) => updateAttendeeField(a.id, "memo", e.target.value || null)}
+                                    placeholder="메모 (예: 박수훈 연결)" rows={2}
+                                    className="w-full text-xs border border-gray-200 rounded px-2 py-1 resize-none focus:outline-none focus:border-blue-400" />
+                                </div>
+                                <div>
                                   <label className="flex items-center gap-1.5 text-xs text-gray-500">
                                     <input type="checkbox" checked={a.is_member} onChange={(e) => updateAttendeeField(a.id, "is_member", e.target.checked)}
                                       className="w-3.5 h-3.5" />
@@ -1496,16 +1637,13 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                               </select>
                               )}
                               {!a.is_member && (
-                              <select
-                                value={a.manager_id || ""}
-                                onChange={(e) => updateAttendeeField(a.id, "manager_id", e.target.value || null)}
-                                className="flex-1 text-xs border border-gray-200 rounded px-2 py-1.5 focus:outline-none focus:border-blue-400"
-                              >
-                                <option value="">담당 미배정</option>
-                                {members.map((m) => (
-                                  <option key={m.user_id} value={m.user_id}>{m.display_name}</option>
-                                ))}
-                              </select>
+                              <ManagerAssign
+                                attendee={a}
+                                allUsers={allUsers}
+                                members={members}
+                                onAssign={(userId) => assignManager(a.id, userId)}
+                                onCreate={(name) => createManagerAndAssign(a.id, name)}
+                              />
                               )}
                             </div>
                           </div>
@@ -2812,6 +2950,105 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// 담당 관리자 배정 콤보박스 — 이 행사에 연결된 사람만이 아니라 CNUcare 전체 관리자를 검색해 배정.
+// 검색 결과에 없는 이름이면 "씨엔유 케어에 없습니다. 관리자로 추가할까요?" 안내 후 이름만으로 추가.
+function ManagerAssign({
+  attendee, allUsers, members, onAssign, onCreate,
+}: {
+  attendee: Attendee;
+  allUsers: { id: string; display_name: string }[];
+  members: Member[];
+  onAssign: (userId: string | null) => void | Promise<void>;
+  onCreate: (name: string) => void | Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const curName =
+    allUsers.find((u) => u.id === attendee.manager_id)?.display_name ||
+    members.find((m) => m.user_id === attendee.manager_id)?.display_name ||
+    "";
+  const kw = q.trim();
+  const filtered = allUsers.filter((u) => !kw || u.display_name.includes(kw));
+  const exactExists = allUsers.some((u) => u.display_name === kw);
+
+  const close = () => { setOpen(false); setQ(""); };
+  const pick = async (userId: string | null) => {
+    setBusy(true);
+    try { await onAssign(userId); } finally { setBusy(false); close(); }
+  };
+  const create = async () => {
+    setBusy(true);
+    try { await onCreate(kw); } finally { setBusy(false); close(); }
+  };
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="flex-1 text-xs text-left border border-gray-200 rounded px-2 py-1.5 focus:outline-none focus:border-blue-400"
+      >
+        {curName ? <span className="text-gray-900">{curName}</span> : <span className="text-gray-400">담당 미배정</span>}
+      </button>
+    );
+  }
+
+  return (
+    <div className="flex-1 relative">
+      <input
+        autoFocus
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+        placeholder="관리자 이름 검색"
+        className="w-full text-xs border border-blue-400 rounded px-2 py-1.5 focus:outline-none"
+      />
+      <div className="absolute z-20 left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-52 overflow-y-auto">
+        <button
+          type="button"
+          onClick={() => pick(null)}
+          disabled={busy}
+          className="w-full text-left px-2.5 py-1.5 text-xs text-gray-400 hover:bg-gray-50"
+        >
+          담당 미배정
+        </button>
+        {filtered.map((u) => (
+          <button
+            key={u.id}
+            type="button"
+            onClick={() => pick(u.id)}
+            disabled={busy}
+            className="w-full text-left px-2.5 py-1.5 text-xs hover:bg-blue-50 flex items-center justify-between"
+          >
+            <span>{u.display_name}</span>
+            {u.id === attendee.manager_id && <span className="text-[10px] text-blue-500">현재</span>}
+          </button>
+        ))}
+        {kw && !exactExists && (
+          <div className="px-2.5 py-2 border-t border-gray-100">
+            <p className="text-[11px] text-gray-500 mb-1">&quot;{kw}&quot;은(는) 씨엔유 케어에 없습니다. 관리자로 추가할까요?</p>
+            <button
+              type="button"
+              onClick={create}
+              disabled={busy}
+              className="w-full bg-blue-600 text-white rounded px-2 py-1.5 text-xs font-medium disabled:opacity-50"
+            >
+              {busy ? "추가 중..." : `"${kw}" 관리자로 추가`}
+            </button>
+          </div>
+        )}
+        {!kw && allUsers.length === 0 && (
+          <p className="px-2.5 py-2 text-[11px] text-gray-400">사용자 목록을 불러오는 중...</p>
+        )}
+        <button type="button" onClick={close} className="w-full text-left px-2.5 py-1.5 text-[11px] text-gray-400 border-t border-gray-100 hover:bg-gray-50">
+          닫기
+        </button>
+      </div>
     </div>
   );
 }

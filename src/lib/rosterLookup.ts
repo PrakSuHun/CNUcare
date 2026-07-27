@@ -2,6 +2,7 @@
 // 프로젠(별도 Supabase, progen-lookup 함수 경유)과 대조해 "중복 참여/생명 여부"를 알려준다.
 // 서버 전용 — service_role로 lives/event_* 를 직접 읽는다. (읽기만; 쓰기 없음)
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { randomBytes } from "crypto";
 
 // ── 정규화 ──────────────────────────────────────────────
 export function normalizeName(input: unknown): string {
@@ -44,6 +45,7 @@ interface CnuIndex {
   userName: Map<string, string>;
   userNames: Set<string>;
   managerGiven: Map<string, string[]>;
+  usersList: { id: string; display_name: string }[]; // 담당 이름 해석용 전체 유저
   livesByPhone: Map<string, LifeRec>;
   livesByName: Map<string, LifeRec>;
 }
@@ -66,6 +68,7 @@ async function loadIndex(): Promise<CnuIndex> {
   const userName = new Map<string, string>();
   const userNames = new Set<string>();
   const managerGiven = new Map<string, string[]>();
+  const usersList = ((us.data ?? []) as { id: string; display_name: string }[]).filter((u) => u.display_name);
   for (const u of (us.data ?? []) as { id: string; display_name: string }[]) {
     userName.set(u.id, u.display_name);
     if (u.display_name) {
@@ -114,13 +117,66 @@ async function loadIndex(): Promise<CnuIndex> {
     if (nk) livesByName.set(nk, rec);
   }
 
-  cache = { attendees, managersByEvent, userName, userNames, managerGiven, livesByPhone, livesByName };
+  cache = { attendees, managersByEvent, userName, userNames, managerGiven, usersList, livesByPhone, livesByName };
   cacheAt = Date.now();
   return cache;
 }
 
 export function clearLookupCache() {
   cache = null; progenIdx = null; progenTried = false; progenAt = 0;
+}
+
+// ── 담당(관리자) 이름 해석 ────────────────────────────────
+export type ManagerCandidate = { id: string; display_name: string; kind: "exact" | "given" | "partial" };
+
+/** 담당자 이름(부정확 가능, 예 "경석")을 CNU 유저와 매칭. 완전일치→성 제외 일치→부분일치 순. */
+export async function resolveManagerByName(query: string): Promise<ManagerCandidate[]> {
+  const q = normalizeName(query);
+  if (!q) return [];
+  const idx = await loadIndex();
+  const seen = new Set<string>();
+  const out: ManagerCandidate[] = [];
+  const push = (id: string, display_name: string, kind: ManagerCandidate["kind"]) => {
+    if (seen.has(id)) return;
+    seen.add(id);
+    out.push({ id, display_name, kind });
+  };
+  // 1) 완전일치
+  for (const u of idx.usersList) if (normalizeName(u.display_name) === q) push(u.id, u.display_name, "exact");
+  // 2) 성 제외 일치 ("경석" → "고경석")
+  for (const u of idx.usersList) {
+    const nk = normalizeName(u.display_name);
+    if (nk.length >= 2 && nk.slice(1) === q) push(u.id, u.display_name, "given");
+  }
+  // 3) 부분일치 (2글자 이상 질의에서만)
+  if (q.length >= 2) for (const u of idx.usersList) {
+    if (normalizeName(u.display_name).includes(q)) push(u.id, u.display_name, "partial");
+  }
+  return out;
+}
+
+/** 씨엔유 케어에 없는 담당자 → 이름만으로 미가입 관리자(placeholder) 생성. (EventDetail 규약과 동일) */
+export async function createPlaceholderManager(name: string): Promise<{ id: string; display_name: string } | null> {
+  const nm = String(name || "").trim();
+  if (!nm) return null;
+  const loginId = `mgr_${randomBytes(6).toString("hex")}`;
+  const { data, error } = await db()
+    .from("users")
+    .insert({ login_id: loginId, password: loginId, name: nm, display_name: nm, birth_date: "2000-01-01", phone: "", role: "student", is_placeholder: true })
+    .select("id, display_name")
+    .single();
+  if (error || !data) return null;
+  clearLookupCache(); // 새 유저가 이후 resolve에 잡히도록
+  return data as { id: string; display_name: string };
+}
+
+/** 행사 담당자 목록(event_members)에 없으면 추가. */
+export async function ensureEventMember(eventId: string, userId: string): Promise<void> {
+  const s = db();
+  const { data } = await s.from("event_members").select("id").eq("event_id", eventId).eq("user_id", userId).limit(1);
+  if (!data || data.length === 0) {
+    await s.from("event_members").insert({ event_id: eventId, user_id: userId });
+  }
 }
 
 // ── 프로젠 (읽기 전용, progen-lookup 함수 경유) ───────────

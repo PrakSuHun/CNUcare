@@ -129,8 +129,8 @@ export default function OrgChart({ userRole, userId, basePath, editMode: externa
   const fetchOrgData = async () => {
     // 최초 3개 쿼리 병렬 실행
     const [managersRes, studentsRes, livesRes] = await Promise.all([
-      supabase.from("users").select("id, display_name").eq("role", "manager").order("display_name"),
-      supabase.from("users").select("id, display_name, manager_id").eq("role", "student").order("display_name"),
+      supabase.from("users").select("id, display_name").eq("role", "manager").eq("is_placeholder", false).order("display_name"),
+      supabase.from("users").select("id, display_name, manager_id").eq("role", "student").eq("is_placeholder", false).order("display_name"),
       supabase
         .from("lives")
         .select("id, name, age, department, stage, is_failed, last_met_at, memo, primary_user_id, created_at"),

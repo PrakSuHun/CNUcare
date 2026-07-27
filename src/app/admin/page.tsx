@@ -8,6 +8,7 @@ import Settings from "@/components/Settings";
 import OrgChart from "@/components/OrgChart";
 import AnalysisPage from "@/components/AnalysisPage";
 import InstructorCalendar from "@/components/InstructorCalendar";
+import PlaceholderManagerAdmin from "@/components/PlaceholderManagerAdmin";
 
 interface UserRow {
   id: string;
@@ -35,7 +36,7 @@ export default function AdminPage() {
   const [user, setUser] = useState<User | null>(null);
   const [users, setUsers] = useState<UserRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<"org" | "calendar" | "dashboard" | "analysis" | "users">("org");
+  const [tab, setTab] = useState<"org" | "calendar" | "dashboard" | "analysis" | "users" | "placeholders">("org");
   const [editMode, setEditMode] = useState(false);
   const [editingUser, setEditingUser] = useState<UserRow | null>(null);
   const [editForm, setEditForm] = useState({ display_name: "", name: "", phone: "", birth_date: "", password: "", manager_id: "" });
@@ -56,6 +57,7 @@ export default function AdminPage() {
     const { data } = await supabase
       .from("users")
       .select("id, login_id, display_name, name, role, phone, birth_date, manager_id, is_college_leader")
+      .eq("is_placeholder", false) // 미가입 관리자(placeholder)는 전용 탭에서 관리
       .order("role")
       .order("display_name");
     if (data) setUsers(data);
@@ -152,6 +154,7 @@ export default function AdminPage() {
           { key: "calendar", label: "캘린더" },
           { key: "analysis", label: "AI 분석" },
           { key: "users", label: "권한 관리" },
+          { key: "placeholders", label: "미가입 관리자" },
         ].map((t) => (
           <button
             key={t.key}
@@ -171,6 +174,7 @@ export default function AdminPage() {
         )}
         {tab === "calendar" && <InstructorCalendar basePath="/admin" />}
         {tab === "analysis" && <AnalysisPage />}
+        {tab === "placeholders" && <PlaceholderManagerAdmin />}
         {tab === "users" && (
           <div className="space-y-2">
             <p className="text-xs text-gray-500 mb-2">전체 {users.length}명</p>
