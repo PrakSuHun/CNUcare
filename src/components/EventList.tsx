@@ -215,24 +215,68 @@ export default function EventList({ basePath, allEvents = false }: EventListProp
           }),
         });
         const { attendees } = await res.json();
-        const rows = (attendees || []).filter((a: any) => a?.name).map((a: any) => ({
-          event_id: newEvent.id,
-          name: String(a.name).trim(),
-          gender: a.gender || null,
-          department: a.department || null,
-          year: Number.isFinite(a.year) ? a.year : null,
-          phone: a.phone || null,
-          school: a.school || null,
-          friend_group: a.friendGroup || null,
-          memo: a.memo || null,
-          // 기본 항목에 없던 열은 커스텀 항목으로 보존
-          custom_data: a.custom && Object.keys(a.custom).length ? a.custom : null,
-          is_member: false,
-          status: "pending",
-        }));
+
+        // 파일의 담당자(관리자) 이름 → CNUcare 유저 매칭 (완전일치 또는 성 제외 유일일치만; 애매·미존재는 미배정).
+        // 기존 행사에 명단 추가할 때(EventDetail.handleRosterUpload)와 동일한 규칙.
+        const nk = (s: unknown) => String(s ?? "").replace(/\s+/g, "").toLowerCase();
+        const { data: userData } = await supabase.from("users").select("id, display_name");
+        const allUsers = (userData || []) as { id: string; display_name: string }[];
+        const resolveMgr = (q: unknown): { id: string; display_name: string } | null => {
+          const key = nk(q);
+          if (!key) return null;
+          const exact = allUsers.filter((u) => nk(u.display_name) === key);
+          if (exact.length === 1) return exact[0];
+          if (exact.length > 1) return null; // 동명이인 → 애매
+          const given = allUsers.filter((u) => nk(u.display_name).length >= 2 && nk(u.display_name).slice(1) === key);
+          return given.length === 1 ? given[0] : null;
+        };
+        const matchedMgrs = new Map<string, string>(); // id -> display_name
+
+        const rows: Record<string, unknown>[] = (attendees || []).filter((a: any) => a?.name).map((a: any) => {
+          const mgr = a.manager ? resolveMgr(a.manager) : null;
+          if (mgr) matchedMgrs.set(mgr.id, mgr.display_name);
+          return {
+            event_id: newEvent.id,
+            name: String(a.name).trim(),
+            gender: a.gender || null,
+            department: a.department || null,
+            year: Number.isFinite(a.year) ? a.year : null,
+            phone: a.phone || null,
+            school: a.school || null,
+            friend_group: a.friendGroup || null,
+            memo: a.memo || null,
+            // 기본 항목에 없던 열은 커스텀 항목으로 보존
+            custom_data: a.custom && Object.keys(a.custom).length ? a.custom : null,
+            manager_id: mgr?.id || null,
+            is_member: false,
+            status: "pending",
+          };
+        });
+
+        // 매칭된 관리자를 섭리회원 참석자로도 추가 (명단에 같은 이름이 아직 없을 때만)
+        const attNames = new Set(rows.map((r) => nk(r.name)));
+        for (const [id, dn] of matchedMgrs) {
+          if (attNames.has(nk(dn))) continue;
+          attNames.add(nk(dn));
+          rows.push({
+            event_id: newEvent.id,
+            name: dn,
+            gender: null, department: null, year: null, phone: null,
+            school: null, friend_group: null, memo: null, custom_data: null,
+            manager_id: null, is_member: true, status: "pending",
+          });
+        }
+
         if (rows.length) {
           await supabase.from("event_attendees").insert(rows);
           importedCount = rows.length;
+        }
+
+        // 매칭된 관리자를 행사 담당 목록(event_members)에도 반영 (생성자·공유대상은 이미 들어감)
+        const existingMemberIds = new Set(members.map((m) => m.user_id));
+        const newMgrMemberIds = [...matchedMgrs.keys()].filter((id) => !existingMemberIds.has(id));
+        if (newMgrMemberIds.length) {
+          await supabase.from("event_members").insert(newMgrMemberIds.map((id) => ({ event_id: newEvent.id, user_id: id })));
         }
       } catch {
         // 명단 추출 실패해도 행사는 생성됨 — 알림만

@@ -591,11 +591,24 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
         ]);
       }
 
-      // 로컬 상태 반영 (보완 patch + 신규)
+      // 매칭된 관리자를 섭리회원 참석자로도 추가 (이 행사 명단에 아직 없는 사람만)
+      const existingAttNames = new Set([...attendees, ...inserted].map((a) => nk(a.name)));
+      const mgrAttendeeRows = [...matchedMgrIds]
+        .map((id) => ({ id, dn: allUsers.find((u) => u.id === id)?.display_name || "" }))
+        .filter((m) => m.dn && !existingAttNames.has(nk(m.dn)))
+        .map((m) => ({ event_id: eventId, name: m.dn, is_member: true, status: "pending" }));
+      let insertedMgrs: Attendee[] = [];
+      if (mgrAttendeeRows.length) {
+        const { data } = await supabase.from("event_attendees").insert(mgrAttendeeRows).select("*");
+        insertedMgrs = (data as Attendee[]) || [];
+      }
+
+      // 로컬 상태 반영 (보완 patch + 신규 + 관리자 참석자)
       const patchMap = new Map(updates.map((u) => [u.id, u.patch]));
       setAttendees((prev) => [
         ...prev.map((a) => (patchMap.has(a.id) ? { ...a, ...patchMap.get(a.id) } : a)),
         ...inserted,
+        ...insertedMgrs,
       ]);
       setShowAddModal(false);
       const added = inserted.length;
@@ -603,6 +616,7 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
       if (added > 0) parts.push(`${added}명 추가`);
       if (updates.length > 0) parts.push(`${updates.length}명 정보 보완`);
       if (mgrMatchCount > 0) parts.push(`관리자 ${mgrMatchCount}명 매칭`);
+      if (insertedMgrs.length > 0) parts.push(`관리자 ${insertedMgrs.length}명 참석 추가`);
       if (dupCount > 0) parts.push(`중복 ${dupCount}명 제외`);
       alert(parts.join(" · ") + ".");
     } catch {
