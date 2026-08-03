@@ -124,7 +124,7 @@ JSON만 출력.`;
 
 async function createEvent(
   sb: SupabaseClient, cnuUserId: string, eventName: string, attendees: Attendee[],
-): Promise<{ eventId: string; assigned: { name: string; manager: string }[] } | null> {
+): Promise<{ eventId: string; assigned: { name: string; manager: string }[]; memberAddedCount: number } | null> {
   const { data: ev, error } = await sb.from("events").insert({ name: eventName, type: "onetime", created_by: cnuUserId || null }).select("id").single();
   if (error || !ev) return null;
   if (cnuUserId) await sb.from("event_members").insert({ event_id: ev.id, user_id: cnuUserId });
@@ -146,6 +146,7 @@ async function createEvent(
   }
   const assigned: { name: string; manager: string }[] = [];
   const memberAdded = new Set<string>();
+  const matchedMgrs = new Map<string, string>(); // 매칭된 관리자 id -> display_name
   for (const a of attendees) {
     const mgrName = (a.manager || "").trim();
     const id = idQueue.get(normalizeName(a.name))?.shift();
@@ -153,10 +154,23 @@ async function createEvent(
     const mgr = await resolveOrCreateManager(mgrName);
     if (!mgr) continue;
     if (!memberAdded.has(mgr.id)) { await ensureEventMember(ev.id, mgr.id); memberAdded.add(mgr.id); }
+    matchedMgrs.set(mgr.id, mgr.display_name);
     await sb.from("event_attendees").update({ manager_id: mgr.id }).eq("id", id);
     assigned.push({ name: a.name, manager: mgr.display_name });
   }
-  return { eventId: ev.id, assigned };
+
+  // 매칭된 관리자를 섭리회원 참석자로도 추가 (명단에 같은 이름이 아직 없을 때만)
+  const attNames = new Set(inserted.map((r) => normalizeName(r.name)));
+  const mgrRows: Record<string, unknown>[] = [];
+  for (const dn of matchedMgrs.values()) {
+    const k = normalizeName(dn);
+    if (!dn || attNames.has(k)) continue;
+    attNames.add(k);
+    mgrRows.push({ event_id: ev.id, name: dn, is_member: true, status: "pending" });
+  }
+  if (mgrRows.length) await sb.from("event_attendees").insert(mgrRows);
+
+  return { eventId: ev.id, assigned, memberAddedCount: mgrRows.length };
 }
 
 function reviewText(attendees: Attendee[], dup: CreateState["dup"], excluded: string[]): string {
@@ -432,11 +446,12 @@ export async function runRosterFlow(
     const res = await createEvent(sb, cnuUserId, eventName!, finalList);
     await clearSession(sb, convId);
     if (!res) return "행사 생성에 실패했어요. 잠시 후 다시 시도해주세요.";
-    const { assigned } = res;
+    const { assigned, memberAddedCount } = res;
     const unassigned = finalList.length - assigned.length;
     let msg = `행사 "${eventName}"를 만들었어요. 참석자 ${finalList.length}명 등록 완료.`;
-    if (assigned.length) msg += `\n\n담당 배정 ${assigned.length}명:\n${managerTable(assigned)}`;
-    if (assigned.length && unassigned > 0) msg += `\n\n나머지 ${unassigned}명은 담당 미배정이에요 (파일에 담당 정보가 없거나 못 찾음).`;
+    if (memberAddedCount > 0) msg += ` 관리자 ${memberAddedCount}명은 섭리회원으로 추가했어요.`;
+    if (assigned.length) msg += `\n\n관리자 배정 ${assigned.length}명:\n${managerTable(assigned)}`;
+    if (assigned.length && unassigned > 0) msg += `\n\n나머지 ${unassigned}명은 관리자 미배정이에요 (파일에 관리자 정보가 없거나 못 찾음).`;
     msg += `\n\n${rosterTable(finalList, [], session.dup)}`;
     return msg;
   }
