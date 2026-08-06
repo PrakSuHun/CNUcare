@@ -708,6 +708,137 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
     setShowAddModal(false);
   };
 
+  // === 명단(엑셀) 공통 헬퍼 ===
+  // 고정 컬럼(전용 DB 컬럼) + 신청폼 커스텀 항목(custom_data, 라벨을 키로 저장)
+  const ROSTER_FIXED = ["이름", "성별", "학교", "학과", "학년", "연락처", "같이 오시는 분", "팀", "상태", "메모"];
+  const rosterCustomKeys = (list: Attendee[]): string[] => {
+    const keys: string[] = [];
+    list.forEach((a) => Object.keys(a.custom_data || {}).forEach((k) => { if (!keys.includes(k)) keys.push(k); }));
+    return keys;
+  };
+  const rosterRow = (a: Attendee): Record<string, string> => ({
+    "이름": a.name || "",
+    "성별": a.gender || "",
+    "학교": a.school || "",
+    "학과": a.department || "",
+    "학년": a.year != null ? `${a.year}학년` : "",
+    "연락처": a.phone || "",
+    "같이 오시는 분": a.friend_group || "",
+    "팀": a.team || "",
+    "상태": a.status || "",
+    "메모": a.memo || "",
+    ...(a.custom_data || {}),
+  });
+  const rosterFileName = (suffix: string) =>
+    `${(event?.name || "행사").replace(/[\\/:*?"<>|]/g, "_")}_${suffix}.xlsx`;
+  // 엑셀 시트명 제약(금지문자·31자·중복불가) 처리
+  const sheetSafe = (name: string, used: Set<string>): string => {
+    const base = (name.replace(/[\\/?*[\]:]/g, " ").trim() || "기타").slice(0, 31);
+    let nm = base, n = 2;
+    while (used.has(nm)) { nm = `${base.slice(0, 28)} ${n}`; n++; }
+    used.add(nm);
+    return nm;
+  };
+
+  // 전체 명단 → 시트 1개짜리 .xlsx 바로 다운로드
+  const downloadAllXlsx = () => {
+    if (attendees.length === 0) { alert("명단이 비어 있어요."); return; }
+    const cols = [...ROSTER_FIXED, ...rosterCustomKeys(attendees)];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(attendees.map(rosterRow), { header: cols }), "전체 명단");
+    XLSX.writeFile(wb, rosterFileName("전체명단"));
+  };
+
+  // 학교별 명단 → 학교마다 시트를 분리한 .xlsx 바로 다운로드 (컬럼은 전체 기준 통일)
+  const downloadBySchoolXlsx = () => {
+    if (attendees.length === 0) { alert("명단이 비어 있어요."); return; }
+    const cols = [...ROSTER_FIXED, ...rosterCustomKeys(attendees)];
+    const wb = XLSX.utils.book_new();
+    const used = new Set<string>();
+    const addSheet = (name: string, list: Attendee[]) => {
+      if (list.length === 0) return;
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(list.map(rosterRow), { header: cols }), sheetSafe(name, used));
+    };
+    SCHOOL_LIST.forEach((school) => addSheet(school, attendees.filter((a) => a.school === school)));
+    addSheet("기타", attendees.filter((a) => !SCHOOL_LIST.includes(a.school || "")));
+    if (wb.SheetNames.length === 0) { alert("명단이 비어 있어요."); return; }
+    XLSX.writeFile(wb, rosterFileName("학교별명단"));
+  };
+
+  // 명단 다운 — 새 탭에 엑셀형 표를 띄우고, 거기서 .xlsx 다운로드 / 구글 시트용 복사
+  const openRoster = () => {
+    const customKeys = rosterCustomKeys(attendees);
+    const cols = [...ROSTER_FIXED, ...customKeys];
+    const rows = attendees.map(rosterRow);
+
+    // 1) .xlsx (base64 data URI — 새 탭 페이지에 라이브러리 없이 <a download>로 내려받게 함)
+    const ws = XLSX.utils.json_to_sheet(rows, { header: cols });
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "명단");
+    const b64 = XLSX.write(wb, { type: "base64", bookType: "xlsx" });
+    const xlsxUri = `data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,${b64}`;
+
+    // 2) TSV (구글 시트에 붙여넣기용)
+    const tsv = [cols, ...rows.map((r) => cols.map((c) => r[c] ?? ""))]
+      .map((line) => line.map((cell) => String(cell).replace(/\t/g, " ").replace(/\r?\n/g, " ")).join("\t"))
+      .join("\n");
+
+    // 3) 새 탭 HTML — 표 미리보기 + 버튼
+    const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    const title = `${event?.name || "행사"} 명단`;
+    const fileName = `${(event?.name || "행사").replace(/[\\/:*?"<>|]/g, "_")}_명단.xlsx`;
+    const thead = `<tr><th>#</th>${cols.map((c) => `<th>${esc(c)}</th>`).join("")}</tr>`;
+    const tbody = rows
+      .map((r, i) => `<tr><td class="idx">${i + 1}</td>${cols.map((c) => `<td>${esc(r[c] ?? "")}</td>`).join("")}</tr>`)
+      .join("");
+    const tsvJson = JSON.stringify(tsv).replace(/</g, "\\u003c");
+    const html = `<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${esc(title)}</title>
+<style>
+  *{box-sizing:border-box} body{margin:0;font-family:system-ui,-apple-system,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;color:#1f2937;background:#f9fafb}
+  header{position:sticky;top:0;background:#fff;border-bottom:1px solid #e5e7eb;padding:14px 18px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;z-index:10}
+  h1{font-size:16px;margin:0;font-weight:600} .count{color:#6b7280;font-size:13px}
+  .spacer{flex:1}
+  button,a.btn{font:inherit;font-size:13px;font-weight:500;border-radius:8px;padding:8px 14px;cursor:pointer;text-decoration:none;border:1px solid transparent;white-space:nowrap}
+  a.dl{background:#16a34a;color:#fff} .copy{background:#2563eb;color:#fff;border:none} .copy:active{opacity:.85}
+  a.sheet{background:#fff;color:#374151;border:1px solid #d1d5db}
+  .wrap{padding:16px;overflow:auto}
+  table{border-collapse:collapse;background:#fff;font-size:13px;min-width:100%}
+  th,td{border:1px solid #e5e7eb;padding:6px 10px;text-align:left;white-space:nowrap}
+  th{background:#f3f4f6;font-weight:600;position:sticky;top:0}
+  td.idx,th:first-child{color:#9ca3af;text-align:right} tr:nth-child(even) td{background:#fafafa}
+  .hint{color:#6b7280;font-size:12px;padding:0 18px 18px}
+</style></head><body>
+<header>
+  <h1>${esc(title)}</h1><span class="count">${rows.length}명</span>
+  <span class="spacer"></span>
+  <a class="btn dl" href="${xlsxUri}" download="${esc(fileName)}">엑셀 다운로드 (.xlsx)</a>
+  <button class="copy" onclick="copyTsv()">구글 시트용 복사</button>
+  <a class="btn sheet" href="https://sheets.new" target="_blank" rel="noopener">빈 구글 시트 열기</a>
+</header>
+<div class="hint">‘구글 시트용 복사’ → 빈 구글 시트를 열고 A1 칸에 붙여넣기(Ctrl/⌘+V) 하면 표로 들어갑니다.</div>
+<div class="wrap"><table><thead>${thead}</thead><tbody>${tbody}</tbody></table></div>
+<script>
+  var TSV=${tsvJson};
+  function copyTsv(){
+    var done=function(){var b=document.querySelector('.copy');var t=b.textContent;b.textContent='복사됨 ✓';setTimeout(function(){b.textContent=t;},1500);};
+    if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(TSV).then(done,fallback);}else{fallback();}
+    function fallback(){var ta=document.createElement('textarea');ta.value=TSV;document.body.appendChild(ta);ta.select();try{document.execCommand('copy');done();}catch(e){alert('복사 실패 — 표를 직접 선택해 복사하세요.');}document.body.removeChild(ta);}
+  }
+</script>
+</body></html>`;
+
+    const blob = new Blob([html], { type: "text/html" });
+    const url = URL.createObjectURL(blob);
+    const win = window.open(url, "_blank");
+    if (!win) {
+      URL.revokeObjectURL(url);
+      alert("팝업이 차단되어 새 탭을 열 수 없어요. 팝업 허용 후 다시 시도해 주세요.");
+      return;
+    }
+    // 탭이 blob을 읽어간 뒤 정리 (즉시 revoke하면 로드 실패 가능)
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  };
+
   // --- Sorting ---
   const sortAttendees = (list: Attendee[]) => {
     return [...list].sort((a, b) => {
@@ -1214,8 +1345,14 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                 />
               )}
               <button
+                onClick={openRoster}
+                className="ml-auto text-xs text-green-600 border border-green-300 rounded-full px-3 py-1.5 hover:bg-green-50 whitespace-nowrap"
+              >
+                명단 다운
+              </button>
+              <button
                 onClick={() => { setShowAddModal(true); loadAllUsers(); }}
-                className="ml-auto text-xs text-blue-600 border border-blue-300 rounded-full px-3 py-1.5 hover:bg-blue-50 whitespace-nowrap"
+                className="text-xs text-blue-600 border border-blue-300 rounded-full px-3 py-1.5 hover:bg-blue-50 whitespace-nowrap"
               >
                 + 참석자 추가
               </button>
@@ -2106,6 +2243,10 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                   </div>
                 </div>
               )}
+              <button onClick={downloadBySchoolXlsx}
+                className="w-full mt-2 border border-green-300 text-green-700 rounded-lg py-2 text-sm font-medium hover:bg-green-50">
+                엑셀로 다운 (학교별 시트 분리)
+              </button>
             </div>
 
             {/* 전체 명단 공유 (학교 구분 없이 전부, 읽기 전용) */}
@@ -2134,6 +2275,10 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                   </div>
                 </div>
               )}
+              <button onClick={downloadAllXlsx}
+                className="w-full mt-2 border border-green-300 text-green-700 rounded-lg py-2 text-sm font-medium hover:bg-green-50">
+                엑셀로 다운 (전체 명단)
+              </button>
             </div>
 
             {/* 행사명 수정 */}
@@ -2153,8 +2298,38 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
               </div>
             </div>
 
-            {/* 회차 설정 (주차별 동아리 제외) */}
-            {!(event?.type === "club" && event.club_unit === "weekly") && (
+            {/* 일회성 행사: 회차 없이 행사 날짜 하나만 */}
+            {event?.type === "onetime" && (
+            <div className="bg-white rounded-lg border border-gray-200 p-4">
+              <p className="text-sm font-medium text-gray-700 mb-3">행사 날짜</p>
+              <input
+                type="date"
+                value={sessions[0]?.date || ""}
+                onChange={(e) => setSessions(e.target.value ? [{ number: 1, date: e.target.value }] : [])}
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400"
+              />
+              <button
+                onClick={async () => {
+                  const nextSessions = sessions[0]?.date ? [{ number: 1, date: sessions[0].date }] : [];
+                  const nextConfig = { ...settingsConfig, sessions: nextSessions };
+                  const { data: existing } = await supabase.from("event_forms").select("id").eq("event_id", eventId).eq("type", "settings").limit(1);
+                  if (existing && existing.length > 0) {
+                    await supabase.from("event_forms").update({ config: nextConfig }).eq("id", existing[0].id);
+                  } else {
+                    await supabase.from("event_forms").insert({ event_id: eventId, type: "settings", config: nextConfig, created_by: getUser()?.id });
+                  }
+                  setSettingsConfig(nextConfig);
+                  alert("저장되었습니다.");
+                }}
+                className="w-full mt-3 bg-blue-600 text-white rounded-lg py-2.5 text-sm font-medium"
+              >
+                저장
+              </button>
+            </div>
+            )}
+
+            {/* 회차 설정 (동아리 · 회차당 집계 전용) */}
+            {event?.type === "club" && event.club_unit !== "weekly" && (
             <div className="bg-white rounded-lg border border-gray-200 p-4">
               <p className="text-sm font-medium text-gray-700 mb-3">회차 설정</p>
               <p className="text-xs text-gray-500 mb-3">각 회차 날짜를 입력하세요</p>
