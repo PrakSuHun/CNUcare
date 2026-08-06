@@ -740,83 +740,72 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
     return nm;
   };
 
-  // 전체 명단 → 시트 1개짜리 .xlsx 바로 다운로드
-  const downloadAllXlsx = () => {
+  // 명단 미리보기 — 새 탭에 엑셀형 표를 띄우고 거기서 .xlsx 다운로드 / 구글 시트용 복사
+  // sections: 엑셀 시트로 분리할 단위 (학교별이면 학교마다, 전체면 1개). 컬럼은 전체 기준 통일.
+  const openRosterPreview = (fileSuffix: string, sections: { name: string; list: Attendee[] }[]) => {
     if (attendees.length === 0) { alert("명단이 비어 있어요."); return; }
     const cols = [...ROSTER_FIXED, ...rosterCustomKeys(attendees)];
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(attendees.map(rosterRow), { header: cols }), "전체 명단");
-    XLSX.writeFile(wb, rosterFileName("전체명단"));
-  };
+    const visible = sections.filter((s) => s.list.length > 0);
+    if (visible.length === 0) { alert("명단이 비어 있어요."); return; }
+    const multi = visible.length > 1;
 
-  // 학교별 명단 → 학교마다 시트를 분리한 .xlsx 바로 다운로드 (컬럼은 전체 기준 통일)
-  const downloadBySchoolXlsx = () => {
-    if (attendees.length === 0) { alert("명단이 비어 있어요."); return; }
-    const cols = [...ROSTER_FIXED, ...rosterCustomKeys(attendees)];
+    // 1) .xlsx (섹션마다 시트) → base64 data URI (새 탭 페이지에 라이브러리 없이 <a download>로 내려받게 함)
     const wb = XLSX.utils.book_new();
     const used = new Set<string>();
-    const addSheet = (name: string, list: Attendee[]) => {
-      if (list.length === 0) return;
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(list.map(rosterRow), { header: cols }), sheetSafe(name, used));
-    };
-    SCHOOL_LIST.forEach((school) => addSheet(school, attendees.filter((a) => a.school === school)));
-    addSheet("기타", attendees.filter((a) => !SCHOOL_LIST.includes(a.school || "")));
-    if (wb.SheetNames.length === 0) { alert("명단이 비어 있어요."); return; }
-    XLSX.writeFile(wb, rosterFileName("학교별명단"));
-  };
-
-  // 명단 다운 — 새 탭에 엑셀형 표를 띄우고, 거기서 .xlsx 다운로드 / 구글 시트용 복사
-  const openRoster = () => {
-    const customKeys = rosterCustomKeys(attendees);
-    const cols = [...ROSTER_FIXED, ...customKeys];
-    const rows = attendees.map(rosterRow);
-
-    // 1) .xlsx (base64 data URI — 새 탭 페이지에 라이브러리 없이 <a download>로 내려받게 함)
-    const ws = XLSX.utils.json_to_sheet(rows, { header: cols });
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "명단");
+    visible.forEach((s) => {
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(s.list.map(rosterRow), { header: cols }), sheetSafe(s.name, used));
+    });
     const b64 = XLSX.write(wb, { type: "base64", bookType: "xlsx" });
     const xlsxUri = `data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,${b64}`;
 
-    // 2) TSV (구글 시트에 붙여넣기용)
-    const tsv = [cols, ...rows.map((r) => cols.map((c) => r[c] ?? ""))]
+    // 2) TSV (구글 시트용) — 전 섹션 행을 이어붙임(학교 컬럼 포함이라 구분 유지)
+    const allRows = visible.flatMap((s) => s.list.map(rosterRow));
+    const tsv = [cols, ...allRows.map((r) => cols.map((c) => r[c] ?? ""))]
       .map((line) => line.map((cell) => String(cell).replace(/\t/g, " ").replace(/\r?\n/g, " ")).join("\t"))
       .join("\n");
 
     // 3) 새 탭 HTML — 표 미리보기 + 버튼
     const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
     const title = `${event?.name || "행사"} 명단`;
-    const fileName = `${(event?.name || "행사").replace(/[\\/:*?"<>|]/g, "_")}_명단.xlsx`;
+    const fileName = rosterFileName(fileSuffix);
     const thead = `<tr><th>#</th>${cols.map((c) => `<th>${esc(c)}</th>`).join("")}</tr>`;
-    const tbody = rows
-      .map((r, i) => `<tr><td class="idx">${i + 1}</td>${cols.map((c) => `<td>${esc(r[c] ?? "")}</td>`).join("")}</tr>`)
-      .join("");
+    const sectionsHtml = visible.map((s) => {
+      const rows = s.list.map(rosterRow);
+      const body = rows.map((r, i) => `<tr><td class="idx">${i + 1}</td>${cols.map((c) => `<td>${esc(r[c] ?? "")}</td>`).join("")}</tr>`).join("");
+      const head = multi ? `<h2>${esc(s.name)} <span class="count">${rows.length}명</span></h2>` : "";
+      return `${head}<div class="wrap"><table><thead>${thead}</thead><tbody>${body}</tbody></table></div>`;
+    }).join("");
+    const note = multi
+      ? "엑셀 파일은 학교별로 <b>시트(탭)가 분리</b>돼 있어요. ‘구글 시트용 복사’는 학교 컬럼이 포함된 한 표로 붙습니다."
+      : "‘구글 시트용 복사’ → 빈 구글 시트를 열고 A1 칸에 붙여넣기(Ctrl/⌘+V) 하면 표로 들어갑니다.";
+    const dlLabel = multi ? "엑셀 다운로드 (학교별 시트)" : "엑셀 다운로드 (.xlsx)";
     const tsvJson = JSON.stringify(tsv).replace(/</g, "\\u003c");
     const html = `<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${esc(title)}</title>
 <style>
   *{box-sizing:border-box} body{margin:0;font-family:system-ui,-apple-system,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;color:#1f2937;background:#f9fafb}
   header{position:sticky;top:0;background:#fff;border-bottom:1px solid #e5e7eb;padding:14px 18px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;z-index:10}
-  h1{font-size:16px;margin:0;font-weight:600} .count{color:#6b7280;font-size:13px}
+  h1{font-size:16px;margin:0;font-weight:600} .count{color:#6b7280;font-size:13px;font-weight:400}
+  h2{font-size:14px;margin:18px 18px 0;font-weight:600}
   .spacer{flex:1}
   button,a.btn{font:inherit;font-size:13px;font-weight:500;border-radius:8px;padding:8px 14px;cursor:pointer;text-decoration:none;border:1px solid transparent;white-space:nowrap}
   a.dl{background:#16a34a;color:#fff} .copy{background:#2563eb;color:#fff;border:none} .copy:active{opacity:.85}
   a.sheet{background:#fff;color:#374151;border:1px solid #d1d5db}
-  .wrap{padding:16px;overflow:auto}
+  .wrap{padding:12px 16px 4px;overflow:auto}
   table{border-collapse:collapse;background:#fff;font-size:13px;min-width:100%}
   th,td{border:1px solid #e5e7eb;padding:6px 10px;text-align:left;white-space:nowrap}
-  th{background:#f3f4f6;font-weight:600;position:sticky;top:0}
+  th{background:#f3f4f6;font-weight:600}
   td.idx,th:first-child{color:#9ca3af;text-align:right} tr:nth-child(even) td{background:#fafafa}
-  .hint{color:#6b7280;font-size:12px;padding:0 18px 18px}
+  .hint{color:#6b7280;font-size:12px;padding:8px 18px 4px}
 </style></head><body>
 <header>
-  <h1>${esc(title)}</h1><span class="count">${rows.length}명</span>
+  <h1>${esc(title)}</h1><span class="count">${allRows.length}명${multi ? ` · ${visible.length}개 학교` : ""}</span>
   <span class="spacer"></span>
-  <a class="btn dl" href="${xlsxUri}" download="${esc(fileName)}">엑셀 다운로드 (.xlsx)</a>
+  <a class="btn dl" href="${xlsxUri}" download="${esc(fileName)}">${dlLabel}</a>
   <button class="copy" onclick="copyTsv()">구글 시트용 복사</button>
   <a class="btn sheet" href="https://sheets.new" target="_blank" rel="noopener">빈 구글 시트 열기</a>
 </header>
-<div class="hint">‘구글 시트용 복사’ → 빈 구글 시트를 열고 A1 칸에 붙여넣기(Ctrl/⌘+V) 하면 표로 들어갑니다.</div>
-<div class="wrap"><table><thead>${thead}</thead><tbody>${tbody}</tbody></table></div>
+<div class="hint">${note}</div>
+${sectionsHtml}
 <script>
   var TSV=${tsvJson};
   function copyTsv(){
@@ -835,8 +824,17 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
       alert("팝업이 차단되어 새 탭을 열 수 없어요. 팝업 허용 후 다시 시도해 주세요.");
       return;
     }
-    // 탭이 blob을 읽어간 뒤 정리 (즉시 revoke하면 로드 실패 가능)
     setTimeout(() => URL.revokeObjectURL(url), 60000);
+  };
+
+  // 전체 명단 미리보기(시트 1개)
+  const openRosterAll = () => openRosterPreview("전체명단", [{ name: "전체 명단", list: attendees }]);
+
+  // 학교별 명단 미리보기(학교마다 시트 분리)
+  const openRosterBySchool = () => {
+    const sections = SCHOOL_LIST.map((school) => ({ name: school, list: attendees.filter((a) => a.school === school) }));
+    sections.push({ name: "기타", list: attendees.filter((a) => !SCHOOL_LIST.includes(a.school || "")) });
+    openRosterPreview("학교별명단", sections);
   };
 
   // --- Sorting ---
@@ -1345,14 +1343,8 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                 />
               )}
               <button
-                onClick={openRoster}
-                className="ml-auto text-xs text-green-600 border border-green-300 rounded-full px-3 py-1.5 hover:bg-green-50 whitespace-nowrap"
-              >
-                명단 다운
-              </button>
-              <button
                 onClick={() => { setShowAddModal(true); loadAllUsers(); }}
-                className="text-xs text-blue-600 border border-blue-300 rounded-full px-3 py-1.5 hover:bg-blue-50 whitespace-nowrap"
+                className="ml-auto text-xs text-blue-600 border border-blue-300 rounded-full px-3 py-1.5 hover:bg-blue-50 whitespace-nowrap"
               >
                 + 참석자 추가
               </button>
@@ -2243,9 +2235,9 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                   </div>
                 </div>
               )}
-              <button onClick={downloadBySchoolXlsx}
+              <button onClick={openRosterBySchool}
                 className="w-full mt-2 border border-green-300 text-green-700 rounded-lg py-2 text-sm font-medium hover:bg-green-50">
-                엑셀로 다운 (학교별 시트 분리)
+                명단 보기 · 엑셀 다운 (학교별)
               </button>
             </div>
 
@@ -2275,9 +2267,9 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                   </div>
                 </div>
               )}
-              <button onClick={downloadAllXlsx}
+              <button onClick={openRosterAll}
                 className="w-full mt-2 border border-green-300 text-green-700 rounded-lg py-2 text-sm font-medium hover:bg-green-50">
-                엑셀로 다운 (전체 명단)
+                명단 보기 · 엑셀 다운 (전체)
               </button>
             </div>
 
