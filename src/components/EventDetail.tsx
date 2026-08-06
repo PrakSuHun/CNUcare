@@ -1640,6 +1640,15 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                                 )}
                               </div>
                             )}
+                            {/* 펼치면 바로 편집: 메모 (수정 버튼 없이도 바로 수정) */}
+                            {!isEditing && (
+                              <div>
+                                <span className="text-[10px] text-gray-400">메모</span>
+                                <textarea value={a.memo || ""} onChange={(e) => updateAttendeeField(a.id, "memo", e.target.value || null)}
+                                  placeholder="메모 (예: 박수훈 연결)" rows={2}
+                                  className="w-full text-xs border border-gray-200 rounded px-2 py-1.5 resize-none focus:outline-none focus:border-blue-400" />
+                              </div>
+                            )}
                           </div>
                           );
                         })()}
