@@ -66,6 +66,7 @@ interface Attendee {
   friend_group: string | null;
   status: string | null;
   memo: string | null;
+  assessment: string | null;
   is_member: boolean;
   life_id: string | null;
   custom_data: Record<string, string> | null;
@@ -1677,18 +1678,19 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                           </div>
                         )}
 
-                        {/* After mode: feedback only */}
+                        {/* After mode: 파악내용 (특이사항·MBTI·작업여부 등) — 메모와 별개 컬럼(assessment) */}
                         {detailMode === "after" && (
                           <div className="mt-2 pt-2 border-t border-gray-100">
+                            <span className="text-[10px] text-gray-400">파악내용</span>
                             <textarea
-                              value={feedbackMap[a.id] || a.memo || ""}
+                              value={feedbackMap[a.id] ?? a.assessment ?? ""}
                               onChange={(e) => setFeedbackMap((prev) => ({ ...prev, [a.id]: e.target.value }))}
                               onBlur={() => {
                                 if (feedbackMap[a.id] !== undefined) {
-                                  updateAttendeeField(a.id, "memo", feedbackMap[a.id]);
+                                  updateAttendeeField(a.id, "assessment", feedbackMap[a.id] || null);
                                 }
                               }}
-                              placeholder="피드백 입력"
+                              placeholder="특이사항·MBTI·작업 여부 등"
                               rows={2}
                               className="w-full text-xs border border-gray-200 rounded px-2 py-1.5 resize-none focus:outline-none focus:border-blue-400"
                             />
