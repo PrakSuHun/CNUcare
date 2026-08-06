@@ -72,6 +72,9 @@ interface Attendee {
   custom_data: Record<string, string> | null;
 }
 
+// 현황 막대그래프 대상 필드 (학년·성별·신청폼 선택형)
+type ChartField = { key: string; label: string; kind: "year" | "gender" | "custom"; split?: boolean };
+
 interface Member {
   id: string;
   user_id: string;
@@ -137,6 +140,7 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
   const [feedbackMap, setFeedbackMap] = useState<Record<string, string>>({});
 
   // Status tab state
+  const [chartPopup, setChartPopup] = useState<{ field: ChartField; value: string } | null>(null); // 그래프 막대 클릭 → 명단 팝업
   const [feedbackTab, setFeedbackTab] = useState<"life" | "member">("life");
   const [feedbackText, setFeedbackText] = useState("");
   const [feedbacks, setFeedbacks] = useState<Feedback[]>([]);
@@ -899,7 +903,6 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
 
   // 현황 막대그래프 대상: 학년·성별(기본) + 신청폼의 드롭다운/체크박스(값이 정형화돼 집계 가능한 항목).
   // 학과는 자유 입력 텍스트라 표기가 제각각이라 집계 대상에서 제외한다.
-  type ChartField = { key: string; label: string; kind: "year" | "gender" | "custom"; split?: boolean };
   const getChartFields = (): ChartField[] => {
     const fields: ChartField[] = [
       { key: "year", label: "학년", kind: "year" },
@@ -932,7 +935,17 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
     return { entries, max };
   };
 
-  // --- Attendance rate (club) ---
+  // 그래프 막대를 눌렀을 때: 그 항목·값에 해당하는 참가자 명단 (집계와 동일한 분류 규칙)
+  const getChartMembers = (field: ChartField, value: string) => {
+    return attendees.filter((a) => !a.is_member).filter((a) => {
+      if (field.kind === "year") return (a.year != null ? formatYear(a.year) : "미입력") === value;
+      if (field.kind === "gender") return (a.gender || "미입력") === value;
+      const raw = String(a.custom_data?.[field.key] ?? "").trim();
+      if (value === "미입력") return !raw;
+      if (field.split) return raw.split(",").map((s) => s.trim()).includes(value);
+      return raw === value;
+    });
+  };
   const getAttendanceRates = () => {
     const isWeekly = event?.type === "club" && event?.club_unit === "weekly";
     const lifeAttendees = attendees.filter((a) => !a.is_member);
@@ -1830,8 +1843,13 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                   ) : (
                     <div className="space-y-2">
                       {entries.map(([label, count]) => (
-                        <div key={label} className="flex items-center gap-2">
-                          <span className="text-xs text-gray-500 w-16 shrink-0 truncate">{label}</span>
+                        <button
+                          key={label}
+                          onClick={() => setChartPopup({ field, value: label })}
+                          className="w-full flex items-center gap-2 hover:bg-gray-50 rounded px-1 -mx-1 py-0.5 transition-colors"
+                          title={`${label} 명단 보기`}
+                        >
+                          <span className="text-xs text-gray-500 w-16 shrink-0 truncate text-left">{label}</span>
                           <div className="flex-1 bg-gray-100 rounded-full h-5 overflow-hidden">
                             <div
                               className="bg-blue-500 h-full rounded-full transition-all"
@@ -1839,7 +1857,7 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                             />
                           </div>
                           <span className="text-xs text-gray-600 w-6 text-right">{count}</span>
-                        </div>
+                        </button>
                       ))}
                     </div>
                   )}
@@ -2673,6 +2691,43 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
           </div>
         </div>
       )}
+
+      {/* 그래프 막대 클릭 → 해당 항목 명단 팝업 */}
+      {chartPopup && (() => {
+        const list = getChartMembers(chartPopup.field, chartPopup.value);
+        return (
+          <div className="fixed inset-0 bg-black/50 flex items-end justify-center z-50" onClick={() => setChartPopup(null)}>
+            <div className="bg-white w-full max-w-lg rounded-t-2xl p-4 max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-bold">
+                  {chartPopup.field.label} · {chartPopup.value}
+                  <span className="text-gray-400 font-normal ml-1">{list.length}명</span>
+                </h3>
+                <button onClick={() => setChartPopup(null)} className="text-xs text-gray-400">닫기</button>
+              </div>
+              {list.length === 0 ? (
+                <p className="text-xs text-gray-400 py-4 text-center">해당하는 사람이 없습니다.</p>
+              ) : (
+                <div className="space-y-1.5">
+                  {list.map((a) => (
+                    <div key={a.id} className="flex items-center gap-2 border border-gray-100 rounded-lg px-3 py-2">
+                      <span className="text-sm font-medium">{a.name}</span>
+                      {a.gender && (
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${a.gender === "남" ? "bg-blue-100 text-blue-700" : "bg-pink-100 text-pink-700"}`}>{a.gender}</span>
+                      )}
+                      <span className="text-xs text-gray-400 flex items-center gap-2 flex-wrap">
+                        {a.year != null && <span>{formatYear(a.year)}</span>}
+                        {a.department && <span>{a.department}</span>}
+                        {a.phone && <span>{a.phone}</span>}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Excel upload modal */}
       {showExcelModal && (
