@@ -20,15 +20,15 @@ export async function autoUpdateByLessons(lifeId: string) {
   const introComplete = [1, 2, 3, 4, 5].every((n) => numbers.includes(n));
   const beginnerComplete = introComplete && [6, 7, 8, 9, 10].every((n) => numbers.includes(n));
   const intermediateComplete = beginnerComplete && [11, 12, 13, 14, 15, 16, 17, 18, 19].every((n) => numbers.includes(n));
-  const advancedComplete = intermediateComplete && [20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30].every((n) => numbers.includes(n));
 
-  // 진도에 맞는 정확한 단계 계산
+  // 진도에 맞는 정확한 단계 계산 — 각 레벨 강의를 "전부" 들으면 다음 단계로 승급한다.
+  // 입문(1~5) 완료 → 초급, 초급(6~10) 완료 → 중급, 중급(11~19) 완료 → 고급.
+  // (고급 강의를 다 들어도 '수료'는 자동 처리하지 않고 수동으로 둔다 — 되돌리기 어려운 단계라서)
   let correctStage: string;
-  if (advancedComplete) correctStage = "advanced";
-  else if (intermediateComplete) correctStage = "intermediate";
-  else if (beginnerComplete) correctStage = "beginner";
-  else if (introComplete) correctStage = "beginner";
-  else if (numbers.length > 0) correctStage = "intro";
+  if (intermediateComplete) correctStage = "advanced";      // 중급 다 들음 → 고급
+  else if (beginnerComplete) correctStage = "intermediate"; // 초급 다 들음 → 중급
+  else if (introComplete) correctStage = "beginner";        // 입문 다 들음 → 초급
+  else if (numbers.length > 0) correctStage = "intro";      // 일부만 체크 → 입문
   else return; // 체크된 강의 없으면 변경 안 함
 
   // 강의 체크가 있으면 최소 입문 이상으로 설정
