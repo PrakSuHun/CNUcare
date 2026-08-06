@@ -714,24 +714,55 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
   // === 명단(엑셀) 공통 헬퍼 ===
   // 고정 컬럼(전용 DB 컬럼) + 신청폼 커스텀 항목(custom_data, 라벨을 키로 저장)
   const ROSTER_FIXED = ["이름", "성별", "학교", "학과", "학년", "연락처", "같이 오시는 분", "팀", "상태", "메모"];
-  const rosterCustomKeys = (list: Attendee[]): string[] => {
-    const keys: string[] = [];
-    list.forEach((a) => Object.keys(a.custom_data || {}).forEach((k) => { if (!keys.includes(k)) keys.push(k); }));
-    return keys;
+  // 일부 명단은 custom_data 키가 영문 기술 키(age·school_id 등)로 저장돼 있음(AI 추출 경로).
+  // 시트 헤더엔 이런 키 대신 항목명이 나오게 매핑. 목록에 없는 키는 이미 항목명이므로 그대로 둠.
+  const CUSTOM_LABEL: Record<string, string> = {
+    age: "나이",
+    birthYear: "출생연도",
+    school_id: "학번",
+    studentIdYear: "학번(입학연도)",
+    sequenceNumber: "연번",
+    interviewer: "면접자",
+    group: "조",
+    relationshipStatus: "연애여부",
+    __EMPTY: "미지정 항목",
   };
-  const rosterRow = (a: Attendee): Record<string, string> => ({
-    "이름": a.name || "",
-    "성별": a.gender || "",
-    "학교": a.school || "",
-    "학과": a.department || "",
-    "학년": a.year != null ? `${a.year}학년` : "",
-    "연락처": a.phone || "",
-    "같이 오시는 분": a.friend_group || "",
-    "팀": a.team || "",
-    "상태": a.status || "",
-    "메모": a.memo || "",
-    ...(a.custom_data || {}),
-  });
+  const customLabel = (key: string) => CUSTOM_LABEL[key] || key;
+  // 커스텀 컬럼을 항목명 기준으로 구성. 서로 다른 키가 같은 항목명이면 한 열로 합침(값 있는 쪽 사용).
+  const rosterCustomColumns = (list: Attendee[]): { cols: string[]; sources: Record<string, string[]> } => {
+    const cols: string[] = [];
+    const sources: Record<string, string[]> = {};
+    list.forEach((a) => Object.keys(a.custom_data || {}).forEach((k) => {
+      const label = customLabel(k);
+      if (!sources[label]) { sources[label] = []; cols.push(label); }
+      if (!sources[label].includes(k)) sources[label].push(k);
+    }));
+    return { cols, sources };
+  };
+  const rosterRow = (a: Attendee, customCols: string[], sources: Record<string, string[]>): Record<string, string> => {
+    const row: Record<string, string> = {
+      "이름": a.name || "",
+      "성별": a.gender || "",
+      "학교": a.school || "",
+      "학과": a.department || "",
+      "학년": a.year != null ? `${a.year}학년` : "",
+      "연락처": a.phone || "",
+      "같이 오시는 분": a.friend_group || "",
+      "팀": a.team || "",
+      "상태": a.status || "",
+      "메모": a.memo || "",
+    };
+    const cd = a.custom_data || {};
+    for (const label of customCols) {
+      let v = "";
+      for (const k of sources[label] || []) {
+        const val = cd[k];
+        if (val != null && String(val).trim() !== "") { v = String(val); break; }
+      }
+      row[label] = v;
+    }
+    return row;
+  };
   const rosterFileName = (suffix: string) =>
     `${(event?.name || "행사").replace(/[\\/:*?"<>|]/g, "_")}_${suffix}.xlsx`;
   // 엑셀 시트명 제약(금지문자·31자·중복불가) 처리
@@ -748,18 +779,19 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
   // sections: 엑셀 시트로 분리할 단위 (학교별이면 학교마다, 전체면 1개). 컬럼은 전체 기준 통일.
   const openRosterPreview = (fileSuffix: string, sectionsIn: { name: string; list: Attendee[] }[]) => {
     if (attendees.length === 0) { alert("명단이 비어 있어요."); return; }
-    const cols = [...ROSTER_FIXED, ...rosterCustomKeys(attendees)];
+    const { cols: customCols, sources } = rosterCustomColumns(attendees);
+    const cols = [...ROSTER_FIXED, ...customCols];
     const visible = sectionsIn.filter((s) => s.list.length > 0);
     if (visible.length === 0) { alert("명단이 비어 있어요."); return; }
     const multi = visible.length > 1;
-    const sections = visible.map((s) => ({ name: s.name, rows: s.list.map(rosterRow) }));
+    const sections = visible.map((s) => ({ name: s.name, rows: s.list.map((a) => rosterRow(a, customCols, sources)) }));
     const allRows = sections.flatMap((s) => s.rows);
 
     // .xlsx (섹션마다 시트) → 다운로드용 blob URL
     const wb = XLSX.utils.book_new();
     const used = new Set<string>();
-    visible.forEach((s) => {
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(s.list.map(rosterRow), { header: cols }), sheetSafe(s.name, used));
+    sections.forEach((s) => {
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(s.rows, { header: cols }), sheetSafe(s.name, used));
     });
     const wbArray = XLSX.write(wb, { type: "array", bookType: "xlsx" });
     const blob = new Blob([wbArray], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
