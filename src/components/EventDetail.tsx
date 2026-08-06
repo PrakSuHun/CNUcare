@@ -897,11 +897,35 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
     return { total, totalAttended: presentToday.length, male, female, passed };
   };
 
-  const getBarData = (field: "year" | "department") => {
+  // 현황 막대그래프 대상: 학년·성별(기본) + 신청폼의 드롭다운/체크박스(값이 정형화돼 집계 가능한 항목).
+  // 학과는 자유 입력 텍스트라 표기가 제각각이라 집계 대상에서 제외한다.
+  type ChartField = { key: string; label: string; kind: "year" | "gender" | "custom"; split?: boolean };
+  const getChartFields = (): ChartField[] => {
+    const fields: ChartField[] = [
+      { key: "year", label: "학년", kind: "year" },
+      { key: "gender", label: "성별", kind: "gender" },
+    ];
+    // 신청폼 커스텀 필드 중 선택형(드롭다운·체크박스)만 — custom_data는 라벨을 키로 저장됨(register 폼 참고)
+    for (const f of regFields) {
+      if (f.builtin) continue;
+      if (f.type === "dropdown" || f.type === "checkbox") {
+        fields.push({ key: f.label, label: f.label, kind: "custom", split: f.type === "checkbox" });
+      }
+    }
+    return fields;
+  };
+
+  const getChartData = (field: ChartField) => {
     const counts: Record<string, number> = {};
+    const bump = (k: string) => { counts[k] = (counts[k] || 0) + 1; };
     attendees.filter((a) => !a.is_member).forEach((a) => {
-      const key = field === "year" ? (a.year != null ? formatYear(a.year) : "미입력") : (a.department || "미입력");
-      counts[key] = (counts[key] || 0) + 1;
+      if (field.kind === "year") { bump(a.year != null ? formatYear(a.year) : "미입력"); return; }
+      if (field.kind === "gender") { bump(a.gender || "미입력"); return; }
+      const raw = String(a.custom_data?.[field.key] ?? "").trim();
+      if (!raw) { bump("미입력"); return; }
+      // 체크박스(복수 선택)는 "옵션A, 옵션B"로 저장되므로 옵션별로 나눠 센다
+      if (field.split) raw.split(",").map((s) => s.trim()).filter(Boolean).forEach(bump);
+      else bump(raw);
     });
     const entries = Object.entries(counts).sort((a, b) => b[1] - a[1]);
     const max = Math.max(...entries.map(([, v]) => v), 1);
@@ -1793,13 +1817,13 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
               );
             })()}
 
-            {/* Bar charts */}
-            {(["year", "department"] as const).map((field) => {
-              const { entries, max } = getBarData(field);
+            {/* Bar charts — 학년·성별 + 신청폼 선택형 항목별 인원 (학과는 자유텍스트라 제외) */}
+            {getChartFields().map((field) => {
+              const { entries, max } = getChartData(field);
               return (
-                <div key={field} className="bg-white rounded-lg border border-gray-200 p-4">
+                <div key={field.key} className="bg-white rounded-lg border border-gray-200 p-4">
                   <p className="text-sm font-medium text-gray-700 mb-3">
-                    {field === "year" ? "학년별" : "학과별"} 인원
+                    {field.label}별 인원
                   </p>
                   {entries.length === 0 ? (
                     <p className="text-xs text-gray-400">데이터가 없습니다.</p>
