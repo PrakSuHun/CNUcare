@@ -1,11 +1,71 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { GoogleGenerativeAI } from "@google/generative-ai";
+import { callGateway } from "@/lib/gateway";
 
 function getSb() {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL || "",
     process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ""
   );
+}
+
+// 동기 LLM 호출 (충남대 Gateway → 유료 → 무료 키 폴백). 행사 분석처럼 결과를 바로 반환할 때 사용.
+async function callLLM(prompt: string): Promise<string> {
+  try { return await callGateway(prompt, "gemini-2.5-pro"); } catch { /* 폴백 */ }
+  const paid = process.env.GEMINI_PAID_KEY?.trim();
+  const keys = paid ? [paid] : (process.env.GEMINI_API_KEY || "").split(",").map((k) => k.trim()).filter(Boolean);
+  for (const key of keys) {
+    try {
+      const ai = new GoogleGenerativeAI(key);
+      const model = ai.getGenerativeModel({ model: paid ? "gemini-2.5-pro" : "gemini-2.5-flash" });
+      const res = await model.generateContent([{ text: prompt }]);
+      return res.response.text();
+    } catch (e: any) {
+      if (e?.message?.includes("429")) continue;
+      throw e;
+    }
+  }
+  throw new Error("LLM 호출에 실패했습니다.");
+}
+
+// 행사 평가·분석 (동기). 모달에 바로 텍스트로 표시된다.
+async function analyzeEvent(body: any): Promise<string> {
+  const { eventName, totalApplicants = 0, totalAttended = 0, male = 0, female = 0, passed = 0, distributions = [], feedbacks = [] } = body;
+  const distText = (distributions as any[])
+    .map((d) => `■ ${d.label}\n${(d.entries as [string, number][]).map(([v, c]) => `  - ${v}: ${c}명`).join("\n") || "  (없음)"}`)
+    .join("\n\n") || "(분포 데이터 없음)";
+  const fbText = (feedbacks as any[]).map((f) => `- ${f.content}`).join("\n") || "(수집된 피드백 없음)";
+  const convRate = totalApplicants ? Math.round((passed / totalApplicants) * 100) : 0;
+
+  const prompt = `당신은 대학 청년 선교 행사 분석 전문가입니다.
+아래 "${eventName}" 행사 데이터를 평가·분석해 주세요.
+
+[규모]
+총 신청 ${totalApplicants}명 · 총 출석 ${totalAttended}명 · 남 ${male} / 여 ${female}
+생명 전환 ${passed}명 (신청 대비 ${convRate}%)
+
+[참가자 분포]
+${distText}
+
+[수집된 피드백 ${(feedbacks as any[]).length}건]
+${fbText}
+
+[좋은 행사 판단 기준 — 매우 중요]
+1) 생명 전환이 많이 일어났는가 (많을수록 좋음)
+2) 어린(저학년·특히 1학년/신입생) 친구가 많이 신청·참석했는가 — 어릴수록 양육 기간이 길어 더 좋은 행사다. (고학년보다 1학년 비중이 높을수록 긍정적)
+위 두 가지가 이 행사의 성패를 가르는 핵심 지표다. 비용·기간은 평가 대상이 아니다.
+
+다음 순서로 한국어 보고서를 작성하세요:
+1. 종합 평가 — 위 기준으로 좋은 행사였는지 결론과 근거 (특히 1학년 비중, 생명 전환)
+2. 참가자 분포 분석 — 학년/성별/신청폼 항목의 특징 (저학년 유입 정도를 꼭 언급)
+3. 생명 전환 분석 — 전환 인원·비율 평가
+4. 피드백 분석 — 핵심 만족/불만/개선점 요약 (피드백 없으면 "수집된 피드백 없음"만 표기)
+5. 다음 행사 제안 — 구체적 액션
+
+읽기 쉬운 텍스트로 작성하세요. 각 섹션 제목과 불릿(-)만 사용하고, 과한 마크다운 기호(#, **, 표)는 쓰지 마세요.`;
+
+  return await callLLM(prompt);
 }
 
 
@@ -67,7 +127,14 @@ async function getOverallContext() {
 
 export async function POST(req: NextRequest) {
   try {
-    const { type, targetId, targetName, createdBy } = await req.json();
+    const body = await req.json();
+    const { type, targetId, targetName, createdBy } = body;
+
+    // 행사 분석: 큐(reports)를 쓰지 않고 결과를 바로 반환 (모달에 즉시 표시)
+    if (type === "event") {
+      const result = await analyzeEvent(body);
+      return NextResponse.json({ result });
+    }
 
     let prompt = "";
     let context: any = {};

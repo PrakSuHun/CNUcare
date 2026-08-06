@@ -145,8 +145,6 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
   const [feedbackText, setFeedbackText] = useState("");
   const [feedbacks, setFeedbacks] = useState<Feedback[]>([]);
   const [showAiModal, setShowAiModal] = useState(false);
-  const [aiPeriod, setAiPeriod] = useState("");
-  const [aiCost, setAiCost] = useState("");
   const [aiResult, setAiResult] = useState("");
 
   // Feedback form generation
@@ -991,26 +989,24 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
     setAiResult("");
     try {
       const stats = getStats();
+      // 참가자 분포 = 현황 그래프와 동일(학년·성별·신청폼 선택형 항목)
+      const distributions = getChartFields().map((f) => ({
+        label: f.label,
+        entries: getChartData(f).entries, // [[값, 인원], ...]
+      }));
       const res = await fetch("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          type: "event",
           eventName: event?.name,
           eventType: event?.type,
-          period: aiPeriod,
-          totalCost: aiCost,
           totalApplicants: stats.total,
           totalAttended: stats.totalAttended,
           male: stats.male,
           female: stats.female,
           passed: stats.passed,
-          attendees: attendees.map((a) => ({
-            name: a.name,
-            department: a.department,
-            year: a.year,
-            status: a.status,
-            is_member: a.is_member,
-          })),
+          distributions,
           feedbacks: feedbacks.map((f) => ({ content: f.content, type: f.type })),
         }),
       });
@@ -2960,20 +2956,9 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
             </div>
             {!aiResult ? (
               <div className="space-y-3">
-                <input
-                  type="text"
-                  value={aiPeriod}
-                  onChange={(e) => setAiPeriod(e.target.value)}
-                  placeholder="행사 기간 (예: 3일)"
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400"
-                />
-                <input
-                  type="text"
-                  value={aiCost}
-                  onChange={(e) => setAiCost(e.target.value)}
-                  placeholder="총 비용 (예: 500000)"
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400"
-                />
+                <p className="text-xs text-gray-500 leading-relaxed">
+                  이 행사를 평가·분석합니다. 참가자 분포(학년·성별·신청폼 항목), 생명 전환, 수집된 피드백을 종합해 좋은 행사였는지 진단해요.
+                </p>
                 <button
                   onClick={handleAiAnalyze}
                   disabled={aiLoading}
@@ -2988,7 +2973,7 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                   {aiResult}
                 </div>
                 <button
-                  onClick={() => { setAiResult(""); setAiPeriod(""); setAiCost(""); }}
+                  onClick={() => setAiResult("")}
                   className="w-full border border-gray-200 text-gray-500 rounded-lg py-2 text-sm hover:bg-gray-50 transition-colors"
                 >
                   다시 분석
