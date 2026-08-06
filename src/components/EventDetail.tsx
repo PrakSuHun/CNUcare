@@ -141,6 +141,9 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
 
   // Status tab state
   const [chartPopup, setChartPopup] = useState<{ field: ChartField; value: string } | null>(null); // 그래프 막대 클릭 → 명단 팝업
+  // 명단 미리보기 모달 (엑셀 다운/구글시트 복사)
+  const [roster, setRoster] = useState<{ title: string; fileName: string; cols: string[]; sections: { name: string; rows: Record<string, string>[] }[]; total: number; tsv: string; xlsxUrl: string; multi: boolean } | null>(null);
+  const [rosterCopied, setRosterCopied] = useState(false);
   const [feedbackTab, setFeedbackTab] = useState<"life" | "member">("life");
   const [feedbackText, setFeedbackText] = useState("");
   const [feedbacks, setFeedbacks] = useState<Feedback[]>([]);
@@ -740,91 +743,54 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
     return nm;
   };
 
-  // 명단 미리보기 — 새 탭에 엑셀형 표를 띄우고 거기서 .xlsx 다운로드 / 구글 시트용 복사
+  // 명단 미리보기 — 앱 내 모달로 표를 띄우고 거기서 .xlsx 다운로드 / 구글 시트용 복사
+  // (새 탭/window.open은 팝업 차단·모바일에서 조용히 막혀서 모달로 처리)
   // sections: 엑셀 시트로 분리할 단위 (학교별이면 학교마다, 전체면 1개). 컬럼은 전체 기준 통일.
-  const openRosterPreview = (fileSuffix: string, sections: { name: string; list: Attendee[] }[]) => {
+  const openRosterPreview = (fileSuffix: string, sectionsIn: { name: string; list: Attendee[] }[]) => {
     if (attendees.length === 0) { alert("명단이 비어 있어요."); return; }
     const cols = [...ROSTER_FIXED, ...rosterCustomKeys(attendees)];
-    const visible = sections.filter((s) => s.list.length > 0);
+    const visible = sectionsIn.filter((s) => s.list.length > 0);
     if (visible.length === 0) { alert("명단이 비어 있어요."); return; }
     const multi = visible.length > 1;
+    const sections = visible.map((s) => ({ name: s.name, rows: s.list.map(rosterRow) }));
+    const allRows = sections.flatMap((s) => s.rows);
 
-    // 1) .xlsx (섹션마다 시트) → base64 data URI (새 탭 페이지에 라이브러리 없이 <a download>로 내려받게 함)
+    // .xlsx (섹션마다 시트) → 다운로드용 blob URL
     const wb = XLSX.utils.book_new();
     const used = new Set<string>();
     visible.forEach((s) => {
       XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(s.list.map(rosterRow), { header: cols }), sheetSafe(s.name, used));
     });
-    const b64 = XLSX.write(wb, { type: "base64", bookType: "xlsx" });
-    const xlsxUri = `data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,${b64}`;
+    const wbArray = XLSX.write(wb, { type: "array", bookType: "xlsx" });
+    const blob = new Blob([wbArray], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    const xlsxUrl = URL.createObjectURL(blob);
 
-    // 2) TSV (구글 시트용) — 전 섹션 행을 이어붙임(학교 컬럼 포함이라 구분 유지)
-    const allRows = visible.flatMap((s) => s.list.map(rosterRow));
+    // TSV (구글 시트용) — 전 섹션 행을 이어붙임(학교 컬럼 포함이라 구분 유지)
     const tsv = [cols, ...allRows.map((r) => cols.map((c) => r[c] ?? ""))]
       .map((line) => line.map((cell) => String(cell).replace(/\t/g, " ").replace(/\r?\n/g, " ")).join("\t"))
       .join("\n");
 
-    // 3) 새 탭 HTML — 표 미리보기 + 버튼
-    const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-    const title = `${event?.name || "행사"} 명단`;
-    const fileName = rosterFileName(fileSuffix);
-    const thead = `<tr><th>#</th>${cols.map((c) => `<th>${esc(c)}</th>`).join("")}</tr>`;
-    const sectionsHtml = visible.map((s) => {
-      const rows = s.list.map(rosterRow);
-      const body = rows.map((r, i) => `<tr><td class="idx">${i + 1}</td>${cols.map((c) => `<td>${esc(r[c] ?? "")}</td>`).join("")}</tr>`).join("");
-      const head = multi ? `<h2>${esc(s.name)} <span class="count">${rows.length}명</span></h2>` : "";
-      return `${head}<div class="wrap"><table><thead>${thead}</thead><tbody>${body}</tbody></table></div>`;
-    }).join("");
-    const note = multi
-      ? "엑셀 파일은 학교별로 <b>시트(탭)가 분리</b>돼 있어요. ‘구글 시트용 복사’는 학교 컬럼이 포함된 한 표로 붙습니다."
-      : "‘구글 시트용 복사’ → 빈 구글 시트를 열고 A1 칸에 붙여넣기(Ctrl/⌘+V) 하면 표로 들어갑니다.";
-    const dlLabel = multi ? "엑셀 다운로드 (학교별 시트)" : "엑셀 다운로드 (.xlsx)";
-    const tsvJson = JSON.stringify(tsv).replace(/</g, "\\u003c");
-    const html = `<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${esc(title)}</title>
-<style>
-  *{box-sizing:border-box} body{margin:0;font-family:system-ui,-apple-system,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;color:#1f2937;background:#f9fafb}
-  header{position:sticky;top:0;background:#fff;border-bottom:1px solid #e5e7eb;padding:14px 18px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;z-index:10}
-  h1{font-size:16px;margin:0;font-weight:600} .count{color:#6b7280;font-size:13px;font-weight:400}
-  h2{font-size:14px;margin:18px 18px 0;font-weight:600}
-  .spacer{flex:1}
-  button,a.btn{font:inherit;font-size:13px;font-weight:500;border-radius:8px;padding:8px 14px;cursor:pointer;text-decoration:none;border:1px solid transparent;white-space:nowrap}
-  a.dl{background:#16a34a;color:#fff} .copy{background:#2563eb;color:#fff;border:none} .copy:active{opacity:.85}
-  a.sheet{background:#fff;color:#374151;border:1px solid #d1d5db}
-  .wrap{padding:12px 16px 4px;overflow:auto}
-  table{border-collapse:collapse;background:#fff;font-size:13px;min-width:100%}
-  th,td{border:1px solid #e5e7eb;padding:6px 10px;text-align:left;white-space:nowrap}
-  th{background:#f3f4f6;font-weight:600}
-  td.idx,th:first-child{color:#9ca3af;text-align:right} tr:nth-child(even) td{background:#fafafa}
-  .hint{color:#6b7280;font-size:12px;padding:8px 18px 4px}
-</style></head><body>
-<header>
-  <h1>${esc(title)}</h1><span class="count">${allRows.length}명${multi ? ` · ${visible.length}개 학교` : ""}</span>
-  <span class="spacer"></span>
-  <a class="btn dl" href="${xlsxUri}" download="${esc(fileName)}">${dlLabel}</a>
-  <button class="copy" onclick="copyTsv()">구글 시트용 복사</button>
-  <a class="btn sheet" href="https://sheets.new" target="_blank" rel="noopener">빈 구글 시트 열기</a>
-</header>
-<div class="hint">${note}</div>
-${sectionsHtml}
-<script>
-  var TSV=${tsvJson};
-  function copyTsv(){
-    var done=function(){var b=document.querySelector('.copy');var t=b.textContent;b.textContent='복사됨 ✓';setTimeout(function(){b.textContent=t;},1500);};
-    if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(TSV).then(done,fallback);}else{fallback();}
-    function fallback(){var ta=document.createElement('textarea');ta.value=TSV;document.body.appendChild(ta);ta.select();try{document.execCommand('copy');done();}catch(e){alert('복사 실패 — 표를 직접 선택해 복사하세요.');}document.body.removeChild(ta);}
-  }
-</script>
-</body></html>`;
+    setRoster((prev) => {
+      if (prev) URL.revokeObjectURL(prev.xlsxUrl);
+      return { title: `${event?.name || "행사"} 명단`, fileName: rosterFileName(fileSuffix), cols, sections, total: allRows.length, tsv, xlsxUrl, multi };
+    });
+  };
 
-    const blob = new Blob([html], { type: "text/html" });
-    const url = URL.createObjectURL(blob);
-    const win = window.open(url, "_blank");
-    if (!win) {
-      URL.revokeObjectURL(url);
-      alert("팝업이 차단되어 새 탭을 열 수 없어요. 팝업 허용 후 다시 시도해 주세요.");
-      return;
+  const closeRoster = () => {
+    setRoster((prev) => { if (prev) URL.revokeObjectURL(prev.xlsxUrl); return null; });
+  };
+  const copyRosterTsv = async () => {
+    if (!roster) return;
+    try {
+      await navigator.clipboard.writeText(roster.tsv);
+    } catch {
+      const ta = document.createElement("textarea");
+      ta.value = roster.tsv; document.body.appendChild(ta); ta.select();
+      try { document.execCommand("copy"); } catch { /* noop */ }
+      document.body.removeChild(ta);
     }
-    setTimeout(() => URL.revokeObjectURL(url), 60000);
+    setRosterCopied(true);
+    setTimeout(() => setRosterCopied(false), 1500);
   };
 
   // 전체 명단 미리보기(시트 1개)
@@ -3216,6 +3182,64 @@ ${sectionsHtml}
               >
                 확인 완료 (배너에서 제거)
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 명단 미리보기 모달 — 표 확인 후 엑셀 다운 / 구글 시트용 복사 */}
+      {roster && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex flex-col" onClick={closeRoster}>
+          <div className="bg-white w-full sm:max-w-5xl sm:mx-auto sm:my-6 sm:rounded-xl mt-auto h-[92vh] sm:h-[88vh] flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-200">
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-gray-800 truncate">{roster.title}</p>
+                <p className="text-xs text-gray-500">{roster.total}명{roster.multi ? ` · ${roster.sections.length}개 시트` : ""}</p>
+              </div>
+              <div className="ml-auto flex items-center gap-2">
+                <a href={roster.xlsxUrl} download={roster.fileName}
+                  className="text-xs bg-green-600 text-white rounded-lg px-3 py-2 font-medium whitespace-nowrap">엑셀 다운로드</a>
+                <button onClick={copyRosterTsv}
+                  className="text-xs bg-blue-600 text-white rounded-lg px-3 py-2 font-medium whitespace-nowrap">{rosterCopied ? "복사됨 ✓" : "구글 시트용 복사"}</button>
+                <button onClick={closeRoster} className="text-gray-400 hover:text-gray-600 text-xl leading-none px-1">✕</button>
+              </div>
+            </div>
+            <div className="px-4 py-1.5 text-[11px] text-gray-500 border-b border-gray-100">
+              {roster.multi
+                ? "엑셀은 학교별로 시트(탭)가 분리됩니다. ‘구글 시트용 복사’는 학교 컬럼이 포함된 한 표로 붙습니다. "
+                : "‘구글 시트용 복사’ 후 빈 구글 시트에 붙여넣기(⌘/Ctrl+V)하면 표로 들어갑니다. "}
+              <a href="https://sheets.new" target="_blank" rel="noopener" className="text-blue-600 underline">빈 시트 열기</a>
+            </div>
+            <div className="flex-1 overflow-auto px-4 pb-6">
+              {roster.sections.map((s, si) => (
+                <div key={si} className="mt-3">
+                  {roster.multi && (
+                    <p className="text-sm font-semibold text-gray-700 mb-1">{s.name} <span className="text-xs font-normal text-gray-400">{s.rows.length}명</span></p>
+                  )}
+                  <div className="overflow-x-auto border border-gray-200 rounded-lg">
+                    <table className="text-xs border-collapse w-full">
+                      <thead>
+                        <tr>
+                          <th className="bg-gray-100 border border-gray-200 px-2 py-1.5 text-right text-gray-400 font-medium">#</th>
+                          {roster.cols.map((c) => (
+                            <th key={c} className="bg-gray-100 border border-gray-200 px-2 py-1.5 text-left font-semibold whitespace-nowrap">{c}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {s.rows.map((r, i) => (
+                          <tr key={i}>
+                            <td className="border border-gray-200 px-2 py-1.5 text-right text-gray-400">{i + 1}</td>
+                            {roster.cols.map((c) => (
+                              <td key={c} className="border border-gray-200 px-2 py-1.5 whitespace-nowrap">{r[c] ?? ""}</td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         </div>
