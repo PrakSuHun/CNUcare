@@ -688,7 +688,7 @@ export default function EventList({ basePath, allEvents = false }: EventListProp
 
       {events.map((event, idx) => (
         <div key={event.id} className="relative">
-          <div className={`flex bg-white rounded-lg border transition-colors ${orderMode ? "border-blue-200" : "border-gray-200 hover:border-blue-300"}`}>
+          <div className={`flex items-center bg-white rounded-lg border transition-colors ${orderMode ? "border-blue-200" : "border-gray-200 hover:border-blue-300"}`}>
             {/* 순서 수정 모드: 위/아래 버튼 */}
             {orderMode && (
               <div className="flex flex-col justify-center pl-2 gap-0.5">
@@ -708,25 +708,24 @@ export default function EventList({ basePath, allEvents = false }: EventListProp
             )}
             <button
               onClick={() => { if (!orderMode) router.push(`${basePath}/event/${event.id}`); }}
-              className="flex-1 p-4 text-left"
+              className="flex-1 p-4 text-left min-w-0"
             >
-              <div className="flex items-center gap-2">
-                <span className="font-semibold text-base truncate min-w-0">
-                  {event.event_date && <span className="text-gray-400 font-normal mr-1">{fmtEventDate(event.event_date)}</span>}
-                  {event.name}
-                </span>
-                <span
-                  className={`text-xs px-2 py-1 rounded-full font-medium shrink-0 ${
-                    event.type === "club"
-                      ? "bg-green-100 text-green-700"
-                      : "bg-blue-100 text-blue-700"
-                  }`}
-                >
-                  {event.type === "club" ? "동아리" : "일회성"}
-                </span>
-              </div>
+              <p className="font-semibold text-base truncate">
+                {event.event_date && <span className="text-gray-400 font-normal mr-1">{fmtEventDate(event.event_date)}</span>}
+                {event.name}
+              </p>
               <p className="text-xs text-gray-400 mt-1">참여 {event.guest_count}명</p>
             </button>
+            {/* 라벨: ⋯ 왼쪽 + 세로 중앙 */}
+            <span
+              className={`text-xs px-2 py-1 rounded-full font-medium shrink-0 ${
+                event.type === "club"
+                  ? "bg-green-100 text-green-700"
+                  : "bg-blue-100 text-blue-700"
+              }`}
+            >
+              {event.type === "club" ? "동아리" : "일회성"}
+            </span>
             {!orderMode && (
               <button
                 onClick={(e) => { e.stopPropagation(); setMenuEventId(menuEventId === event.id ? null : event.id); }}

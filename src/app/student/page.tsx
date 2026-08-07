@@ -280,10 +280,10 @@ export default function StudentPage() {
 
         {activeLives.map((life) => (
           <div key={life.id} className="relative">
-            <div className="flex bg-white rounded-lg border border-gray-200 hover:border-blue-300 transition-colors">
+            <div className="flex items-center bg-white rounded-lg border border-gray-200 hover:border-blue-300 transition-colors">
               <button
                 onClick={() => router.push(`/student/life/${life.id}`)}
-                className="flex-1 p-4 text-left"
+                className="flex-1 p-4 text-left min-w-0"
               >
                 <div className="flex items-center gap-2">
                   <span className="font-semibold text-base whitespace-nowrap shrink-0">{life.name}</span>
@@ -292,19 +292,20 @@ export default function StudentPage() {
                       {life.memo}
                     </span>
                   )}
-                  <span
-                    className={`text-xs px-1 py-1 rounded-full font-medium whitespace-nowrap shrink-0 text-center ${
-                      STAGE_COLORS[life.stage] || "bg-gray-100 text-gray-700"
-                    }`}
-                    style={{ width: "3.6rem" }}
-                  >
-                    {(STAGE_LABELS[life.stage] || life.stage).replace(" ", "")}
-                  </span>
                 </div>
                 <p className="text-xs text-gray-400 mt-1">
                   {new Date((life as any).last_date || life.updated_at).toLocaleDateString("ko-KR")}
                 </p>
               </button>
+              {/* 단계 라벨: ⋯ 왼쪽 + 세로 중앙 */}
+              <span
+                className={`text-xs px-1 py-1 rounded-full font-medium whitespace-nowrap shrink-0 text-center ${
+                  STAGE_COLORS[life.stage] || "bg-gray-100 text-gray-700"
+                }`}
+                style={{ width: "3.6rem" }}
+              >
+                {(STAGE_LABELS[life.stage] || life.stage).replace(" ", "")}
+              </span>
               <button
                 onClick={(e) => { e.stopPropagation(); setMenuLifeId(menuLifeId === life.id ? null : life.id); }}
                 className="px-3 flex items-center text-gray-300 hover:text-gray-500"
