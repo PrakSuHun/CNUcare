@@ -710,13 +710,13 @@ export default function EventList({ basePath, allEvents = false }: EventListProp
               onClick={() => { if (!orderMode) router.push(`${basePath}/event/${event.id}`); }}
               className="flex-1 p-4 text-left"
             >
-              <div className="flex items-center justify-between">
-                <span className="font-semibold text-base">
+              <div className="flex items-center gap-2">
+                <span className="font-semibold text-base truncate min-w-0">
                   {event.event_date && <span className="text-gray-400 font-normal mr-1">{fmtEventDate(event.event_date)}</span>}
                   {event.name}
                 </span>
                 <span
-                  className={`text-xs px-2 py-1 rounded-full font-medium ${
+                  className={`text-xs px-2 py-1 rounded-full font-medium shrink-0 ${
                     event.type === "club"
                       ? "bg-green-100 text-green-700"
                       : "bg-blue-100 text-blue-700"

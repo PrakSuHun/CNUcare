@@ -292,7 +292,6 @@ export default function StudentPage() {
                       {life.memo}
                     </span>
                   )}
-                  <span className="flex-1" />
                   <span
                     className={`text-xs px-1 py-1 rounded-full font-medium whitespace-nowrap shrink-0 text-center ${
                       STAGE_COLORS[life.stage] || "bg-gray-100 text-gray-700"
