@@ -410,12 +410,14 @@ export default function EventList({ basePath, allEvents = false }: EventListProp
             + 행사 추가
           </button>
           {events.length > 1 && (
-            <button
-              onClick={enterOrderMode}
-              className="mt-1 text-[11px] text-gray-400 hover:text-blue-500"
-            >
-              ↕ 순서 수정
-            </button>
+            <div className="mt-1.5">
+              <button
+                onClick={enterOrderMode}
+                className="text-xs text-gray-500 border border-gray-200 rounded-full px-3 py-1 hover:bg-gray-50 hover:text-gray-700 transition-colors"
+              >
+                순서 편집
+              </button>
+            </div>
           )}
         </div>
       )}
@@ -706,7 +708,7 @@ export default function EventList({ basePath, allEvents = false }: EventListProp
             )}
             <button
               onClick={() => { if (!orderMode) router.push(`${basePath}/event/${event.id}`); }}
-              className="flex-1 py-4 px-4 text-left"
+              className="flex-1 p-4 text-left"
             >
               <div className="flex items-center justify-between">
                 <span className="font-semibold text-base">
