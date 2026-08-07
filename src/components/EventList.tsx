@@ -710,11 +710,11 @@ export default function EventList({ basePath, allEvents = false }: EventListProp
               onClick={() => { if (!orderMode) router.push(`${basePath}/event/${event.id}`); }}
               className="flex-1 p-4 text-left min-w-0"
             >
-              <p className="font-semibold text-base truncate">
-                {event.event_date && <span className="text-gray-400 font-normal mr-1">{fmtEventDate(event.event_date)}</span>}
-                {event.name}
+              <p className="font-semibold text-base truncate">{event.name}</p>
+              <p className="text-xs text-gray-400 mt-1">
+                참여 {event.guest_count}명
+                {event.event_date && <span className="ml-2 text-gray-400">· {fmtEventDate(event.event_date)}</span>}
               </p>
-              <p className="text-xs text-gray-400 mt-1">참여 {event.guest_count}명</p>
             </button>
             {/* 라벨: ⋯ 왼쪽 + 세로 중앙 */}
             <span
