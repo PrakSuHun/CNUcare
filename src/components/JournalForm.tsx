@@ -177,6 +177,8 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
     }).select("id").single();
 
     await supabase.from("lives").update({ last_met_at: form.met_date }).eq("id", lifeId);
+    // 소속 단장단에게 일지 작성 알림 (조용시간 22~08 제외)
+    fetch("/api/notify-journal", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ life_id: lifeId, author_id: user.id }) }).catch(() => {});
 
     if (form.purpose === "lecture" && realLessonIds.length > 0) {
       for (const lid of realLessonIds) {
@@ -390,6 +392,8 @@ export default function JournalForm({ lifeId, journalId, backPath }: JournalForm
         ...journalData,
       });
       await supabase.from("lives").update({ last_met_at: form.met_date }).eq("id", lifeId);
+      // 소속 단장단에게 일지 작성 알림 (조용시간 22~08 제외)
+      fetch("/api/notify-journal", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ life_id: lifeId, author_id: user.id }) }).catch(() => {});
 
       if (form.purpose === "lecture" && realLessonIds.length > 0) {
         // 강의 진도표 체크 (없으면 추가, 있으면 유지) — 선택된 모든 강의

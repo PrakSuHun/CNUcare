@@ -22,7 +22,11 @@ async function notifyReportDone(report: any) {
     const userIds = expandLinkedUsers([report.created_by]);
     if (userIds.length === 0) return;
     const label = REPORT_TYPE_LABEL[report.type] || "";
-    const deepLink = report.type === "event" && report.target_id ? `/event/${report.target_id}` : "/";
+    const deepLink =
+      report.type === "event" && report.target_id ? `/event/${report.target_id}` :
+      report.type === "life" && report.target_id ? `/life/${report.target_id}` :
+      "/"; // 전도자/팀/전체는 대상 페이지가 없어 홈으로
+
     await fetch(`${url}/functions/v1/cnu-notify`, {
       method: "POST",
       headers: { "content-type": "application/json", apikey: anon, Authorization: `Bearer ${anon}` },
