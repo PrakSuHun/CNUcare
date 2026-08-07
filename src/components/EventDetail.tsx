@@ -1163,8 +1163,12 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
       if (data.id) {
         setEventReport({ id: data.id, status: "pending", content: "" });
         pollEventReport(data.id);
+      } else {
+        alert(data.error || "분석을 시작하지 못했어요. 잠시 후 다시 시도해 주세요.");
       }
-    } catch { /* noop */ }
+    } catch {
+      alert("분석 요청에 실패했어요. 네트워크를 확인해 주세요.");
+    }
   };
 
   // 레포트 커스텀 — 추가 요청을 반영해 재분석

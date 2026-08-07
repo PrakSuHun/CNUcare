@@ -3,8 +3,41 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import { createClient } from "@supabase/supabase-js";
 import { callGateway } from "@/lib/gateway";
 import { tryClaude } from "@/lib/claudeBridge";
+import { expandLinkedUsers } from "@/lib/accountLinks";
 
 export const maxDuration = 300;
+
+const REPORT_TYPE_LABEL: Record<string, string> = {
+  life: "생명", student: "전도자", manager: "팀", overall: "전체", event: "행사",
+};
+
+// 분석 완료 시 요청자에게 푸시 알림 (구독 기기만 수신)
+async function notifyReportDone(report: any) {
+  try {
+    if (!report?.created_by) return;
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    const secret = process.env.CNU_NOTIFY_SECRET;
+    if (!url || !anon || !secret) return;
+    const userIds = expandLinkedUsers([report.created_by]);
+    if (userIds.length === 0) return;
+    const label = REPORT_TYPE_LABEL[report.type] || "";
+    const deepLink = report.type === "event" && report.target_id ? `/event/${report.target_id}` : "/";
+    await fetch(`${url}/functions/v1/cnu-notify`, {
+      method: "POST",
+      headers: { "content-type": "application/json", apikey: anon, Authorization: `Bearer ${anon}` },
+      body: JSON.stringify({
+        action: "send",
+        secret,
+        user_ids: userIds,
+        title: `✅ AI 분석 완료 · ${report.target_name || label}`,
+        body: `${label} 분석이 끝났어요. 눌러서 결과를 확인하세요.`,
+        url: deepLink,
+        tag: `report-${report.id}`,
+      }),
+    });
+  } catch { /* 알림 실패는 무시 */ }
+}
 
 function getSb() {
   return createClient(
@@ -91,13 +124,14 @@ export async function GET(req: NextRequest) {
       const prompt = report.request_data?.prompt;
       if (!prompt) throw new Error("No prompt in request_data");
 
-      // 모두 Gemini Pro 사용 (Vercel 타임아웃 10초 제한 대응)
+      // Claude 우선 → Gemini 폴백
       const content = await callGemini(prompt);
 
       await sb.from("reports").update({
         status: "completed",
         content,
       }).eq("id", report.id);
+      await notifyReportDone(report);
 
       processed++;
     } catch (err: any) {
@@ -117,6 +151,7 @@ export async function GET(req: NextRequest) {
           const retryPrompt = originalPrompt.split("다음 항목을 분석")[0] + "\n[요약된 데이터]\n" + summary + "\n\n" + "다음 항목을 분석" + originalPrompt.split("다음 항목을 분석").slice(1).join("다음 항목을 분석");
           const content = await callGemini(retryPrompt);
           await sb.from("reports").update({ status: "completed", content }).eq("id", report.id);
+          await notifyReportDone(report);
           processed++;
           continue;
         } catch (retryErr: any) {
