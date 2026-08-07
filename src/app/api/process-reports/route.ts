@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { createClient } from "@supabase/supabase-js";
 import { callGateway } from "@/lib/gateway";
+import { tryClaude } from "@/lib/claudeBridge";
+
+export const maxDuration = 300;
 
 function getSb() {
   return createClient(
@@ -20,8 +23,12 @@ function getFreeKeys(): string[] {
 
 let keyIdx = 0;
 
-// 1순위: 충남대 Gateway Gemini Pro → 2순위: 유료 Gemini 키 → 3순위: 무료 키
+// 0순위: 구독 Claude 브릿지 → 1순위: 충남대 Gateway Gemini Pro → 2순위: 유료 Gemini 키 → 3순위: 무료 키
 async function callGemini(prompt: string): Promise<string> {
+  // 0순위: Claude (구독 브릿지). 켜져 있으면 우선, 꺼짐/실패면 null → Gemini 폴백
+  const claude = await tryClaude(prompt);
+  if (claude) return claude;
+
   // 1순위: 충남대 Gateway
   try {
     return await callGateway(prompt, "gemini-2.5-pro");

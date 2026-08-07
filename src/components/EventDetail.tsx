@@ -1920,12 +1920,13 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
         {/* ===== 현황 Tab ===== */}
         {activeTab === "status" && (
           <div className="p-4 space-y-4">
-            {/* AI button */}
+            {/* AI button — 누르면 팝업 없이 바로 분석 실행(결과는 모달에 표시) */}
             <button
-              onClick={() => setShowAiModal(true)}
-              className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg py-2.5 text-sm font-medium hover:from-blue-700 hover:to-indigo-700 transition-colors"
+              onClick={() => { setShowAiModal(true); handleAiAnalyze(); }}
+              disabled={aiLoading}
+              className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg py-2.5 text-sm font-medium hover:from-blue-700 hover:to-indigo-700 transition-colors disabled:opacity-50"
             >
-              AI 분석
+              {aiLoading ? "분석 중..." : "AI 분석"}
             </button>
 
             {/* Stats cards */}
@@ -3120,17 +3121,10 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
               <button onClick={() => setShowAiModal(false)} className="text-xs text-gray-400">닫기</button>
             </div>
             {!aiResult ? (
-              <div className="space-y-3">
-                <p className="text-xs text-gray-500 leading-relaxed">
-                  이 행사를 평가·분석합니다. 참가자 분포(학년·성별·신청폼 항목), 생명 전환, 수집된 피드백을 종합해 좋은 행사였는지 진단해요.
-                </p>
-                <button
-                  onClick={handleAiAnalyze}
-                  disabled={aiLoading}
-                  className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg py-2.5 text-sm font-medium disabled:opacity-50 transition-colors"
-                >
-                  {aiLoading ? "분석 중..." : "분석 시작"}
-                </button>
+              <div className="py-10 text-center space-y-2">
+                <div className="inline-block w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                <p className="text-sm text-gray-600">AI가 이 행사를 분석하고 있어요…</p>
+                <p className="text-xs text-gray-400">참가자 분포·생명 전환·피드백 종합 (최대 1~2분)</p>
               </div>
             ) : (
               <div className="space-y-3">
@@ -3138,8 +3132,9 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                   {aiResult}
                 </div>
                 <button
-                  onClick={() => setAiResult("")}
-                  className="w-full border border-gray-200 text-gray-500 rounded-lg py-2 text-sm hover:bg-gray-50 transition-colors"
+                  onClick={() => { setAiResult(""); handleAiAnalyze(); }}
+                  disabled={aiLoading}
+                  className="w-full border border-gray-200 text-gray-500 rounded-lg py-2 text-sm hover:bg-gray-50 transition-colors disabled:opacity-50"
                 >
                   다시 분석
                 </button>

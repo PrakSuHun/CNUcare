@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { callGateway } from "@/lib/gateway";
+import { tryClaude } from "@/lib/claudeBridge";
+
+export const maxDuration = 300;
 
 function getSb() {
   return createClient(
@@ -10,8 +13,10 @@ function getSb() {
   );
 }
 
-// 동기 LLM 호출 (충남대 Gateway → 유료 → 무료 키 폴백). 행사 분석처럼 결과를 바로 반환할 때 사용.
+// 동기 LLM 호출 (Claude 우선 → 충남대 Gateway → 유료 → 무료 키 폴백). 행사 분석처럼 결과를 바로 반환할 때 사용.
 async function callLLM(prompt: string): Promise<string> {
+  const claude = await tryClaude(prompt); // 구독 Claude 브릿지가 켜져 있으면 우선 사용
+  if (claude) return claude;
   try { return await callGateway(prompt, "gemini-2.5-pro"); } catch { /* 폴백 */ }
   const paid = process.env.GEMINI_PAID_KEY?.trim();
   const keys = paid ? [paid] : (process.env.GEMINI_API_KEY || "").split(",").map((k) => k.trim()).filter(Boolean);
