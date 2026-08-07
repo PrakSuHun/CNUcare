@@ -920,22 +920,50 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
     }
 
     if (groupBy === "friend") {
-      // Group by department first, then friend_group
-      const deptGroups: Record<string, Record<string, Attendee[]>> = {};
-      sorted.forEach((a) => {
-        const dept = a.department || "미분류";
-        const fg = a.friend_group || "개인";
-        if (!deptGroups[dept]) deptGroups[dept] = {};
-        if (!deptGroups[dept][fg]) deptGroups[dept][fg] = [];
-        deptGroups[dept][fg].push(a);
+      // 같이 오는 친구를 '이름'으로 상호·연쇄 매칭해 한 그룹으로 묶음(union-find).
+      // 예: 박수훈이 '이미철'을 적고 이미철이 '성원빈'을 적으면 → 박수훈·이미철·성원빈 한 그룹.
+      const nk = (s: string) => s.replace(/\s+/g, "").toLowerCase();
+      const byName = new Map<string, number[]>();
+      sorted.forEach((a, i) => {
+        const k = nk(a.name);
+        if (!k) return;
+        if (!byName.has(k)) byName.set(k, []);
+        byName.get(k)!.push(i);
       });
-      const result: { label: string; items: Attendee[] }[] = [];
-      Object.entries(deptGroups).forEach(([dept, fgs]) => {
-        Object.entries(fgs).forEach(([fg, items]) => {
-          result.push({ label: `${dept} - ${fg}`, items });
-        });
+      // 토큰이 이름과 일치하는 참석자 인덱스들. 조사(와/과/이랑 등)가 붙었으면 떼고 재시도.
+      const matchName = (tok: string): number[] => {
+        if (byName.has(tok)) return byName.get(tok)!;
+        for (const cut of [1, 2]) {
+          const t2 = tok.slice(0, tok.length - cut);
+          if (t2.length >= 2 && byName.has(t2)) return byName.get(t2)!;
+        }
+        return [];
+      };
+      const parent = sorted.map((_, i) => i);
+      const find = (x: number): number => { while (parent[x] !== x) { parent[x] = parent[parent[x]]; x = parent[x]; } return x; };
+      const union = (a: number, b: number) => { const ra = find(a), rb = find(b); if (ra !== rb) parent[ra] = rb; };
+      sorted.forEach((a, i) => {
+        (a.friend_group || "")
+          .split(/[,\n/·&+]|\s+/)
+          .map((t) => nk(t))
+          .filter(Boolean)
+          .forEach((tok) => matchName(tok).forEach((j) => { if (j !== i) union(i, j); }));
       });
-      return result;
+      const comps = new Map<number, Attendee[]>();
+      sorted.forEach((a, i) => {
+        const r = find(i);
+        if (!comps.has(r)) comps.set(r, []);
+        comps.get(r)!.push(a);
+      });
+      const groups: { label: string; items: Attendee[] }[] = [];
+      const solo: Attendee[] = [];
+      comps.forEach((items) => {
+        if (items.length > 1) groups.push({ label: `${items.map((x) => x.name).join("·")} (${items.length})`, items });
+        else solo.push(items[0]);
+      });
+      groups.sort((a, b) => b.items.length - a.items.length); // 큰 친구 그룹 먼저
+      if (solo.length) groups.push({ label: `개인 (${solo.length})`, items: solo }); // 혼자 온 사람은 맨 아래
+      return groups;
     }
 
     // 학교별 그룹
@@ -1454,6 +1482,7 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                   ["manager", "관리자별"],
                   ["school", "학교별"],
                   ["attendance", "출석별"],
+                  ["friend", "친구별"],
                   ...customGroupOptions.map((o) => [o.value, o.label] as [string, string]),
                 ]).map(([val, label]) => (
                   <button
@@ -1926,7 +1955,16 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                         {/* After mode: 파악내용 (특이사항·MBTI·작업여부 등) — 메모와 별개 컬럼(assessment) */}
                         {detailMode === "after" && (
                           <div className="mt-2 pt-2 border-t border-gray-100">
-                            <span className="text-[10px] text-gray-400">파악내용</span>
+                            <div className="flex items-center justify-between mb-0.5">
+                              <span className="text-[10px] text-gray-400">파악내용</span>
+                              {(() => {
+                                const mgrName = members.find((m) => m.user_id === a.manager_id)?.display_name
+                                  || allUsers.find((u) => u.id === a.manager_id)?.display_name;
+                                return mgrName
+                                  ? <span className="text-[10px] font-semibold text-blue-600">담당 {mgrName}</span>
+                                  : <span className="text-[10px] text-gray-300">담당 미배정</span>;
+                              })()}
+                            </div>
                             <textarea
                               value={feedbackMap[a.id] ?? a.assessment ?? ""}
                               onChange={(e) => setFeedbackMap((prev) => ({ ...prev, [a.id]: e.target.value }))}
