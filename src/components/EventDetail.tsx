@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { getUser } from "@/lib/auth";
@@ -148,7 +148,11 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
   const [feedbackText, setFeedbackText] = useState("");
   const [feedbacks, setFeedbacks] = useState<Feedback[]>([]);
   const [showAiModal, setShowAiModal] = useState(false);
-  const [aiResult, setAiResult] = useState("");
+  // 행사 AI 분석 — 백그라운드(reports)로 실행, 버튼 상태로 반영
+  const [eventReport, setEventReport] = useState<{ id: string; status: string; content: string } | null>(null);
+  const [aiCustomOpen, setAiCustomOpen] = useState(false);
+  const [aiCustomText, setAiCustomText] = useState("");
+  const aiPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Feedback form generation
   const [showFeedbackGen, setShowFeedbackGen] = useState(false);
@@ -198,7 +202,6 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
   // Sessions (동아리 회차)
   const [sessions, setSessions] = useState<{ number: number; date: string }[]>([]);
   const [selectedSession, setSelectedSession] = useState<string>("all"); // "all" or session date
-  const [aiLoading, setAiLoading] = useState(false);
 
   // 행사 설정 config 전체(세션 저장 시 다른 키 보존용) + 내 알림 수신 여부
   const [settingsConfig, setSettingsConfig] = useState<Record<string, any>>({});
@@ -1111,9 +1114,26 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
     }).sort((a, b) => b.rate - a.rate);
   };
 
-  const handleAiAnalyze = async () => {
-    setAiLoading(true);
-    setAiResult("");
+  // 완료된 리포트(type=event)를 폴링 — 완료/실패 시 버튼 상태 갱신
+  const pollEventReport = (id: string) => {
+    if (aiPollRef.current) clearInterval(aiPollRef.current);
+    let tries = 0;
+    aiPollRef.current = setInterval(async () => {
+      tries++;
+      fetch("/api/process-reports").catch(() => {}); // 서버 처리 깨우기
+      const { data } = await supabase.from("reports").select("id, status, content").eq("id", id).single();
+      if (data) {
+        setEventReport(data as { id: string; status: string; content: string });
+        if (data.status !== "pending" && data.status !== "processing") {
+          if (aiPollRef.current) clearInterval(aiPollRef.current);
+        }
+      }
+      if (tries > 60 && aiPollRef.current) clearInterval(aiPollRef.current); // ~5분 안전장치
+    }, 5000);
+  };
+
+  // AI 분석 시작 (백그라운드). 팝업 없이 버튼만 '분석 중'으로 바뀜.
+  const startEventAnalysis = async () => {
     try {
       const stats = getStats();
       // 참가자 분포 = 현황 그래프와 동일(학년·성별·신청폼 선택형 항목)
@@ -1126,6 +1146,7 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           type: "event",
+          eventId,
           eventName: event?.name,
           eventType: event?.type,
           totalApplicants: stats.total,
@@ -1135,15 +1156,51 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
           passed: stats.passed,
           distributions,
           feedbacks: feedbacks.map((f) => ({ content: f.content, type: f.type })),
+          createdBy: getUser()?.id,
         }),
       });
       const data = await res.json();
-      setAiResult(data.result || data.error || "분석 결과를 가져올 수 없습니다.");
-    } catch {
-      setAiResult("분석 요청에 실패했습니다.");
-    }
-    setAiLoading(false);
+      if (data.id) {
+        setEventReport({ id: data.id, status: "pending", content: "" });
+        pollEventReport(data.id);
+      }
+    } catch { /* noop */ }
   };
+
+  // 레포트 커스텀 — 추가 요청을 반영해 재분석
+  const runAiCustom = async () => {
+    if (!eventReport || !aiCustomText.trim()) return;
+    const res = await fetch("/api/analyze", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode: "custom", reportId: eventReport.id, instruction: aiCustomText.trim() }),
+    });
+    const data = await res.json();
+    if (data.id) {
+      setEventReport({ ...eventReport, status: "pending", content: "" });
+      setAiCustomOpen(false);
+      setAiCustomText("");
+      pollEventReport(eventReport.id);
+    }
+  };
+
+  // 기존 행사 리포트 로드(버튼 상태 복원) + 진행 중이면 폴링 재개
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase.from("reports")
+        .select("id, status, content").eq("type", "event").eq("target_id", eventId)
+        .order("created_at", { ascending: false }).limit(1);
+      if (cancelled) return;
+      const rep = data?.[0] as { id: string; status: string; content: string } | undefined;
+      if (rep) {
+        setEventReport(rep);
+        if (rep.status === "pending" || rep.status === "processing") pollEventReport(rep.id);
+      }
+    })();
+    return () => { cancelled = true; if (aiPollRef.current) clearInterval(aiPollRef.current); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [eventId]);
 
   if (loading || !event) {
     return (
@@ -1920,14 +1977,28 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
         {/* ===== 현황 Tab ===== */}
         {activeTab === "status" && (
           <div className="p-4 space-y-4">
-            {/* AI button — 누르면 팝업 없이 바로 분석 실행(결과는 모달에 표시) */}
-            <button
-              onClick={() => { setShowAiModal(true); handleAiAnalyze(); }}
-              disabled={aiLoading}
-              className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg py-2.5 text-sm font-medium hover:from-blue-700 hover:to-indigo-700 transition-colors disabled:opacity-50"
-            >
-              {aiLoading ? "분석 중..." : "AI 분석"}
-            </button>
+            {/* AI button — 팝업 없이 백그라운드 실행. 완료되면 '분석 완료'로 바뀌고, 누르면 레포트 표시 */}
+            {(() => {
+              const st = eventReport?.status;
+              const busy = st === "pending" || st === "processing";
+              const done = st === "completed";
+              const failed = st === "failed";
+              const label = busy ? "AI 분석 중… (백그라운드)" : done ? "✓ 분석 완료 · 레포트 보기" : failed ? "분석 실패 · 다시 시도" : "AI 분석";
+              const color = done
+                ? "from-emerald-600 to-green-600 hover:from-emerald-700 hover:to-green-700"
+                : "from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700";
+              return (
+                <button
+                  onClick={() => {
+                    if (busy || done) setShowAiModal(true);
+                    else startEventAnalysis(); // 없음/실패 → 새로 시작
+                  }}
+                  className={`w-full bg-gradient-to-r ${color} text-white rounded-lg py-2.5 text-sm font-medium transition-colors ${busy ? "animate-pulse" : ""}`}
+                >
+                  {label}
+                </button>
+              );
+            })()}
 
             {/* Stats cards */}
             {(() => {
@@ -3112,37 +3183,76 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
         </div>
       )}
 
-      {/* AI analysis modal */}
-      {showAiModal && (
+      {/* AI analysis modal — 완료된 레포트 표시 + 레포트 커스텀(재분석) */}
+      {showAiModal && (() => {
+        const st = eventReport?.status;
+        const busy = !eventReport || st === "pending" || st === "processing";
+        const failed = st === "failed";
+        return (
         <div className="fixed inset-0 bg-black/50 flex items-end justify-center z-50" onClick={() => setShowAiModal(false)}>
-          <div className="bg-white w-full max-w-lg rounded-t-2xl p-4 max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white w-full max-w-lg rounded-t-2xl p-4 max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-bold">AI 분석</h3>
+              <h3 className="text-sm font-bold">행사 AI 분석</h3>
               <button onClick={() => setShowAiModal(false)} className="text-xs text-gray-400">닫기</button>
             </div>
-            {!aiResult ? (
+            {busy ? (
               <div className="py-10 text-center space-y-2">
                 <div className="inline-block w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
                 <p className="text-sm text-gray-600">AI가 이 행사를 분석하고 있어요…</p>
-                <p className="text-xs text-gray-400">참가자 분포·생명 전환·피드백 종합 (최대 1~2분)</p>
+                <p className="text-xs text-gray-400">참가자 분포·생명 전환·피드백 종합 (최대 1~2분) · 닫아도 백그라운드에서 계속됩니다</p>
+              </div>
+            ) : failed ? (
+              <div className="space-y-3">
+                <p className="text-sm text-red-500">분석에 실패했어요.</p>
+                <button onClick={() => { setShowAiModal(false); startEventAnalysis(); }}
+                  className="w-full border border-gray-200 text-gray-600 rounded-lg py-2 text-sm hover:bg-gray-50">다시 분석</button>
               </div>
             ) : (
               <div className="space-y-3">
                 <div className="bg-gray-50 rounded-lg p-3 text-sm text-gray-800 whitespace-pre-wrap">
-                  {aiResult}
+                  {eventReport?.content}
                 </div>
-                <button
-                  onClick={() => { setAiResult(""); handleAiAnalyze(); }}
-                  disabled={aiLoading}
-                  className="w-full border border-gray-200 text-gray-500 rounded-lg py-2 text-sm hover:bg-gray-50 transition-colors disabled:opacity-50"
-                >
-                  다시 분석
-                </button>
+
+                {/* 레포트 커스텀 */}
+                {!aiCustomOpen ? (
+                  <div className="flex gap-2">
+                    <button onClick={() => setAiCustomOpen(true)}
+                      className="flex-1 border border-indigo-300 text-indigo-600 rounded-lg py-2 text-sm font-medium hover:bg-indigo-50">
+                      레포트 커스텀
+                    </button>
+                    <button onClick={() => { setShowAiModal(false); startEventAnalysis(); }}
+                      className="border border-gray-200 text-gray-500 rounded-lg py-2 px-3 text-sm hover:bg-gray-50">
+                      새로 분석
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-2 border border-indigo-200 rounded-lg p-3 bg-indigo-50/40">
+                    <p className="text-xs text-gray-600">더 깊게 보고 싶은 부분을 적어주세요. 그 방향으로 다시 분석해요.</p>
+                    <textarea
+                      value={aiCustomText}
+                      onChange={(e) => setAiCustomText(e.target.value)}
+                      rows={3}
+                      placeholder="예: 1학년 유입 경로를 신청폼 항목별로 더 자세히 분석하고, 다음 행사 홍보 채널을 구체적으로 제안해줘"
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-400"
+                    />
+                    <div className="flex gap-2">
+                      <button onClick={runAiCustom} disabled={!aiCustomText.trim()}
+                        className="flex-1 bg-indigo-600 text-white rounded-lg py-2 text-sm font-medium disabled:opacity-50">
+                        이 방향으로 재분석
+                      </button>
+                      <button onClick={() => { setAiCustomOpen(false); setAiCustomText(""); }}
+                        className="border border-gray-200 text-gray-500 rounded-lg py-2 px-3 text-sm hover:bg-gray-50">
+                        취소
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {/* 중복 의심자 상세 팝업 — 어떤 행사들이 겹치는지 보고 판단 */}
       {dupDetail && (

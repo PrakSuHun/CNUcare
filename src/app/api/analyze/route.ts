@@ -1,8 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { GoogleGenerativeAI } from "@google/generative-ai";
-import { callGateway } from "@/lib/gateway";
-import { tryClaude } from "@/lib/claudeBridge";
 
 export const maxDuration = 300;
 
@@ -13,29 +10,17 @@ function getSb() {
   );
 }
 
-// 동기 LLM 호출 (Claude 우선 → 충남대 Gateway → 유료 → 무료 키 폴백). 행사 분석처럼 결과를 바로 반환할 때 사용.
-async function callLLM(prompt: string): Promise<string> {
-  const claude = await tryClaude(prompt); // 구독 Claude 브릿지가 켜져 있으면 우선 사용
-  if (claude) return claude;
-  try { return await callGateway(prompt, "gemini-2.5-pro"); } catch { /* 폴백 */ }
-  const paid = process.env.GEMINI_PAID_KEY?.trim();
-  const keys = paid ? [paid] : (process.env.GEMINI_API_KEY || "").split(",").map((k) => k.trim()).filter(Boolean);
-  for (const key of keys) {
-    try {
-      const ai = new GoogleGenerativeAI(key);
-      const model = ai.getGenerativeModel({ model: paid ? "gemini-2.5-pro" : "gemini-2.5-flash" });
-      const res = await model.generateContent([{ text: prompt }]);
-      return res.response.text();
-    } catch (e: any) {
-      if (e?.message?.includes("429")) continue;
-      throw e;
-    }
-  }
-  throw new Error("LLM 호출에 실패했습니다.");
+const PENDING_HTML = "<div style=\"padding:24px;text-align:center;color:#6b7280\"><p>분석 중입니다...</p></div>";
+
+// 서버에서 process-reports 를 fire-and-forget 로 깨운다 (실제 생성은 거기서 Claude 우선→Gemini)
+function triggerProcess(req: NextRequest) {
+  const host = req.headers.get("host") || "localhost:3000";
+  const protocol = host.includes("localhost") ? "http" : "https";
+  fetch(`${protocol}://${host}/api/process-reports`).catch(() => {});
 }
 
-// 행사 평가·분석 (동기). 모달에 바로 텍스트로 표시된다.
-async function analyzeEvent(body: any): Promise<string> {
+// 행사 평가·분석 프롬프트 (플레인 텍스트 보고서). 생성은 process-reports 에서 처리.
+function buildEventPrompt(body: any): string {
   const { eventName, totalApplicants = 0, totalAttended = 0, male = 0, female = 0, passed = 0, distributions = [], feedbacks = [] } = body;
   const distText = (distributions as any[])
     .map((d) => `■ ${d.label}\n${(d.entries as [string, number][]).map(([v, c]) => `  - ${v}: ${c}명`).join("\n") || "  (없음)"}`)
@@ -43,7 +28,7 @@ async function analyzeEvent(body: any): Promise<string> {
   const fbText = (feedbacks as any[]).map((f) => `- ${f.content}`).join("\n") || "(수집된 피드백 없음)";
   const convRate = totalApplicants ? Math.round((passed / totalApplicants) * 100) : 0;
 
-  const prompt = `당신은 대학 청년 선교 행사 분석 전문가입니다.
+  return `당신은 대학 청년 선교 행사 분석 전문가입니다.
 아래 "${eventName}" 행사 데이터를 평가·분석해 주세요.
 
 [규모]
@@ -69,8 +54,6 @@ ${fbText}
 5. 다음 행사 제안 — 구체적 액션
 
 읽기 쉬운 텍스트로 작성하세요. 각 섹션 제목과 불릿(-)만 사용하고, 과한 마크다운 기호(#, **, 표)는 쓰지 마세요.`;
-
-  return await callLLM(prompt);
 }
 
 
@@ -135,10 +118,42 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { type, targetId, targetName, createdBy } = body;
 
-    // 행사 분석: 큐(reports)를 쓰지 않고 결과를 바로 반환 (모달에 즉시 표시)
+    // 레포트 커스텀(재분석): 기존 레포트 프롬프트에 추가 요청을 얹어 다시 pending 처리.
+    // 모든 분석 타입 공통.
+    if (body.mode === "custom") {
+      const { reportId, instruction } = body;
+      if (!reportId || !instruction?.trim()) {
+        return NextResponse.json({ error: "reportId와 instruction이 필요합니다." }, { status: 400 });
+      }
+      const { data: rep } = await getSb().from("reports").select("id, request_data").eq("id", reportId).single();
+      if (!rep) return NextResponse.json({ error: "레포트를 찾을 수 없습니다." }, { status: 404 });
+      const base: string = rep.request_data?.base_prompt || rep.request_data?.prompt || "";
+      const newPrompt = `${base}\n\n[추가 분석 요청 — 위와 동일한 출력 형식을 반드시 유지하면서, 아래 요청을 더 깊고 세밀하게 반영해 다시 작성하세요]\n${instruction.trim()}`;
+      const { error: upErr } = await getSb().from("reports").update({
+        status: "pending",
+        content: PENDING_HTML,
+        request_data: { ...(rep.request_data || {}), base_prompt: base, prompt: newPrompt, custom_instruction: instruction.trim() },
+      }).eq("id", reportId);
+      if (upErr) return NextResponse.json({ error: upErr.message }, { status: 500 });
+      triggerProcess(req);
+      return NextResponse.json({ id: reportId, status: "pending" });
+    }
+
+    // 행사 분석: 백그라운드(reports)로 처리 → 버튼 상태(분석 중/완료)로 반영, 완료 시 레포트 열람
     if (type === "event") {
-      const result = await analyzeEvent(body);
-      return NextResponse.json({ result });
+      const prompt = buildEventPrompt(body);
+      const { data: report, error } = await getSb().from("reports").insert({
+        type: "event",
+        target_id: body.eventId || null,
+        target_name: body.eventName || "행사",
+        content: PENDING_HTML,
+        status: "pending",
+        request_data: { prompt, base_prompt: prompt },
+        created_by: createdBy || null,
+      }).select("id").single();
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+      triggerProcess(req);
+      return NextResponse.json({ id: report?.id, status: "pending" });
     }
 
     let prompt = "";
@@ -329,9 +344,9 @@ ${failed.length}/${context.lives.length} (${context.lives.length ? Math.round(fa
       type,
       target_id: targetId || null,
       target_name: targetName,
-      content: "<div style=\"padding:24px;text-align:center;color:#6b7280\"><p>분석 중입니다...</p></div>",
+      content: PENDING_HTML,
       status: "pending",
-      request_data: { prompt },
+      request_data: { prompt, base_prompt: prompt },
       created_by: createdBy || null,
     }).select("id").single();
 
@@ -341,9 +356,7 @@ ${failed.length}/${context.lives.length} (${context.lives.length ? Math.round(fa
     }
 
     // 서버에 즉시 처리 요청 (fire-and-forget)
-    const baseUrl = req.headers.get("host") || "localhost:3000";
-    const protocol = baseUrl.includes("localhost") ? "http" : "https";
-    fetch(`${protocol}://${baseUrl}/api/process-reports`).catch(() => {});
+    triggerProcess(req);
 
     return NextResponse.json({ id: report?.id, status: "pending" });
   } catch (err: any) {

@@ -46,6 +46,8 @@ export default function InstructorAnalysis() {
   const [submitting, setSubmitting] = useState(false);
   const [reports, setReports] = useState<Report[]>([]);
   const [viewingReport, setViewingReport] = useState<Report | null>(null);
+  const [customOpen, setCustomOpen] = useState(false);
+  const [customText, setCustomText] = useState("");
   const [reactions, setReactions] = useState<LessonReaction[]>([]);
   const [loadingReactions, setLoadingReactions] = useState(false);
   const [error, setError] = useState("");
@@ -86,10 +88,38 @@ export default function InstructorAnalysis() {
       .from("reports")
       .select("*")
       .eq("created_by", user.id)
+      .neq("type", "event")
       .order("created_at", { ascending: false })
       .limit(20);
     if (data) setReports(data);
   };
+
+  // 보고서 커스텀(재분석)
+  const runCustom = async () => {
+    if (!viewingReport || !customText.trim()) return;
+    const res = await fetch("/api/analyze", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode: "custom", reportId: viewingReport.id, instruction: customText.trim() }),
+    });
+    const data = await res.json();
+    if (data.id) {
+      setCustomOpen(false);
+      setCustomText("");
+      setViewingReport({ ...viewingReport, status: "pending" });
+      fetchReports();
+    }
+  };
+
+  // 목록 갱신 시 열람 중 보고서 동기화(재분석 완료 반영)
+  useEffect(() => {
+    if (!viewingReport) return;
+    const fresh = reports.find((r) => r.id === viewingReport.id);
+    if (fresh && (fresh.status !== viewingReport.status || fresh.content !== viewingReport.content)) {
+      setViewingReport(fresh);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reports]);
 
   // 생명 분석 요청
   const handleAnalyze = async () => {
@@ -273,10 +303,49 @@ export default function InstructorAnalysis() {
             <span className="text-sm font-bold">{viewingReport.target_name} 분석</span>
             <div className="flex items-center gap-2">
               <button onClick={() => handleDeleteReport(viewingReport.id)} className="text-xs text-red-400 border border-red-200 rounded-full px-3 py-1 hover:bg-red-50">삭제</button>
-              <button onClick={() => setViewingReport(null)} className="text-xs text-gray-500">← 목록</button>
+              <button onClick={() => { setViewingReport(null); setCustomOpen(false); setCustomText(""); }} className="text-xs text-gray-500">← 목록</button>
             </div>
           </div>
-          <div dangerouslySetInnerHTML={{ __html: extractHtml(viewingReport.content) }} />
+          {viewingReport.status === "pending" || viewingReport.status === "processing" ? (
+            <div className="py-12 text-center space-y-2">
+              <div className="inline-block w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+              <p className="text-sm text-gray-600">다시 분석하고 있어요…</p>
+              <p className="text-xs text-gray-400">완료되면 자동으로 갱신됩니다</p>
+            </div>
+          ) : (
+            <>
+              <div dangerouslySetInnerHTML={{ __html: extractHtml(viewingReport.content) }} />
+              <div className="mt-4 border-t border-gray-100 pt-4">
+                {!customOpen ? (
+                  <button onClick={() => setCustomOpen(true)}
+                    className="w-full border border-indigo-300 text-indigo-600 rounded-lg py-2.5 text-sm font-medium hover:bg-indigo-50">
+                    레포트 커스텀
+                  </button>
+                ) : (
+                  <div className="space-y-2 border border-indigo-200 rounded-lg p-3 bg-indigo-50/40">
+                    <p className="text-xs text-gray-600">더 깊게 보고 싶은 부분을 적어주세요. 그 방향으로 다시 분석해요.</p>
+                    <textarea
+                      value={customText}
+                      onChange={(e) => setCustomText(e.target.value)}
+                      rows={3}
+                      placeholder="예: 최근 반응 변화에 집중해 다시 분석하고, 다음 만남에서 쓸 구체적 질문을 제안해줘"
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-400"
+                    />
+                    <div className="flex gap-2">
+                      <button onClick={runCustom} disabled={!customText.trim()}
+                        className="flex-1 bg-indigo-600 text-white rounded-lg py-2 text-sm font-medium disabled:opacity-50">
+                        이 방향으로 재분석
+                      </button>
+                      <button onClick={() => { setCustomOpen(false); setCustomText(""); }}
+                        className="border border-gray-200 text-gray-500 rounded-lg py-2 px-3 text-sm hover:bg-gray-50">
+                        취소
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
         </div>
       )}
 
