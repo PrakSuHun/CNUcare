@@ -298,7 +298,11 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
         setDupSuspects(shown);
       })
       .catch(() => setDupSuspects([]));
-    const loadedSessions = (loadedConfig.sessions as { number: number; date: string }[] | undefined) || [];
+    let loadedSessions = (loadedConfig.sessions as { number: number; date: string }[] | undefined) || [];
+    // 세션이 없고 생성 시 넣은 event_date가 있으면 그걸 행사 날짜로 채움(설정 입력·접두 동기화)
+    if (loadedSessions.length === 0 && eventRes.data?.event_date) {
+      loadedSessions = [{ number: 1, date: eventRes.data.event_date }];
+    }
     if (loadedSessions.length > 0) setSessions(loadedSessions);
     const optOut = (loadedConfig.notify_optout as string[] | undefined) || [];
     const meId = getUser()?.id;
@@ -2466,6 +2470,8 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                   } else {
                     await supabase.from("event_forms").insert({ event_id: eventId, type: "settings", config: nextConfig, created_by: getUser()?.id });
                   }
+                  // 행사 목록 접두(yy.mm.dd 행사명)에 쓰이는 events.event_date 도 함께 갱신
+                  await supabase.from("events").update({ event_date: sessions[0]?.date || null }).eq("id", eventId);
                   setSettingsConfig(nextConfig);
                   alert("저장되었습니다.");
                 }}
