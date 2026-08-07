@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { getUser } from "@/lib/auth";
@@ -45,7 +45,9 @@ export default function EventList({ basePath, allEvents = false }: EventListProp
   const [createName, setCreateName] = useState("");
   const [createDate, setCreateDate] = useState(""); // 선택: 행사 날짜
   const [createType, setCreateType] = useState<"onetime" | "club">("onetime");
-  const [dragId, setDragId] = useState<string | null>(null); // 드래그 중인 행사
+  const [orderMode, setOrderMode] = useState(false); // 순서 수정 모드
+  const [orderBackup, setOrderBackup] = useState<Event[] | null>(null); // 취소용 스냅샷
+  const [orderSaving, setOrderSaving] = useState(false);
   const [clubUnit, setClubUnit] = useState<"daily" | "weekly">("weekly");
   const [shareTargets, setShareTargets] = useState<UserChip[]>([]);
   const [userSearch, setUserSearch] = useState("");
@@ -133,35 +135,30 @@ export default function EventList({ basePath, allEvents = false }: EventListProp
     });
   };
 
-  const saveOrder = async (ids: string[]) => {
-    if (!user) return;
-    await supabase.from("user_event_order").upsert(
-      { user_id: user.id, ordering: ids, updated_at: new Date().toISOString() },
-      { onConflict: "user_id" }
-    );
-  };
-
-  // 포인터(터치·마우스) 기반 재정렬 — 드래그 핸들에서 시작
-  const onDragMove = (e: ReactPointerEvent) => {
-    if (!dragId) return;
-    const el = document.elementFromPoint(e.clientX, e.clientY);
-    const card = el?.closest("[data-event-id]") as HTMLElement | null;
-    const overId = card?.getAttribute("data-event-id");
-    if (!overId || overId === dragId) return;
+  // === 순서 수정 모드 (위/아래 버튼 → 저장) ===
+  const enterOrderMode = () => { setOrderBackup([...events]); setOrderMode(true); };
+  const cancelOrder = () => { if (orderBackup) setEvents(orderBackup); setOrderBackup(null); setOrderMode(false); };
+  const moveEvent = (index: number, dir: -1 | 1) => {
     setEvents((prev) => {
-      const from = prev.findIndex((x) => x.id === dragId);
-      const to = prev.findIndex((x) => x.id === overId);
-      if (from < 0 || to < 0) return prev;
+      const to = index + dir;
+      if (to < 0 || to >= prev.length) return prev;
       const next = [...prev];
-      const [moved] = next.splice(from, 1);
+      const [moved] = next.splice(index, 1);
       next.splice(to, 0, moved);
       return next;
     });
   };
-  const onDragEnd = () => {
-    if (!dragId) return;
-    setDragId(null);
-    setEvents((prev) => { saveOrder(prev.map((e) => e.id)); return prev; });
+  const saveOrder = async () => {
+    if (!user) return;
+    setOrderSaving(true);
+    const ids = events.map((e) => e.id);
+    await supabase.from("user_event_order").upsert(
+      { user_id: user.id, ordering: ids, updated_at: new Date().toISOString() },
+      { onConflict: "user_id" }
+    );
+    setOrderSaving(false);
+    setOrderBackup(null);
+    setOrderMode(false);
   };
 
   const handleUnlink = async (eventId: string) => {
@@ -404,13 +401,34 @@ export default function EventList({ basePath, allEvents = false }: EventListProp
   return (
     <div className="space-y-3">
       {/* Add button / menu */}
-      {mode === "list" && (
-        <button
-          onClick={() => setMode("add-menu")}
-          className="w-full rounded-lg border-2 border-dashed border-gray-300 py-4 text-center text-gray-500 hover:border-blue-400 hover:text-blue-500 transition-colors"
-        >
-          + 행사 추가
-        </button>
+      {mode === "list" && !orderMode && (
+        <div>
+          <button
+            onClick={() => setMode("add-menu")}
+            className="w-full rounded-lg border-2 border-dashed border-gray-300 py-4 text-center text-gray-500 hover:border-blue-400 hover:text-blue-500 transition-colors"
+          >
+            + 행사 추가
+          </button>
+          {events.length > 1 && (
+            <button
+              onClick={enterOrderMode}
+              className="mt-1 text-[11px] text-gray-400 hover:text-blue-500"
+            >
+              ↕ 순서 수정
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* 순서 수정 모드 바 */}
+      {orderMode && (
+        <div className="flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
+          <span className="text-xs text-blue-700 flex-1">위/아래 버튼으로 순서를 바꾼 뒤 저장하세요</span>
+          <button onClick={cancelOrder} className="text-xs text-gray-500 border border-gray-300 rounded-lg px-3 py-1.5">취소</button>
+          <button onClick={saveOrder} disabled={orderSaving} className="text-xs bg-blue-600 text-white rounded-lg px-3 py-1.5 font-medium disabled:opacity-50">
+            {orderSaving ? "저장 중…" : "저장"}
+          </button>
+        </div>
       )}
 
       {mode === "add-menu" && (
@@ -666,25 +684,29 @@ export default function EventList({ basePath, allEvents = false }: EventListProp
         <p className="text-center text-sm text-gray-400 py-4">참여 중인 행사가 없습니다.</p>
       )}
 
-      {events.map((event) => (
-        <div key={event.id} data-event-id={event.id} className={`relative transition-opacity ${dragId === event.id ? "opacity-50" : ""}`}>
-          <div className="flex bg-white rounded-lg border border-gray-200 hover:border-blue-300 transition-colors">
-            {/* 드래그 핸들 (앞부분) — 터치·마우스로 순서 변경 */}
+      {events.map((event, idx) => (
+        <div key={event.id} className="relative">
+          <div className={`flex bg-white rounded-lg border transition-colors ${orderMode ? "border-blue-200" : "border-gray-200 hover:border-blue-300"}`}>
+            {/* 순서 수정 모드: 위/아래 버튼 */}
+            {orderMode && (
+              <div className="flex flex-col justify-center pl-2 gap-0.5">
+                <button
+                  onClick={() => moveEvent(idx, -1)}
+                  disabled={idx === 0}
+                  className="text-gray-400 hover:text-blue-600 disabled:opacity-20 text-sm leading-none px-1"
+                  aria-label="위로"
+                >▲</button>
+                <button
+                  onClick={() => moveEvent(idx, 1)}
+                  disabled={idx === events.length - 1}
+                  className="text-gray-400 hover:text-blue-600 disabled:opacity-20 text-sm leading-none px-1"
+                  aria-label="아래로"
+                >▼</button>
+              </div>
+            )}
             <button
-              onPointerDown={(e) => { e.preventDefault(); setDragId(event.id); (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); }}
-              onPointerMove={onDragMove}
-              onPointerUp={onDragEnd}
-              onPointerCancel={onDragEnd}
-              style={{ touchAction: "none" }}
-              title="드래그해서 순서 변경"
-              aria-label="순서 변경"
-              className="px-2 flex items-center text-gray-300 hover:text-gray-500 cursor-grab active:cursor-grabbing select-none text-lg"
-            >
-              ⋮⋮
-            </button>
-            <button
-              onClick={() => router.push(`${basePath}/event/${event.id}`)}
-              className="flex-1 py-4 pr-4 text-left"
+              onClick={() => { if (!orderMode) router.push(`${basePath}/event/${event.id}`); }}
+              className="flex-1 py-4 px-4 text-left"
             >
               <div className="flex items-center justify-between">
                 <span className="font-semibold text-base">
@@ -703,14 +725,16 @@ export default function EventList({ basePath, allEvents = false }: EventListProp
               </div>
               <p className="text-xs text-gray-400 mt-1">참여 {event.guest_count}명</p>
             </button>
-            <button
-              onClick={(e) => { e.stopPropagation(); setMenuEventId(menuEventId === event.id ? null : event.id); }}
-              className="px-3 flex items-center text-gray-300 hover:text-gray-500"
-            >
-              ⋯
-            </button>
+            {!orderMode && (
+              <button
+                onClick={(e) => { e.stopPropagation(); setMenuEventId(menuEventId === event.id ? null : event.id); }}
+                className="px-3 flex items-center text-gray-300 hover:text-gray-500"
+              >
+                ⋯
+              </button>
+            )}
           </div>
-          {menuEventId === event.id && (
+          {!orderMode && menuEventId === event.id && (
             <>
               <div className="fixed inset-0 z-40" onClick={() => setMenuEventId(null)} />
               <div className="absolute right-2 top-12 z-50 bg-white border border-gray-200 rounded-lg shadow-lg py-1 w-44">
