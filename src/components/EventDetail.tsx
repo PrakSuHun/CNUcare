@@ -6,6 +6,7 @@ import { supabase } from "@/lib/supabase";
 import { getUser } from "@/lib/auth";
 import { parseFiles } from "@/lib/parseUpload";
 import { formatPhone } from "@/lib/phone";
+import { convertAttendeeToLife } from "@/lib/convertLife";
 import * as XLSX from "xlsx";
 
 // AI 보고서 content → 렌더용 HTML (코드펜스/마크다운 대응). 다른 분석 화면과 동일 규칙.
@@ -84,6 +85,7 @@ interface Attendee {
   assessment: string | null;
   is_member: boolean;
   life_id: string | null;
+  opposite_sex: boolean | null;
   custom_data: Record<string, string> | null;
 }
 
@@ -167,6 +169,8 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
   const [eventReport, setEventReport] = useState<{ id: string; status: string; content: string } | null>(null);
   const [aiCustomOpen, setAiCustomOpen] = useState(false);
   const [aiCustomText, setAiCustomText] = useState("");
+  const [editAssessId, setEditAssessId] = useState<string | null>(null); // 파악내용 클릭-편집 중인 참석자
+  const [feedbackReqSending, setFeedbackReqSending] = useState(false);
   const aiPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Feedback form generation
@@ -1688,6 +1692,31 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
             </div>
             )}
 
+            {/* 행사 후: 관리자에게 피드백 요청 (담당자들에게 알림 → 각자 피드백 페이지에서 작성) */}
+            {detailMode === "after" && event?.type !== "club" && (
+              <button
+                onClick={async () => {
+                  const mgrCount = new Set(attendees.filter((a) => !a.is_member && a.manager_id).map((a) => a.manager_id)).size;
+                  if (mgrCount === 0) { alert("담당(관리자)으로 지정된 참석자가 없어요. 먼저 '행사 전'에서 담당을 배정해 주세요."); return; }
+                  if (!confirm(`담당자 ${mgrCount}명에게 피드백 작성 요청 알림을 보낼까요?`)) return;
+                  setFeedbackReqSending(true);
+                  try {
+                    const res = await fetch("/api/notify-feedback-request", {
+                      method: "POST", headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ event_id: eventId }),
+                    });
+                    const d = await res.json();
+                    alert(`요청 완료: 담당자 ${d.managers ?? mgrCount}명에게 알림을 보냈어요.`);
+                  } catch { alert("요청 전송에 실패했어요."); }
+                  setFeedbackReqSending(false);
+                }}
+                disabled={feedbackReqSending}
+                className="w-full bg-indigo-600 text-white rounded-lg py-2.5 text-sm font-medium disabled:opacity-50"
+              >
+                {feedbackReqSending ? "요청 보내는 중…" : "📝 관리자에게 피드백 요청 보내기"}
+              </button>
+            )}
+
             {/* Sort + Group (same as attendance + friend) */}
             <div className="space-y-2">
               <div className="flex gap-1.5 flex-wrap">
@@ -1773,6 +1802,15 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                         >
                           <div className="flex items-center gap-2">
                             <span className="text-sm font-medium">{a.name}</span>
+                            {/* 행사 후: 생명 전환 P(초록) / 미전환 F(빨강) — 게스트만 */}
+                            {detailMode === "after" && !a.is_member && (
+                              a.life_id
+                                ? <span className="text-[10px] font-bold text-green-700 bg-green-100 rounded-full px-1.5 py-0.5">P</span>
+                                : <span className="text-[10px] font-bold text-red-600 bg-red-100 rounded-full px-1.5 py-0.5">F</span>
+                            )}
+                            {a.opposite_sex && detailMode === "after" && (
+                              <span className="text-[10px] text-rose-500" title="이성 여부">♥</span>
+                            )}
                             {a.gender && (
                               <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
                                 a.gender === "남" ? "bg-blue-100 text-blue-700" : "bg-pink-100 text-pink-700"
@@ -1965,18 +2003,32 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                                   : <span className="text-[10px] text-gray-300">담당 미배정</span>;
                               })()}
                             </div>
-                            <textarea
-                              value={feedbackMap[a.id] ?? a.assessment ?? ""}
-                              onChange={(e) => setFeedbackMap((prev) => ({ ...prev, [a.id]: e.target.value }))}
-                              onBlur={() => {
-                                if (feedbackMap[a.id] !== undefined) {
-                                  updateAttendeeField(a.id, "assessment", feedbackMap[a.id] || null);
-                                }
-                              }}
-                              placeholder="특이사항·MBTI·작업 여부 등"
-                              rows={2}
-                              className="w-full text-xs border border-gray-200 rounded px-2 py-1.5 resize-none focus:outline-none focus:border-blue-400"
-                            />
+                            {/* 메모처럼 클릭해야 편집 (실수 방지) */}
+                            {editAssessId === a.id ? (
+                              <textarea
+                                autoFocus
+                                value={feedbackMap[a.id] ?? a.assessment ?? ""}
+                                onChange={(e) => setFeedbackMap((prev) => ({ ...prev, [a.id]: e.target.value }))}
+                                onBlur={() => {
+                                  if (feedbackMap[a.id] !== undefined) {
+                                    updateAttendeeField(a.id, "assessment", feedbackMap[a.id] || null);
+                                  }
+                                  setEditAssessId(null);
+                                }}
+                                placeholder="특이사항·MBTI·작업 여부 등"
+                                rows={3}
+                                className="w-full text-xs border border-blue-300 rounded px-2 py-1.5 resize-none focus:outline-none"
+                              />
+                            ) : (
+                              <div
+                                onClick={() => setEditAssessId(a.id)}
+                                className="w-full text-xs border border-gray-100 bg-gray-50 rounded px-2 py-1.5 min-h-[2rem] whitespace-pre-wrap cursor-text hover:border-gray-300"
+                              >
+                                {(feedbackMap[a.id] ?? a.assessment)
+                                  ? (feedbackMap[a.id] ?? a.assessment)
+                                  : <span className="text-gray-300">클릭해서 파악내용 입력</span>}
+                              </div>
+                            )}
                           </div>
                         )}
 
@@ -2003,17 +2055,18 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                                   if (!target) return;
                                   const member = members.find(m => m.display_name === target.trim());
                                   if (!member) { alert("해당 섭리회원을 찾을 수 없습니다."); return; }
-                                  const { data: life, error: lifeErr } = await supabase.from("lives").insert({
-                                    name: a.name, stage: "first_meeting", department: a.department || null,
-                                    age: a.year ? new Date().getFullYear() - (2000 + a.year) + 1 : null,
-                                    gender: a.gender || null, phone: a.phone || null,
-                                    characteristics: `[${event?.name}] 참여`,
-                                    primary_user_id: member.user_id,
-                                  }).select("id").single();
-                                  if (!life || lifeErr) { alert("생명 등록 실패: " + (lifeErr?.message || "")); return; }
-                                  await supabase.from("user_lives").insert({ user_id: member.user_id, life_id: life.id, role_in_life: "evangelist" });
-                                  await supabase.from("event_attendees").update({ life_id: life.id }).eq("id", a.id);
-                                  setAttendees(attendees.map(x => x.id === a.id ? { ...x, life_id: life.id } : x));
+                                  try {
+                                    // 만남 경위=행사명, 특징=파악내용(현재 입력 반영)
+                                    const lifeId = await convertAttendeeToLife({
+                                      attendee: a,
+                                      primaryUserId: member.user_id,
+                                      eventName: event?.name || "행사",
+                                      assessment: feedbackMap[a.id] ?? a.assessment,
+                                    });
+                                    setAttendees(attendees.map(x => x.id === a.id ? { ...x, life_id: lifeId } : x));
+                                  } catch (e) {
+                                    alert("생명 등록 실패: " + (e instanceof Error ? e.message : ""));
+                                  }
                                 }}
                                 className="text-xs text-blue-500 hover:text-blue-700 ml-auto"
                               >

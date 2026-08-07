@@ -10,6 +10,7 @@ import { revertStageIfOrphaned } from "@/lib/autoStage";
 import InstructorCalendar from "@/components/InstructorCalendar";
 import AdminViewBanner from "@/components/AdminViewBanner";
 import EventList from "@/components/EventList";
+import EventFeedbackBanner from "@/components/EventFeedbackBanner";
 
 interface Life {
   id: string;
@@ -239,6 +240,8 @@ export default function StudentPage() {
 
       {tab === "lives" && (
       <div className="p-4 space-y-3">
+        {/* 행사 피드백 작성 요청 */}
+        <EventFeedbackBanner />
         {/* 지난 약속 알림 */}
         {pastApptAlerts.map((alert) => (
           <div key={alert.apptId} className="bg-blue-50 border border-blue-200 rounded-lg p-3">

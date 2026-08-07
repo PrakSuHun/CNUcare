@@ -11,6 +11,7 @@ import InstructorCalendar from "@/components/InstructorCalendar";
 import MyLives from "@/components/MyLives";
 import AdminViewBanner from "@/components/AdminViewBanner";
 import EventList from "@/components/EventList";
+import EventFeedbackBanner from "@/components/EventFeedbackBanner";
 import { revertStageIfOrphaned } from "@/lib/autoStage";
 
 export default function ManagerPage() {
@@ -139,6 +140,8 @@ export default function ManagerPage() {
       </div>
 
       <div className="flex-1 overflow-y-auto p-4">
+        {/* 행사 피드백 작성 요청 */}
+        <EventFeedbackBanner />
         {/* 약속 알림 */}
         {pastApptAlerts.map((alert) => (
           <div key={alert.apptId} className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-3">
