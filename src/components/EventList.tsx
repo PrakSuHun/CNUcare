@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, type PointerEvent as ReactPointerEvent } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { getUser } from "@/lib/auth";
@@ -12,7 +12,15 @@ interface Event {
   type: "onetime" | "club";
   slug?: string;
   club_unit?: "daily" | "weekly";
+  event_date?: string | null;
   guest_count: number;
+}
+
+// 행사 날짜 → "yy.mm.dd"
+function fmtEventDate(d?: string | null): string {
+  if (!d) return "";
+  const m = String(d).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? `${m[1].slice(2)}.${m[2]}.${m[3]}` : "";
 }
 
 interface UserChip {
@@ -35,7 +43,9 @@ export default function EventList({ basePath, allEvents = false }: EventListProp
 
   // Create form state
   const [createName, setCreateName] = useState("");
+  const [createDate, setCreateDate] = useState(""); // 선택: 행사 날짜
   const [createType, setCreateType] = useState<"onetime" | "club">("onetime");
+  const [dragId, setDragId] = useState<string | null>(null); // 드래그 중인 행사
   const [clubUnit, setClubUnit] = useState<"daily" | "weekly">("weekly");
   const [shareTargets, setShareTargets] = useState<UserChip[]>([]);
   const [userSearch, setUserSearch] = useState("");
@@ -85,13 +95,13 @@ export default function EventList({ basePath, allEvents = false }: EventListProp
     if (allEvents) {
       const { data } = await supabase
         .from("events")
-        .select("id, name, type, slug, club_unit")
+        .select("id, name, type, slug, club_unit, event_date")
         .order("name");
       evs = data || [];
     } else {
       const { data } = await supabase
         .from("event_members")
-        .select("event_id, events(id, name, type, slug, club_unit)")
+        .select("event_id, events(id, name, type, slug, club_unit, event_date)")
         .eq("user_id", user.id);
       evs = (data || []).map((em: any) => em.events).filter(Boolean);
     }
@@ -106,8 +116,52 @@ export default function EventList({ basePath, allEvents = false }: EventListProp
         .eq("is_member", false);
       eventList.push({ ...ev, guest_count: count || 0 });
     }
-    setEvents(eventList);
+    // 사용자별 저장된 표시 순서 적용
+    const { data: ord } = await supabase.from("user_event_order").select("ordering").eq("user_id", user.id).maybeSingle();
+    setEvents(applyOrder(eventList, (ord?.ordering as string[]) || []));
     setLoading(false);
+  };
+
+  // 저장된 순서(orderIds)대로 정렬. 목록에 없는 새 행사는 뒤에 붙임.
+  const applyOrder = (list: Event[], orderIds: string[]): Event[] => {
+    if (!orderIds.length) return list;
+    const rank = new Map(orderIds.map((id, i) => [id, i]));
+    return [...list].sort((a, b) => {
+      const ra = rank.has(a.id) ? rank.get(a.id)! : Infinity;
+      const rb = rank.has(b.id) ? rank.get(b.id)! : Infinity;
+      return ra - rb;
+    });
+  };
+
+  const saveOrder = async (ids: string[]) => {
+    if (!user) return;
+    await supabase.from("user_event_order").upsert(
+      { user_id: user.id, ordering: ids, updated_at: new Date().toISOString() },
+      { onConflict: "user_id" }
+    );
+  };
+
+  // 포인터(터치·마우스) 기반 재정렬 — 드래그 핸들에서 시작
+  const onDragMove = (e: ReactPointerEvent) => {
+    if (!dragId) return;
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    const card = el?.closest("[data-event-id]") as HTMLElement | null;
+    const overId = card?.getAttribute("data-event-id");
+    if (!overId || overId === dragId) return;
+    setEvents((prev) => {
+      const from = prev.findIndex((x) => x.id === dragId);
+      const to = prev.findIndex((x) => x.id === overId);
+      if (from < 0 || to < 0) return prev;
+      const next = [...prev];
+      const [moved] = next.splice(from, 1);
+      next.splice(to, 0, moved);
+      return next;
+    });
+  };
+  const onDragEnd = () => {
+    if (!dragId) return;
+    setDragId(null);
+    setEvents((prev) => { saveOrder(prev.map((e) => e.id)); return prev; });
   };
 
   const handleUnlink = async (eventId: string) => {
@@ -183,6 +237,7 @@ export default function EventList({ basePath, allEvents = false }: EventListProp
         type: createType,
         slug,
         club_unit: createType === "club" ? clubUnit : null,
+        event_date: createDate || null,
         created_by: user.id,
       })
       .select()
@@ -286,6 +341,7 @@ export default function EventList({ basePath, allEvents = false }: EventListProp
 
     // Reset and refresh
     setCreateName("");
+    setCreateDate("");
     setCreateType("onetime");
     setClubUnit("weekly");
     setShareTargets([]);
@@ -396,6 +452,17 @@ export default function EventList({ basePath, allEvents = false }: EventListProp
               placeholder="행사 이름 입력"
               className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400"
             />
+          </div>
+
+          <div>
+            <label className="text-xs text-gray-500 block mb-1">행사 날짜 <span className="text-gray-400">(선택)</span></label>
+            <input
+              type="date"
+              value={createDate}
+              onChange={(e) => setCreateDate(e.target.value)}
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400"
+            />
+            <p className="text-[11px] text-gray-400 mt-1">입력하면 목록에 <b>{createDate ? fmtEventDate(createDate) : "yy.mm.dd"} {createName || "행사명"}</b> 형태로 표시돼요.</p>
           </div>
 
           <div>
@@ -600,14 +667,30 @@ export default function EventList({ basePath, allEvents = false }: EventListProp
       )}
 
       {events.map((event) => (
-        <div key={event.id} className="relative">
+        <div key={event.id} data-event-id={event.id} className={`relative transition-opacity ${dragId === event.id ? "opacity-50" : ""}`}>
           <div className="flex bg-white rounded-lg border border-gray-200 hover:border-blue-300 transition-colors">
+            {/* 드래그 핸들 (앞부분) — 터치·마우스로 순서 변경 */}
+            <button
+              onPointerDown={(e) => { e.preventDefault(); setDragId(event.id); (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); }}
+              onPointerMove={onDragMove}
+              onPointerUp={onDragEnd}
+              onPointerCancel={onDragEnd}
+              style={{ touchAction: "none" }}
+              title="드래그해서 순서 변경"
+              aria-label="순서 변경"
+              className="px-2 flex items-center text-gray-300 hover:text-gray-500 cursor-grab active:cursor-grabbing select-none text-lg"
+            >
+              ⋮⋮
+            </button>
             <button
               onClick={() => router.push(`${basePath}/event/${event.id}`)}
-              className="flex-1 p-4 text-left"
+              className="flex-1 py-4 pr-4 text-left"
             >
               <div className="flex items-center justify-between">
-                <span className="font-semibold text-base">{event.name}</span>
+                <span className="font-semibold text-base">
+                  {event.event_date && <span className="text-gray-400 font-normal mr-1">{fmtEventDate(event.event_date)}</span>}
+                  {event.name}
+                </span>
                 <span
                   className={`text-xs px-2 py-1 rounded-full font-medium ${
                     event.type === "club"
