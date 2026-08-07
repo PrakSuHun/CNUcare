@@ -8,6 +8,21 @@ import { parseFiles } from "@/lib/parseUpload";
 import { formatPhone } from "@/lib/phone";
 import * as XLSX from "xlsx";
 
+// AI 보고서 content → 렌더용 HTML (코드펜스/마크다운 대응). 다른 분석 화면과 동일 규칙.
+function extractHtml(content: string): string {
+  const codeBlockMatch = content.match(/```html\s*([\s\S]*?)```/);
+  if (codeBlockMatch) return codeBlockMatch[1].trim();
+  const divMatch = content.match(/<div[\s\S]*<\/div>/);
+  if (divMatch) return divMatch[0];
+  return content
+    .replace(/^### (.+)$/gm, '<h3 style="font-size:16px;font-weight:bold;margin:16px 0 4px">$1</h3>')
+    .replace(/^## (.+)$/gm, '<h2 style="font-size:18px;font-weight:bold;margin:20px 0 8px">$1</h2>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/^- (.+)$/gm, '<li style="margin-left:16px;list-style:disc">$1</li>')
+    .replace(/\n\n/g, '<br/><br/>')
+    .replace(/\n/g, '<br/>');
+}
+
 const YEAR_LABELS: Record<number, string> = { 1: "1학년", 2: "2학년", 3: "3학년", 4: "4학년", 0: "졸업유예" };
 const formatYear = (y: number | null) => y != null ? YEAR_LABELS[y] || `${y}` : "";
 
@@ -3213,9 +3228,7 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
               </div>
             ) : (
               <div className="space-y-3">
-                <div className="bg-gray-50 rounded-lg p-3 text-sm text-gray-800 whitespace-pre-wrap">
-                  {eventReport?.content}
-                </div>
+                <div className="text-sm text-gray-800" dangerouslySetInnerHTML={{ __html: extractHtml(eventReport?.content || "") }} />
 
                 {/* 레포트 커스텀 */}
                 {!aiCustomOpen ? (
