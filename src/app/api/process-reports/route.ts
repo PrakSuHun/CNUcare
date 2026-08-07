@@ -3,7 +3,6 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import { createClient } from "@supabase/supabase-js";
 import { callGateway } from "@/lib/gateway";
 import { tryClaude } from "@/lib/claudeBridge";
-import { expandLinkedUsers } from "@/lib/accountLinks";
 
 export const maxDuration = 300;
 
@@ -19,8 +18,9 @@ async function notifyReportDone(report: any) {
     const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
     const secret = process.env.CNU_NOTIFY_SECRET;
     if (!url || !anon || !secret) return;
-    const userIds = expandLinkedUsers([report.created_by]);
-    if (userIds.length === 0) return;
+    // AI 분석 완료 알림은 '돌린 사람' 본인에게만 (연결계정 확장 안 함).
+    // 본인 계정의 모든 기기에는 수신됨.
+    const userIds = [report.created_by];
     const label = REPORT_TYPE_LABEL[report.type] || "";
     const deepLink =
       report.type === "event" && report.target_id ? `/event/${report.target_id}` :
