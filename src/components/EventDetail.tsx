@@ -86,6 +86,7 @@ interface Attendee {
   is_member: boolean;
   life_id: string | null;
   opposite_sex: boolean | null;
+  payment_status: string | null; // null=미입금, "입금", "환불"
   custom_data: Record<string, string> | null;
 }
 
@@ -154,7 +155,6 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
   const [detailSearch, setDetailSearch] = useState(""); // 상세 탭 사람 검색
   const [expandedAttendee, setExpandedAttendee] = useState<string | null>(null);
   const [editingAttendee, setEditingAttendee] = useState<string | null>(null);
-  const [feedbackMap, setFeedbackMap] = useState<Record<string, string>>({});
 
   // Status tab state
   const [chartPopup, setChartPopup] = useState<{ field: ChartField; value: string } | null>(null); // 그래프 막대 클릭 → 명단 팝업
@@ -162,14 +162,12 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
   const [roster, setRoster] = useState<{ title: string; fileName: string; cols: string[]; sections: { name: string; rows: Record<string, string>[] }[]; total: number; tsv: string; xlsxUrl: string; multi: boolean } | null>(null);
   const [rosterCopied, setRosterCopied] = useState(false);
   const [feedbackTab, setFeedbackTab] = useState<"life" | "member">("life");
-  const [feedbackText, setFeedbackText] = useState("");
   const [feedbacks, setFeedbacks] = useState<Feedback[]>([]);
   const [showAiModal, setShowAiModal] = useState(false);
   // 행사 AI 분석 — 백그라운드(reports)로 실행, 버튼 상태로 반영
   const [eventReport, setEventReport] = useState<{ id: string; status: string; content: string } | null>(null);
   const [aiCustomOpen, setAiCustomOpen] = useState(false);
   const [aiCustomText, setAiCustomText] = useState("");
-  const [editAssessId, setEditAssessId] = useState<string | null>(null); // 파악내용 클릭-편집 중인 참석자
   const [feedbackReqSending, setFeedbackReqSending] = useState(false);
   const aiPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -1048,23 +1046,6 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
   };
 
   // --- Status tab helpers ---
-  const submitFeedback = async () => {
-    if (!feedbackText.trim()) return;
-    const user = getUser();
-    const { data } = await supabase
-      .from("event_feedback")
-      .insert({
-        event_id: eventId,
-        content: feedbackText.trim(),
-        type: "member",
-        author_id: user?.id || null,
-      })
-      .select()
-      .single();
-    if (data) setFeedbacks((prev) => [data as Feedback, ...prev]);
-    setFeedbackText("");
-  };
-
   const getStats = () => {
     // 현황 탭은 게스트(섭리회원이 아닌 신청자)만 집계
     const guests = attendees.filter((a) => !a.is_member);
@@ -1706,7 +1687,8 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                       body: JSON.stringify({ event_id: eventId }),
                     });
                     const d = await res.json();
-                    alert(`요청 완료: 담당자 ${d.managers ?? mgrCount}명에게 알림을 보냈어요.`);
+                    if (d.allDone) alert("이미 모든 담당자가 피드백을 작성했어요. 추가로 보낼 사람이 없어요.");
+                    else alert(`요청 완료: 아직 작성 안 한 담당자 ${d.managers ?? 0}명에게 알림을 보냈어요.`);
                   } catch { alert("요청 전송에 실패했어요."); }
                   setFeedbackReqSending(false);
                 }}
@@ -1943,13 +1925,21 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                                 )}
                               </div>
                             )}
-                            {/* 펼치면 바로 편집: 메모 (수정 버튼 없이도 바로 수정) */}
+                            {/* 펼치면 바로 편집: 메모 + 파악내용 (수정 버튼 없이 바로 수정) */}
                             {!isEditing && (
-                              <div>
-                                <span className="text-[10px] text-gray-400">메모</span>
-                                <textarea value={a.memo || ""} onChange={(e) => updateAttendeeField(a.id, "memo", e.target.value || null)}
-                                  placeholder="메모 (예: 박수훈 연결)" rows={2}
-                                  className="w-full text-xs border border-gray-200 rounded px-2 py-1.5 resize-none focus:outline-none focus:border-blue-400" />
+                              <div className="space-y-2">
+                                <div>
+                                  <span className="text-[10px] text-gray-400">메모</span>
+                                  <textarea value={a.memo || ""} onChange={(e) => updateAttendeeField(a.id, "memo", e.target.value || null)}
+                                    placeholder="메모 (예: 박수훈 연결)" rows={2}
+                                    className="w-full text-xs border border-gray-200 rounded px-2 py-1.5 resize-none focus:outline-none focus:border-blue-400" />
+                                </div>
+                                <div>
+                                  <span className="text-[10px] text-gray-400">파악내용</span>
+                                  <textarea value={a.assessment || ""} onChange={(e) => updateAttendeeField(a.id, "assessment", e.target.value || null)}
+                                    placeholder="특이사항·MBTI·본가·연애 여부 등" rows={3}
+                                    className="w-full text-xs border border-gray-200 rounded px-2 py-1.5 resize-none focus:outline-none focus:border-blue-400" />
+                                </div>
                               </div>
                             )}
                           </div>
@@ -2003,32 +1993,10 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                                   : <span className="text-[10px] text-gray-300">담당 미배정</span>;
                               })()}
                             </div>
-                            {/* 메모처럼 클릭해야 편집 (실수 방지) */}
-                            {editAssessId === a.id ? (
-                              <textarea
-                                autoFocus
-                                value={feedbackMap[a.id] ?? a.assessment ?? ""}
-                                onChange={(e) => setFeedbackMap((prev) => ({ ...prev, [a.id]: e.target.value }))}
-                                onBlur={() => {
-                                  if (feedbackMap[a.id] !== undefined) {
-                                    updateAttendeeField(a.id, "assessment", feedbackMap[a.id] || null);
-                                  }
-                                  setEditAssessId(null);
-                                }}
-                                placeholder="특이사항·MBTI·작업 여부 등"
-                                rows={3}
-                                className="w-full text-xs border border-blue-300 rounded px-2 py-1.5 resize-none focus:outline-none"
-                              />
-                            ) : (
-                              <div
-                                onClick={() => setEditAssessId(a.id)}
-                                className="w-full text-xs border border-gray-100 bg-gray-50 rounded px-2 py-1.5 min-h-[2rem] whitespace-pre-wrap cursor-text hover:border-gray-300"
-                              >
-                                {(feedbackMap[a.id] ?? a.assessment)
-                                  ? (feedbackMap[a.id] ?? a.assessment)
-                                  : <span className="text-gray-300">클릭해서 파악내용 입력</span>}
-                              </div>
-                            )}
+                            {/* 텍스트로만 표시 (수정은 사람 클릭 → 펼침 영역에서) */}
+                            {a.assessment
+                              ? <p className="text-xs text-gray-700 whitespace-pre-wrap">{a.assessment}</p>
+                              : <p className="text-xs text-gray-300">아직 파악내용 없음 (이름을 눌러 입력)</p>}
                           </div>
                         )}
 
@@ -2045,7 +2013,31 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                           >
                             참가자 삭제
                           </button>
-                          {!a.is_member && (
+                          {/* 행사 전: 결제 상태 기록 버튼 (미입금→입금→환불 순환) */}
+                          {detailMode === "before" && event?.type !== "club" && (() => {
+                            const ps = a.payment_status;
+                            const next = ps == null ? "입금" : ps === "입금" ? "환불" : null;
+                            const label = ps == null ? "미입금" : ps;
+                            const cls = ps === "입금"
+                              ? "bg-green-100 text-green-700 border-green-300"
+                              : ps === "환불"
+                                ? "bg-orange-100 text-orange-700 border-orange-300"
+                                : "bg-gray-100 text-gray-500 border-gray-300";
+                            return (
+                              <button
+                                onClick={() => {
+                                  updateAttendeeField(a.id, "payment_status", next);
+                                }}
+                                title="누르면 미입금 → 입금 → 환불 순으로 바뀝니다"
+                                className={`text-xs font-medium border rounded-full px-3 py-1 ml-auto ${cls}`}
+                              >
+                                {label}
+                              </button>
+                            );
+                          })()}
+
+                          {/* 행사 후(일회성) / 동아리: 생명 전환 */}
+                          {!a.is_member && (detailMode === "after" || event?.type === "club") && (
                             a.life_id ? (
                               <span className="text-xs text-green-600 font-medium ml-auto">생명 전환 완료</span>
                             ) : (
@@ -2061,7 +2053,7 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                                       attendee: a,
                                       primaryUserId: member.user_id,
                                       eventName: event?.name || "행사",
-                                      assessment: feedbackMap[a.id] ?? a.assessment,
+                                      assessment: a.assessment,
                                     });
                                     setAttendees(attendees.map(x => x.id === a.id ? { ...x, life_id: lifeId } : x));
                                   } catch (e) {
@@ -2225,22 +2217,6 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
             {/* Direct feedback section */}
             <div className="bg-white rounded-lg border border-gray-200 p-4">
               <p className="text-sm font-medium text-gray-700 mb-3">섭리회원 피드백</p>
-              <div className="flex gap-2 mb-3">
-                <textarea
-                  value={feedbackText}
-                  onChange={(e) => setFeedbackText(e.target.value)}
-                  placeholder="피드백을 입력하세요"
-                  rows={2}
-                  className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 resize-none focus:outline-none focus:border-blue-400"
-                />
-                <button
-                  onClick={submitFeedback}
-                  disabled={!feedbackText.trim()}
-                  className="self-end bg-blue-600 text-white text-xs px-4 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
-                >
-                  등록
-                </button>
-              </div>
               <div className="space-y-2">
                 {feedbacks.map((f) => (
                   <div key={f.id} className="flex items-start justify-between border-b border-gray-100 pb-2 last:border-0">

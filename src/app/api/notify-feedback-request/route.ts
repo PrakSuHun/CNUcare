@@ -25,14 +25,24 @@ export async function POST(req: NextRequest) {
     const managerIds = Array.from(new Set(((attRes.data || []) as { manager_id: string }[]).map((a) => a.manager_id).filter(Boolean)));
     if (managerIds.length === 0) return NextResponse.json({ ok: true, managers: 0, sent: 0 });
 
-    // 요청 레코드 생성/재오픈
+    // 이미 작성완료(done)한 담당자는 제외 → 다시 눌러도 '안 쓴 사람'에게만 감
+    const { data: existing } = await sb.from("event_feedback_requests")
+      .select("manager_id, status").eq("event_id", event_id);
+    const doneSet = new Set(((existing || []) as { manager_id: string; status: string }[])
+      .filter((r) => r.status === "done").map((r) => r.manager_id));
+    const targetIds = managerIds.filter((mid) => !doneSet.has(mid));
+    if (targetIds.length === 0) {
+      return NextResponse.json({ ok: true, managers: 0, sent: 0, allDone: true });
+    }
+
+    // 요청 레코드 생성/재오픈 (미작성자만)
     await sb.from("event_feedback_requests").upsert(
-      managerIds.map((mid) => ({ event_id, manager_id: mid, status: "open" })),
+      targetIds.map((mid) => ({ event_id, manager_id: mid, status: "open" })),
       { onConflict: "event_id,manager_id" }
     );
 
-    // 연결 계정 포함 푸시 발송
-    const userIds = expandLinkedUsers(managerIds);
+    // 연결 계정 포함 푸시 발송 (미작성자만)
+    const userIds = expandLinkedUsers(targetIds);
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
     const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
     const res = await fetch(`${url}/functions/v1/cnu-notify`, {
@@ -48,7 +58,7 @@ export async function POST(req: NextRequest) {
         tag: `feedback-${event_id}-${Date.now()}`,
       }),
     });
-    return NextResponse.json({ ...(await res.json()), managers: managerIds.length });
+    return NextResponse.json({ ...(await res.json()), managers: targetIds.length });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e?.message }, { status: 500 });
   }
