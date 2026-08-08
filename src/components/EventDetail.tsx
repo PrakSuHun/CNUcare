@@ -1319,20 +1319,7 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
     <div className="h-full flex flex-col bg-gray-50">
       {/* Header */}
       <header className="bg-white border-b border-gray-200 px-4 py-3 flex items-center shrink-0">
-        <button onClick={() => { if (window.history.length > 1) router.back(); else router.push(basePath); }} className="text-gray-500 mr-2">&larr;</button>
-        {/* 새로고침: DB 다시 불러오기 (실시간 출석 반영용) */}
-        <button
-          onClick={async () => { if (refreshing) return; setRefreshing(true); await fetchAll(); setRefreshing(false); }}
-          title="새로고침"
-          aria-label="새로고침"
-          className="text-gray-400 hover:text-blue-600 mr-3 disabled:opacity-50"
-          disabled={refreshing}
-        >
-          <svg className={`w-5 h-5 ${refreshing ? "animate-spin" : ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M21 2v6h-6" /><path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
-            <path d="M3 22v-6h6" /><path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
-          </svg>
-        </button>
+        <button onClick={() => { if (window.history.length > 1) router.back(); else router.push(basePath); }} className="text-gray-500 mr-3">&larr;</button>
         <div className="flex items-center gap-2 min-w-0">
           <h1 className="text-lg font-bold truncate">{event.name}</h1>
           <span className={`text-xs px-2 py-0.5 rounded-full font-medium shrink-0 ${
@@ -1341,6 +1328,19 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
             {event.type === "club" ? "동아리" : "일회성"}
           </span>
         </div>
+        {/* 새로고침: DB 다시 불러오기 (실시간 출석 반영용) — 오른쪽 상단 */}
+        <button
+          onClick={async () => { if (refreshing) return; setRefreshing(true); await fetchAll(); setRefreshing(false); }}
+          title="새로고침"
+          aria-label="새로고침"
+          className="ml-auto shrink-0 text-gray-400 hover:text-blue-600 disabled:opacity-50"
+          disabled={refreshing}
+        >
+          <svg className={`w-5 h-5 ${refreshing ? "animate-spin" : ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21 2v6h-6" /><path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
+            <path d="M3 22v-6h6" /><path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
+          </svg>
+        </button>
       </header>
 
       {/* 중복 의심자 배너 — 다른 행사·프로젠·생명과 이름이 겹치는 참여자. 확인 눌러야 사라짐. */}
