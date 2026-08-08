@@ -113,7 +113,8 @@ export default function StudentPage() {
     await supabase.from("bible_reading").delete().eq("life_id", lifeId);
     await supabase.from("audio_queue").delete().eq("life_id", lifeId);
     await supabase.from("user_lives").delete().eq("life_id", lifeId);
-    await supabase.from("lives").delete().eq("id", lifeId);
+    const { error } = await supabase.from("lives").delete().eq("id", lifeId);
+    if (error) { alert("삭제에 실패했습니다: " + error.message); return; }
 
     setMenuLifeId(null);
     fetchLives(user.id);
