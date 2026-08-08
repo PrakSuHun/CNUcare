@@ -19,29 +19,30 @@ export async function POST(req: NextRequest) {
 
     const [evRes, attRes] = await Promise.all([
       sb.from("events").select("name").eq("id", event_id).maybeSingle(),
-      sb.from("event_attendees").select("manager_id").eq("event_id", event_id).eq("is_member", false).not("manager_id", "is", null),
+      sb.from("event_attendees").select("manager_id, assessment").eq("event_id", event_id).eq("is_member", false).not("manager_id", "is", null),
     ]);
     const eventName = evRes.data?.name || "행사";
-    const managerIds = Array.from(new Set(((attRes.data || []) as { manager_id: string }[]).map((a) => a.manager_id).filter(Boolean)));
-    if (managerIds.length === 0) return NextResponse.json({ ok: true, managers: 0, sent: 0 });
+    const atts = (attRes.data || []) as { manager_id: string; assessment: string | null }[];
+    if (atts.length === 0) return NextResponse.json({ ok: true, managers: 0, sent: 0 });
 
-    // 이미 작성완료(done)한 담당자는 제외 → 다시 눌러도 '안 쓴 사람'에게만 감
-    const { data: existing } = await sb.from("event_feedback_requests")
-      .select("manager_id, status").eq("event_id", event_id);
-    const doneSet = new Set(((existing || []) as { manager_id: string; status: string }[])
-      .filter((r) => r.status === "done").map((r) => r.manager_id));
-    const targetIds = managerIds.filter((mid) => !doneSet.has(mid));
+    // 대상 = '파악(assessment)이 아직 비어 있는 참석자'를 가진 담당자.
+    // 한 번 제출했어도, 담당 생명이 추가되거나 일부만 작성했으면 다시 감.
+    const incomplete = new Set<string>();
+    for (const a of atts) {
+      if (a.manager_id && !(a.assessment && a.assessment.trim())) incomplete.add(a.manager_id);
+    }
+    const targetIds = [...incomplete];
     if (targetIds.length === 0) {
       return NextResponse.json({ ok: true, managers: 0, sent: 0, allDone: true });
     }
 
-    // 요청 레코드 생성/재오픈 (미작성자만)
+    // 요청 레코드 재오픈 (미작성 담당자만) → 배너 다시 표시
     await sb.from("event_feedback_requests").upsert(
       targetIds.map((mid) => ({ event_id, manager_id: mid, status: "open" })),
       { onConflict: "event_id,manager_id" }
     );
 
-    // 연결 계정 포함 푸시 발송 (미작성자만)
+    // 연결 계정 포함 푸시 발송 (미작성 담당자만)
     const userIds = expandLinkedUsers(targetIds);
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
     const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;

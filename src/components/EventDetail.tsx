@@ -1773,9 +1773,12 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
             {detailMode === "after" && event?.type !== "club" && (
               <button
                 onClick={async () => {
-                  const mgrCount = new Set(attendees.filter((a) => !a.is_member && a.manager_id).map((a) => a.manager_id)).size;
-                  if (mgrCount === 0) { alert("담당(관리자)으로 지정된 참석자가 없어요. 먼저 '행사 전'에서 담당을 배정해 주세요."); return; }
-                  if (!confirm(`담당자 ${mgrCount}명에게 피드백 작성 요청 알림을 보낼까요?`)) return;
+                  const hasMgr = attendees.some((a) => !a.is_member && a.manager_id);
+                  if (!hasMgr) { alert("담당(관리자)으로 지정된 참석자가 없어요. 먼저 '행사 전'에서 담당을 배정해 주세요."); return; }
+                  // 파악(assessment)이 아직 빈 참석자를 가진 담당자만 대상
+                  const incompleteMgrs = new Set(attendees.filter((a) => !a.is_member && a.manager_id && !(a.assessment && a.assessment.trim())).map((a) => a.manager_id));
+                  if (incompleteMgrs.size === 0) { alert("모든 담당자가 파악내용을 작성했어요. 보낼 사람이 없어요."); return; }
+                  if (!confirm(`아직 파악내용이 안 채워진 담당자 ${incompleteMgrs.size}명에게 피드백 작성 요청을 보낼까요?`)) return;
                   setFeedbackReqSending(true);
                   try {
                     const res = await fetch("/api/notify-feedback-request", {
