@@ -24,6 +24,35 @@ function extractHtml(content: string): string {
     .replace(/\n/g, '<br/>');
 }
 
+// 한글(IME) 입력 안정화: 입력 중엔 로컬 상태만 갱신하고, 포커스 아웃 때 커밋.
+// (키 입력마다 부모 리렌더/DB저장하면 iOS에서 한글 조합이 깨짐)
+function InlineTextarea({ value, onCommit, className, placeholder, rows }: {
+  value: string; onCommit: (v: string) => void; className?: string; placeholder?: string; rows?: number;
+}) {
+  const [local, setLocal] = useState(value);
+  const focused = useRef(false);
+  useEffect(() => { if (!focused.current) setLocal(value); }, [value]);
+  return (
+    <textarea value={local} placeholder={placeholder} rows={rows} className={className}
+      onFocus={() => { focused.current = true; }}
+      onChange={(e) => setLocal(e.target.value)}
+      onBlur={() => { focused.current = false; if (local !== value) onCommit(local); }} />
+  );
+}
+function InlineInput({ value, onCommit, className, placeholder }: {
+  value: string; onCommit: (v: string) => void; className?: string; placeholder?: string;
+}) {
+  const [local, setLocal] = useState(value);
+  const focused = useRef(false);
+  useEffect(() => { if (!focused.current) setLocal(value); }, [value]);
+  return (
+    <input type="text" value={local} placeholder={placeholder} className={className}
+      onFocus={() => { focused.current = true; }}
+      onChange={(e) => setLocal(e.target.value)}
+      onBlur={() => { focused.current = false; if (local !== value) onCommit(local); }} />
+  );
+}
+
 const YEAR_LABELS: Record<number, string> = { 1: "1학년", 2: "2학년", 3: "3학년", 4: "4학년", 0: "졸업유예" };
 const formatYear = (y: number | null) => y != null ? YEAR_LABELS[y] || `${y}` : "";
 
@@ -163,6 +192,9 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
   const [rosterCopied, setRosterCopied] = useState(false);
   const [feedbackTab, setFeedbackTab] = useState<"life" | "member">("life");
   const [feedbacks, setFeedbacks] = useState<Feedback[]>([]);
+  // 관리자 피드백 페이지에서 쓴 애로사항·건의 (event_feedback_requests.note)
+  const [feedbackNotes, setFeedbackNotes] = useState<{ id: string; name: string; note: string; submitted_at: string | null }[]>([]);
+  const [refreshing, setRefreshing] = useState(false);
   const [showAiModal, setShowAiModal] = useState(false);
   // 행사 AI 분석 — 백그라운드(reports)로 실행, 버튼 상태로 반영
   const [eventReport, setEventReport] = useState<{ id: string; status: string; content: string } | null>(null);
@@ -177,6 +209,7 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
   const [fbQuestions, setFbQuestions] = useState(["좋았던 점", "아쉬웠던 점"]);
   const [fbNewQ, setFbNewQ] = useState("");
   const [fbUrl, setFbUrl] = useState("");
+  const [fbFormId, setFbFormId] = useState<string | null>(null); // 기존 피드백 폼 id (수정/삭제용)
   const [feedbackResponses, setFeedbackResponses] = useState<any[]>([]);
 
   // Form URLs
@@ -285,6 +318,20 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
     const loadedConfig = (settingsForm?.[0]?.config as Record<string, any>) || {};
     setSettingsConfig(loadedConfig);
 
+    // 관리자 피드백 애로사항·건의(note) 로드 → 현황 탭에 표시
+    const { data: reqData } = await supabase.from("event_feedback_requests")
+      .select("id, note, submitted_at, manager_id").eq("event_id", eventId).not("note", "is", null);
+    const notes = ((reqData || []) as { id: string; note: string; submitted_at: string | null; manager_id: string }[])
+      .filter((r) => r.note && r.note.trim());
+    if (notes.length) {
+      const ids = [...new Set(notes.map((n) => n.manager_id))];
+      const { data: us } = await supabase.from("users").select("id, display_name").in("id", ids);
+      const nameOf = (id: string) => ((us || []) as { id: string; display_name: string }[]).find((u) => u.id === id)?.display_name || "관리자";
+      setFeedbackNotes(notes.map((n) => ({ id: n.id, name: nameOf(n.manager_id), note: n.note, submitted_at: n.submitted_at })));
+    } else {
+      setFeedbackNotes([]);
+    }
+
     // 중복 의심자 조회 (확인 처리된 사람은 제외)
     const confirmed = (loadedConfig.dup_confirmed as string[] | undefined) || [];
     fetch(`/api/event-duplicates?event_id=${eventId}`)
@@ -350,6 +397,7 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
     if (forms && forms.length > 0) {
       const form = forms[0] as any;
       setFbUrl(`${publicBase()}/feedback/${form.id}`);
+      setFbFormId(form.id);
       setFbAnonymous(form.is_anonymous);
       setFbQuestions(form.questions);
       const { data: responses } = await supabase.from("event_feedback_responses").select("*").eq("form_id", form.id).order("created_at", { ascending: false });
@@ -405,11 +453,19 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
     return attendanceRecords.some((r) => r.attendee_id === attendeeId && r.date === selectedDate && r.present);
   };
 
+  // 일회성 단일 행사: 출석링크가 '오늘' 날짜로 기록해도 화면 날짜와 안 맞아 체크가 안 보이던 문제 →
+  // 날짜 무관하게 그 사람의 출석 기록으로 판정.
+  const isSingleOnetimeNow = () => event?.type === "onetime" && sessions.length <= 1;
   const isPresent = (attendeeId: string, date: string) => {
+    if (isSingleOnetimeNow()) return attendanceRecords.some((r) => r.attendee_id === attendeeId && r.present === true);
     return attendanceRecords.some((r) => r.attendee_id === attendeeId && r.date === date && r.present === true);
   };
 
   const isNoShow = (attendeeId: string, date: string) => {
+    if (isSingleOnetimeNow()) {
+      const recs = attendanceRecords.filter((r) => r.attendee_id === attendeeId);
+      return recs.some((r) => r.present === false) && !recs.some((r) => r.present === true);
+    }
     return attendanceRecords.some((r) => r.attendee_id === attendeeId && r.date === date && r.present === false);
   };
 
@@ -427,7 +483,11 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
 
   // 3상태 사이클: 빈 → 출석(true) → 노쇼(false) → 빈
   const toggleAttendance = async (attendeeId: string, date: string) => {
-    const existing = attendanceRecords.find((r) => r.attendee_id === attendeeId && r.date === date);
+    // 일회성 단일: 날짜 무관하게 기존 기록을 토글(출석링크가 today로 넣은 것도 인식)
+    const existing = isSingleOnetimeNow()
+      ? (attendanceRecords.find((r) => r.attendee_id === attendeeId && r.present === true)
+          || attendanceRecords.find((r) => r.attendee_id === attendeeId))
+      : attendanceRecords.find((r) => r.attendee_id === attendeeId && r.date === date);
     let newPresent = true; // for journal auto-create
 
     if (!existing) {
@@ -1259,10 +1319,23 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
     <div className="h-full flex flex-col bg-gray-50">
       {/* Header */}
       <header className="bg-white border-b border-gray-200 px-4 py-3 flex items-center shrink-0">
-        <button onClick={() => { if (window.history.length > 1) router.back(); else router.push(basePath); }} className="text-gray-500 mr-3">&larr;</button>
-        <div className="flex items-center gap-2">
-          <h1 className="text-lg font-bold">{event.name}</h1>
-          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+        <button onClick={() => { if (window.history.length > 1) router.back(); else router.push(basePath); }} className="text-gray-500 mr-2">&larr;</button>
+        {/* 새로고침: DB 다시 불러오기 (실시간 출석 반영용) */}
+        <button
+          onClick={async () => { if (refreshing) return; setRefreshing(true); await fetchAll(); setRefreshing(false); }}
+          title="새로고침"
+          aria-label="새로고침"
+          className="text-gray-400 hover:text-blue-600 mr-3 disabled:opacity-50"
+          disabled={refreshing}
+        >
+          <svg className={`w-5 h-5 ${refreshing ? "animate-spin" : ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21 2v6h-6" /><path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
+            <path d="M3 22v-6h6" /><path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
+          </svg>
+        </button>
+        <div className="flex items-center gap-2 min-w-0">
+          <h1 className="text-lg font-bold truncate">{event.name}</h1>
+          <span className={`text-xs px-2 py-0.5 rounded-full font-medium shrink-0 ${
             event.type === "club" ? "bg-green-100 text-green-700" : "bg-blue-100 text-blue-700"
           }`}>
             {event.type === "club" ? "동아리" : "일회성"}
@@ -1879,12 +1952,12 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                                 </div>
                                 <div>
                                   <span className="text-[10px] text-gray-400">친구</span>
-                                  <input type="text" value={a.friend_group || ""} onChange={(e) => updateAttendeeField(a.id, "friend_group", e.target.value || null)}
+                                  <InlineInput value={a.friend_group || ""} onCommit={(v) => updateAttendeeField(a.id, "friend_group", v || null)}
                                     placeholder="함께 신청한 친구" className="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:border-blue-400" />
                                 </div>
                                 <div>
                                   <span className="text-[10px] text-gray-400">메모</span>
-                                  <textarea value={a.memo || ""} onChange={(e) => updateAttendeeField(a.id, "memo", e.target.value || null)}
+                                  <InlineTextarea value={a.memo || ""} onCommit={(v) => updateAttendeeField(a.id, "memo", v || null)}
                                     placeholder="메모 (예: 박수훈 연결)" rows={2}
                                     className="w-full text-xs border border-gray-200 rounded px-2 py-1 resize-none focus:outline-none focus:border-blue-400" />
                                 </div>
@@ -1901,8 +1974,8 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                                   return (
                                     <div key={key}>
                                       <span className="text-[10px] text-gray-400">{displayLabel}</span>
-                                      <input type="text" value={a.custom_data?.[key] || ""} onChange={(e) => {
-                                        const updated = { ...(a.custom_data || {}), [key]: e.target.value };
+                                      <InlineInput value={a.custom_data?.[key] || ""} onCommit={(v) => {
+                                        const updated = { ...(a.custom_data || {}), [key]: v };
                                         updateAttendeeField(a.id, "custom_data", updated);
                                       }} placeholder={displayLabel} className="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:border-blue-400" />
                                     </div>
@@ -1934,13 +2007,13 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                               <div className="space-y-2">
                                 <div>
                                   <span className="text-[10px] text-gray-400">메모</span>
-                                  <textarea value={a.memo || ""} onChange={(e) => updateAttendeeField(a.id, "memo", e.target.value || null)}
+                                  <InlineTextarea value={a.memo || ""} onCommit={(v) => updateAttendeeField(a.id, "memo", v || null)}
                                     placeholder="메모 (예: 박수훈 연결)" rows={2}
                                     className="w-full text-xs border border-gray-200 rounded px-2 py-1.5 resize-none focus:outline-none focus:border-blue-400" />
                                 </div>
                                 <div>
                                   <span className="text-[10px] text-gray-400">파악내용</span>
-                                  <textarea value={a.assessment || ""} onChange={(e) => updateAttendeeField(a.id, "assessment", e.target.value || null)}
+                                  <InlineTextarea value={a.assessment || ""} onCommit={(v) => updateAttendeeField(a.id, "assessment", v || null)}
                                     placeholder="특이사항·MBTI·본가·연애 여부 등" rows={3}
                                     className="w-full text-xs border border-gray-200 rounded px-2 py-1.5 resize-none focus:outline-none focus:border-blue-400" />
                                 </div>
@@ -2170,9 +2243,13 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
             <div className="bg-white rounded-lg border border-gray-200 p-4">
               <div className="flex items-center justify-between mb-3">
                 <p className="text-sm font-medium text-gray-700">피드백 수집</p>
-                {!fbUrl && (
+                {!fbUrl ? (
                   <button onClick={() => setShowFeedbackGen(true)} className="text-xs bg-blue-600 text-white px-3 py-1.5 rounded-lg">
                     피드백 생성
+                  </button>
+                ) : (
+                  <button onClick={() => setShowFeedbackGen(true)} className="text-xs text-blue-600 border border-blue-300 px-3 py-1.5 rounded-lg hover:bg-blue-50">
+                    수정
                   </button>
                 )}
               </div>
@@ -2222,6 +2299,17 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
             <div className="bg-white rounded-lg border border-gray-200 p-4">
               <p className="text-sm font-medium text-gray-700 mb-3">섭리회원 피드백</p>
               <div className="space-y-2">
+                {/* 관리자 피드백 페이지에서 쓴 애로사항·건의 */}
+                {feedbackNotes.map((n) => (
+                  <div key={n.id} className="border-b border-gray-100 pb-2 last:border-0">
+                    <div className="flex items-center gap-1.5 mb-0.5">
+                      <span className="text-xs font-semibold text-indigo-600">{n.name}</span>
+                      <span className="text-[10px] text-gray-400">애로사항·건의</span>
+                      {n.submitted_at && <span className="text-[10px] text-gray-300 ml-auto">{new Date(n.submitted_at).toLocaleDateString("ko-KR")}</span>}
+                    </div>
+                    <p className="text-sm text-gray-800 whitespace-pre-wrap">{n.note}</p>
+                  </div>
+                ))}
                 {feedbacks.map((f) => (
                   <div key={f.id} className="flex items-start justify-between border-b border-gray-100 pb-2 last:border-0">
                     <div>
@@ -2242,7 +2330,7 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                     </button>
                   </div>
                 ))}
-                {feedbacks.length === 0 && (
+                {feedbacks.length === 0 && feedbackNotes.length === 0 && (
                   <p className="text-xs text-gray-400 text-center py-2">피드백이 없습니다.</p>
                 )}
               </div>
@@ -2809,7 +2897,7 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
       {showFeedbackGen && (
         <div className="fixed inset-0 bg-black/50 flex items-end justify-center z-50" onClick={() => setShowFeedbackGen(false)}>
           <div className="bg-white w-full max-w-lg rounded-t-2xl p-4 space-y-3" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-sm font-bold">피드백 폼 생성</h3>
+            <h3 className="text-sm font-bold">{fbFormId ? "피드백 폼 수정" : "피드백 폼 생성"}</h3>
             <div className="flex items-center justify-between">
               <span className="text-sm text-gray-700">익명 피드백</span>
               <button
@@ -2848,23 +2936,44 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
             <button
               onClick={async () => {
                 if (fbQuestions.length === 0) return;
-                const { data } = await supabase.from("event_feedback_forms").insert({
-                  event_id: eventId,
-                  is_anonymous: fbAnonymous,
-                  questions: fbQuestions,
-                  created_by: getUser()?.id,
-                }).select("id").single();
-                if (data) {
-                  const url = `${publicBase()}/feedback/${data.id}`;
-                  setFbUrl(url);
+                if (fbFormId) {
+                  // 기존 폼 수정
+                  await supabase.from("event_feedback_forms").update({ is_anonymous: fbAnonymous, questions: fbQuestions }).eq("id", fbFormId);
+                } else {
+                  const { data } = await supabase.from("event_feedback_forms").insert({
+                    event_id: eventId,
+                    is_anonymous: fbAnonymous,
+                    questions: fbQuestions,
+                    created_by: getUser()?.id,
+                  }).select("id").single();
+                  if (data) {
+                    setFbFormId(data.id);
+                    setFbUrl(`${publicBase()}/feedback/${data.id}`);
+                  }
                 }
                 setShowFeedbackGen(false);
               }}
               disabled={fbQuestions.length === 0}
               className="w-full bg-blue-600 text-white rounded-lg py-2.5 text-sm font-medium disabled:opacity-50"
             >
-              생성하기
+              {fbFormId ? "저장" : "생성하기"}
             </button>
+            {fbFormId && (
+              <button
+                onClick={async () => {
+                  if (!confirm("피드백 폼을 삭제할까요?\n수집된 응답도 함께 삭제됩니다.")) return;
+                  await supabase.from("event_feedback_responses").delete().eq("form_id", fbFormId);
+                  await supabase.from("event_feedback_forms").delete().eq("id", fbFormId);
+                  setFbFormId(null);
+                  setFbUrl("");
+                  setFeedbackResponses([]);
+                  setShowFeedbackGen(false);
+                }}
+                className="w-full mt-2 border border-red-200 text-red-500 rounded-lg py-2.5 text-sm font-medium hover:bg-red-50"
+              >
+                피드백 폼 삭제
+              </button>
+            )}
           </div>
         </div>
       )}
