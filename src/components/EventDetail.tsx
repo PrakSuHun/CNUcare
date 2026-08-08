@@ -2323,13 +2323,25 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
               <div className="space-y-2">
                 {/* 관리자 피드백 페이지에서 쓴 애로사항·건의 */}
                 {feedbackNotes.map((n) => (
-                  <div key={n.id} className="border-b border-gray-100 pb-2 last:border-0">
-                    <div className="flex items-center gap-1.5 mb-0.5">
-                      <span className="text-xs font-semibold text-indigo-600">{n.name}</span>
-                      <span className="text-[10px] text-gray-400">애로사항·건의</span>
-                      {n.submitted_at && <span className="text-[10px] text-gray-300 ml-auto">{new Date(n.submitted_at).toLocaleDateString("ko-KR")}</span>}
+                  <div key={n.id} className="flex items-start justify-between gap-2 border-b border-gray-100 pb-2 last:border-0">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5 mb-0.5">
+                        <span className="text-xs font-semibold text-indigo-600">{n.name}</span>
+                        <span className="text-[10px] text-gray-400">애로사항·건의</span>
+                        {n.submitted_at && <span className="text-[10px] text-gray-300">{new Date(n.submitted_at).toLocaleDateString("ko-KR")}</span>}
+                      </div>
+                      <p className="text-sm text-gray-800 whitespace-pre-wrap">{n.note}</p>
                     </div>
-                    <p className="text-sm text-gray-800 whitespace-pre-wrap">{n.note}</p>
+                    <button
+                      onClick={async () => {
+                        if (!confirm(`${n.name} 님의 애로사항·건의를 삭제할까요?`)) return;
+                        await supabase.from("event_feedback_requests").update({ note: null }).eq("id", n.id);
+                        setFeedbackNotes((prev) => prev.filter((x) => x.id !== n.id));
+                      }}
+                      className="text-gray-300 hover:text-red-400 text-xs px-1 shrink-0"
+                    >
+                      ✕
+                    </button>
                   </div>
                 ))}
                 {feedbacks.map((f) => (
