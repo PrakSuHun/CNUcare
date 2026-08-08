@@ -719,6 +719,11 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
   // 담당 관리자 배정 — 전체 CNUcare 사용자 대상. 이 행사 event_members에 없으면 우선 추가한 뒤 배정한다.
   // (배정된 관리자가 members에 있어야 "담당별" 그룹/드롭다운에서 이름이 제대로 뜬다)
   const assignManager = async (attendeeId: string, userId: string | null) => {
+    let managerName = "";
+    if (userId) {
+      managerName = members.find((m) => m.user_id === userId)?.display_name
+        || allUsers.find((x) => x.id === userId)?.display_name || "";
+    }
     if (userId && !members.some((m) => m.user_id === userId)) {
       const u = allUsers.find((x) => x.id === userId);
       const { data: mem } = await supabase
@@ -729,6 +734,20 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
       if (mem) setMembers((prev) => [...prev, { id: mem.id, user_id: userId, display_name: u?.display_name || "알 수 없음" }]);
     }
     await updateAttendeeField(attendeeId, "manager_id", userId);
+
+    // 배정한 관리자를 이 행사의 섭리회원 참석자로도 추가 (명단에 아직 없을 때만)
+    if (userId && managerName) {
+      const nk = (s: string) => s.replace(/\s+/g, "").toLowerCase();
+      const already = attendees.some((a) => nk(a.name) === nk(managerName));
+      if (!already) {
+        const { data } = await supabase
+          .from("event_attendees")
+          .insert({ event_id: eventId, name: managerName, is_member: true, status: "pending" })
+          .select("*")
+          .single();
+        if (data) setAttendees((prev) => prev.some((a) => a.id === (data as Attendee).id) ? prev : [...prev, data as Attendee]);
+      }
+    }
   };
 
   // 씨엔유 케어에 없는 이름 → 이름만으로 관리자(팀원) placeholder 생성 후 배정. event_members에도 추가된다.
