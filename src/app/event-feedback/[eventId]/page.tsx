@@ -29,7 +29,7 @@ export default function EventFeedbackPage() {
   const [note, setNote] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [convertingId, setConvertingId] = useState<string | null>(null);
+  const [convertIds, setConvertIds] = useState<Set<string>>(new Set()); // 전환 선택된 참석자(저장 시 전환)
 
   useEffect(() => {
     const u = getUser();
@@ -53,35 +53,27 @@ export default function EventFeedbackPage() {
   const setField = (id: string, patch: Partial<Att>) =>
     setAtts((prev) => prev.map((a) => (a.id === id ? { ...a, ...patch } : a)));
 
-  const convert = async (a: Att) => {
-    const u = getUser();
-    if (!u || a.life_id) return;
-    setConvertingId(a.id);
-    try {
-      // 전환 전에 현재 입력한 파악내용 먼저 저장 (특징으로 넘어가게)
-      await supabase.from("event_attendees")
-        .update({ assessment: a.assessment || null, opposite_sex: a.opposite_sex ?? null })
-        .eq("id", a.id);
-      const lifeId = await convertAttendeeToLife({
-        attendee: a, primaryUserId: u.id, eventName, assessment: a.assessment,
-      });
-      setField(a.id, { life_id: lifeId });
-    } catch (e) {
-      alert(e instanceof Error ? e.message : "전환 실패");
-    }
-    setConvertingId(null);
-  };
+  // 전환 선택 토글 (실제 전환은 저장 시)
+  const toggleConvert = (id: string) =>
+    setConvertIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
 
   const submit = async () => {
     const u = getUser();
     if (!u) return;
     setSaving(true);
     try {
-      // 참석자별 파악내용/이성여부 저장
+      // 참석자별 파악내용/이성여부 저장 + 전환 선택된 사람만 실제 전환
       for (const a of atts) {
         await supabase.from("event_attendees")
           .update({ assessment: a.assessment || null, opposite_sex: a.opposite_sex ?? null })
           .eq("id", a.id);
+        if (convertIds.has(a.id) && !a.life_id) {
+          await convertAttendeeToLife({ attendee: a, primaryUserId: u.id, eventName, assessment: a.assessment });
+        }
       }
       // 요청 완료 처리 (없으면 생성)
       await supabase.from("event_feedback_requests").upsert(
@@ -103,7 +95,7 @@ export default function EventFeedbackPage() {
       <div className="mb-4">
         <p className="text-xs text-gray-400">행사 피드백</p>
         <h1 className="text-lg font-bold text-gray-900">{eventName}</h1>
-        <p className="text-xs text-gray-500 mt-1">내가 담당한 분들의 파악 내용을 작성해 주세요. 바로 생명 전환도 할 수 있어요.</p>
+        <p className="text-xs text-gray-500 mt-1">내가 담당한 분들의 파악 내용을 작성해 주세요. 전환할 사람은 <b>‘생명 전환’</b>을 눌러 선택하면 저장할 때 전환돼요.</p>
       </div>
 
       {atts.length === 0 ? (
@@ -117,7 +109,9 @@ export default function EventFeedbackPage() {
                 {a.department && <span className="text-[11px] text-gray-400">{a.department}</span>}
                 {a.life_id
                   ? <span className="ml-auto text-[11px] font-bold text-green-600 bg-green-50 rounded-full px-2 py-0.5">P · 전환완료</span>
-                  : <span className="ml-auto text-[11px] font-bold text-red-500 bg-red-50 rounded-full px-2 py-0.5">F · 미전환</span>}
+                  : convertIds.has(a.id)
+                    ? <span className="ml-auto text-[11px] font-bold text-green-600 bg-green-50 rounded-full px-2 py-0.5">P · 전환 예정</span>
+                    : <span className="ml-auto text-[11px] font-bold text-red-500 bg-red-50 rounded-full px-2 py-0.5">F · 미전환</span>}
               </div>
               <textarea
                 value={a.assessment || ""}
@@ -135,17 +129,23 @@ export default function EventFeedbackPage() {
                 />
                 <span className="text-sm text-gray-700">이성 여부 (연애 관계 주의 대상)</span>
               </label>
-              <div className="mt-2 flex justify-end">
+              <div className="mt-2 flex items-center justify-end gap-2">
                 {a.life_id ? (
                   <span className="text-xs text-green-600 font-medium">생명 전환 완료</span>
                 ) : (
-                  <button
-                    onClick={() => convert(a)}
-                    disabled={convertingId === a.id}
-                    className="text-xs bg-blue-600 text-white rounded-lg px-3 py-1.5 font-medium disabled:opacity-50"
-                  >
-                    {convertingId === a.id ? "전환 중…" : "생명으로 전환"}
-                  </button>
+                  <>
+                    <span className="text-[11px] text-gray-400">저장 시 반영</span>
+                    <button
+                      onClick={() => toggleConvert(a.id)}
+                      className={`text-xs rounded-lg px-3 py-1.5 font-medium border transition-colors ${
+                        convertIds.has(a.id)
+                          ? "bg-green-600 text-white border-green-600"
+                          : "bg-white text-gray-500 border-gray-300 hover:border-gray-400"
+                      }`}
+                    >
+                      {convertIds.has(a.id) ? "✓ 생명 전환" : "미전환"}
+                    </button>
+                  </>
                 )}
               </div>
             </div>
