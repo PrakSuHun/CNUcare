@@ -25,6 +25,18 @@ export async function POST(req: NextRequest) {
     ]);
     const ev = evRes.data;
     const overlap = dup?.hasOverlap ?? false;
+
+    // 프로젠에서 이름+전화가 모두 일치하는 '포도'(=섭리회원)로 확인되면,
+    // 방금 접수된 이 행사 참석자를 섭리회원으로 자동 구분한다. (타대학교라 CNU 가입은 없어도 섭리회원)
+    if (dup?.isProgenPodo && name && phone) {
+      await sb
+        .from("event_attendees")
+        .update({ is_member: true })
+        .eq("event_id", event_id)
+        .eq("name", name)
+        .eq("phone", phone)
+        .eq("is_member", false);
+    }
     const optOut: string[] = (cfgRes.data?.[0]?.config?.notify_optout as string[]) || [];
     const allMembers = Array.from(new Set((membersRes.data || []).map((m: any) => m.user_id).filter(Boolean)));
     // 중복 의심 → 알림 끈 사람 포함 전원 / 일반 → 옵트아웃 제외

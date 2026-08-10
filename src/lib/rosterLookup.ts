@@ -370,13 +370,14 @@ export interface DupResult {
   lifeManager: string | null;
   otherEvents: { eventName: string; how: string; status: string | null }[]; // 이 행사 제외한 CNU 행사
   progen: { event: string; kind: string; date: string | null }[];
+  isProgenPodo: boolean;         // 프로젠에서 이름+전화가 모두 일치하는 '포도'(=섭리회원) 기록이 있음
   summary: string;               // 알림 본문용 한 줄 요약
 }
 
-/** 신청자를 현재 행사를 제외한 다른 CNU 행사·프로젠·생명과 대조. (이름 기준 — 명단 업로드 시 번호가 없을 수 있어 전화는 쓰지 않는다. 동명이인 가능성이 있으므로 "의심"으로 다룬다.) */
+/** 신청자를 현재 행사를 제외한 다른 CNU 행사·프로젠·생명과 대조. (겹침/생명 판정은 이름 기준 — 명단 업로드 시 번호가 없을 수 있어 전화는 쓰지 않고, 동명이인 가능성이 있어 "의심"으로 다룬다. 단 프로젠 '포도'(=섭리회원) 판정만은 오탐 방지를 위해 이름+전화가 모두 일치할 때만 인정한다.) */
 export async function lookupOnePerson(
   name: string,
-  _phone: string | null | undefined, // 사용 안 함 (이름만 대조)
+  phone: string | null | undefined, // 겹침 대조엔 안 쓰고, 프로젠 포도 판정(이름+전화 동시 일치)에만 사용
   excludeEventId: string,
 ): Promise<DupResult> {
   const [idx, pg] = await Promise.all([loadIndex(), loadProgen()]);
@@ -400,7 +401,11 @@ export async function lookupOnePerson(
   const progenRows = pg ? (pg.byName.get(nk) ?? []) : [];
   const progenSeen = new Set<string>();
   const progen: DupResult["progen"] = [];
+  // 프로젠 '포도' 판정: 이름은 이미 byName으로 일치했고, 여기에 전화번호까지 같아야 인정(동명이인 오탐 방지).
+  const myPhone = normalizePhone(phone);
+  let isProgenPodo = false;
   for (const r of progenRows) {
+    if (r.kind === "포도" && isUsablePhone(myPhone) && normalizePhone(r.phone) === myPhone) isProgenPodo = true;
     if (progenSeen.has(r.event)) continue;
     progenSeen.add(r.event);
     progen.push({ event: r.event, kind: r.kind, date: r.event_date ? String(r.event_date).slice(0, 10) : null });
@@ -415,7 +420,7 @@ export async function lookupOnePerson(
   if (progen.length) parts.push(`프로젠 ${progen.map((p) => `${p.event}(${p.kind})`).slice(0, 2).join(", ")}${progen.length > 2 ? ` 외 ${progen.length - 2}` : ""}`);
   const summary = parts.join(" · ");
 
-  return { hasOverlap, isLife: !!life, lifeManager, otherEvents, progen, summary };
+  return { hasOverlap, isLife: !!life, lifeManager, otherEvents, progen, isProgenPodo, summary };
 }
 
 // ── 행사탭용: 이 행사 참여자 중 중복 의심자 목록 ──────────
