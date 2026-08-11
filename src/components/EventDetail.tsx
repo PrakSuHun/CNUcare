@@ -332,14 +332,15 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
       setFeedbackNotes([]);
     }
 
-    // 중복 의심자 조회 (확인 처리된 사람은 제외)
-    const confirmed = (loadedConfig.dup_confirmed as string[] | undefined) || [];
+    // 중복 의심자 조회 (확인은 사람별 개별 — 내가 확인한 사람만 내 화면에서 제외)
+    const myId = getUser()?.id || "";
+    const confirmedByMe = (loadedConfig.dup_confirmed_by as Record<string, string[]> | undefined)?.[myId] || [];
     fetch(`/api/event-duplicates?event_id=${eventId}`)
       .then((r) => r.json())
       .then((d) => {
         const list = (d.suspects || []) as DupSuspect[];
         const shown = list
-          .filter((s) => !confirmed.includes(s.attendeeId))
+          .filter((s) => !confirmedByMe.includes(s.attendeeId))
           // 확정(번호까지 일치)을 위로
           .sort((a, b) => (a.matchType === "phone" ? 0 : 1) - (b.matchType === "phone" ? 0 : 1));
         setDupSuspects(shown);
@@ -407,16 +408,19 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
     setLoading(false);
   };
 
-  // 중복 의심자 "확인" — 설정에 저장하고 배너에서 제거 (다시 안 뜸, 모든 담당자 공통)
+  // 중복 의심자 "확인" — 사람별 개별 처리. 내 화면에서만 사라지고, 다른 담당자는 각자 확인해야 사라짐.
+  // (dup_confirmed_by: { [userId]: attendeeId[] } — 확인한 본인 목록에만 추가)
   const confirmDup = async (attendeeId: string) => {
     const meId = getUser()?.id;
     if (!meId || dupConfirming) return;
     setDupConfirming(attendeeId);
     try {
-      const cur = (settingsConfig.dup_confirmed as string[] | undefined) || [];
-      const nextArr = Array.from(new Set([...cur, attendeeId]));
-      const nextConfig = { ...settingsConfig, dup_confirmed: nextArr };
-      const { data: existing } = await supabase.from("event_forms").select("id").eq("event_id", eventId).eq("type", "settings").limit(1);
+      // 저장 직전 최신 config를 다시 읽어 병합 — 다른 담당자가 동시에 확인해도 서로의 기록이 덮이지 않게.
+      const { data: existing } = await supabase.from("event_forms").select("id, config").eq("event_id", eventId).eq("type", "settings").limit(1);
+      const base = (existing?.[0]?.config as Record<string, unknown> | undefined) || settingsConfig;
+      const byUser: Record<string, string[]> = { ...((base.dup_confirmed_by as Record<string, string[]> | undefined) || {}) };
+      byUser[meId] = Array.from(new Set([...(byUser[meId] || []), attendeeId]));
+      const nextConfig = { ...base, dup_confirmed_by: byUser };
       if (existing && existing.length > 0) {
         await supabase.from("event_forms").update({ config: nextConfig }).eq("id", existing[0].id);
       } else {
