@@ -433,6 +433,22 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
     }
   };
 
+  // 공유 설정 config의 배열 필드에 값을 추가(스킵 처리 등). 담당자 공통 — 한 명이 처리하면 전원 반영.
+  // 저장 직전 최신 config를 다시 읽어 병합해 동시 작업 시 유실 방지.
+  const appendSharedConfigArray = async (field: string, value: string) => {
+    const { data: existing } = await supabase.from("event_forms").select("id, config").eq("event_id", eventId).eq("type", "settings").limit(1);
+    const base = (existing?.[0]?.config as Record<string, unknown> | undefined) || settingsConfig;
+    const cur = (base[field] as string[] | undefined) || [];
+    if (cur.includes(value)) return;
+    const nextConfig = { ...base, [field]: [...cur, value] };
+    if (existing && existing.length > 0) {
+      await supabase.from("event_forms").update({ config: nextConfig }).eq("id", existing[0].id);
+    } else {
+      await supabase.from("event_forms").insert({ event_id: eventId, type: "settings", config: nextConfig, created_by: getUser()?.id });
+    }
+    setSettingsConfig(nextConfig);
+  };
+
   // --- Attendance helpers ---
   // 주차별 날짜 범위 계산
   const getWeekDates = (weekKey: string): string[] => {
@@ -1722,29 +1738,83 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
         {/* ===== 상세 Tab ===== */}
         {activeTab === "detail" && (
           <div className="p-4 space-y-3">
-            {/* 중복 의심 알림 */}
+            {/* 중복 의심 알림 (담당자 공통 — 한 명이 병합/스킵하면 전원 반영) */}
             {(() => {
-              const dups: { a: Attendee; b: Attendee; reason: string }[] = [];
+              const nk = (s: string) => s.replace(/\s+/g, "").toLowerCase();
+              const digits = (p: string | null) => (p || "").replace(/[^\d]/g, "");
+              // 전화 '동일'은 실제 번호(9자리 이상)일 때만. 번호가 없거나 너무 짧으면 무시(오탐 방지).
+              const usablePhone = (p: string | null) => digits(p).length >= 9;
+              const skipped = new Set((settingsConfig.merge_skipped as string[] | undefined) || []);
+              const pairKey = (x: string, y: string) => [x, y].sort().join("|");
+
+              const dups: { a: Attendee; b: Attendee; reason: string; key: string }[] = [];
               for (let i = 0; i < attendees.length; i++) {
                 for (let j = i + 1; j < attendees.length; j++) {
                   const a = attendees[i], b = attendees[j];
-                  if (a.name === b.name) dups.push({ a, b, reason: "이름 동일" });
-                  else if (a.phone && a.phone === b.phone) dups.push({ a, b, reason: "전화번호 동일" });
+                  const key = pairKey(a.id, b.id);
+                  if (skipped.has(key)) continue;
+                  if (nk(a.name) && nk(a.name) === nk(b.name)) dups.push({ a, b, reason: "이름 동일", key });
+                  else if (usablePhone(a.phone) && digits(a.phone) === digits(b.phone)) dups.push({ a, b, reason: "전화번호 동일", key });
                 }
               }
               if (dups.length === 0) return null;
               return (
                 <div className="bg-yellow-50 border border-yellow-300 rounded-lg p-3">
                   <p className="text-xs font-medium text-yellow-800 mb-2">중복 의심 ({dups.length}건)</p>
-                  {dups.map((d, i) => (
-                    <div key={i} className="flex items-center justify-between text-xs text-yellow-700 py-1 border-t border-yellow-200 first:border-0">
-                      <span>{d.a.name} ↔ {d.b.name} ({d.reason})</span>
+                  {dups.map((d) => (
+                    <div key={d.key} className="flex items-center justify-between gap-2 text-xs text-yellow-700 py-1 border-t border-yellow-200 first:border-0">
+                      <span className="min-w-0 flex-1 truncate">{d.a.name} ↔ {d.b.name} ({d.reason})</span>
                       <button onClick={async () => {
                         if (!confirm(`"${d.b.name}"을 삭제하고 "${d.a.name}"에 병합하시겠습니까?`)) return;
                         await supabase.from("event_attendance").delete().eq("attendee_id", d.b.id);
                         await supabase.from("event_attendees").delete().eq("id", d.b.id);
                         setAttendees(attendees.filter((x) => x.id !== d.b.id));
-                      }} className="text-yellow-600 hover:text-red-500 font-medium">병합</button>
+                      }} className="shrink-0 text-yellow-600 hover:text-red-500 font-medium">병합</button>
+                      <button onClick={() => appendSharedConfigArray("merge_skipped", d.key)}
+                        className="shrink-0 text-gray-400 hover:text-gray-600 font-medium">스킵</button>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
+
+            {/* 친구 미신청 알림 — 같이 오는 친구 이름은 적혔는데 그 친구가 명단에 없음. 신청자에게 연락해 누락 방지. */}
+            {(() => {
+              const nk = (s: string) => s.replace(/\s+/g, "").toLowerCase();
+              const nameSet = new Set(attendees.map((a) => nk(a.name)).filter(Boolean));
+              // 조사(와/과/이랑 등)가 붙었으면 떼고 재시도 (친구별 그룹핑과 동일 규칙)
+              const isRegistered = (tok: string) => {
+                if (nameSet.has(tok)) return true;
+                for (const cut of [1, 2]) { const t2 = tok.slice(0, tok.length - cut); if (t2.length >= 2 && nameSet.has(t2)) return true; }
+                return false;
+              };
+              // 이름이 아닌 자유 텍스트는 친구로 취급하지 않음(오탐 방지)
+              const stop = new Set(["없음", "없어요", "없습니다", "혼자", "미정", "모름", "몰라요", "없다", "x", "no", "none"]);
+              const skipped = new Set((settingsConfig.friend_missing_skipped as string[] | undefined) || []);
+              const seen = new Set<string>();
+              const missing: { att: Attendee; friend: string; key: string }[] = [];
+              for (const a of attendees) {
+                const toks = (a.friend_group || "").split(/[,\n/·&+]|\s+/).map((t) => t.trim()).filter(Boolean);
+                for (const raw of toks) {
+                  const k = nk(raw);
+                  if (k.length < 2 || k.length > 5 || stop.has(k) || isRegistered(k)) continue;
+                  const key = `${a.id}|${k}`;
+                  if (skipped.has(key) || seen.has(key)) continue;
+                  seen.add(key);
+                  missing.push({ att: a, friend: raw, key });
+                }
+              }
+              if (missing.length === 0) return null;
+              return (
+                <div className="bg-orange-50 border border-orange-300 rounded-lg p-3">
+                  <p className="text-xs font-medium text-orange-800 mb-2">친구 미신청 ({missing.length}건) — 신청자에게 연락해 누락 방지</p>
+                  {missing.map((m) => (
+                    <div key={m.key} className="flex items-center justify-between gap-2 text-xs text-orange-700 py-1 border-t border-orange-200 first:border-0">
+                      <span className="min-w-0 flex-1 truncate">
+                        {m.att.name}{m.att.phone ? ` (${m.att.phone})` : ""} → {m.friend} <span className="text-orange-500 font-medium">(신청 안함)</span>
+                      </span>
+                      <button onClick={() => appendSharedConfigArray("friend_missing_skipped", m.key)}
+                        className="shrink-0 text-gray-400 hover:text-gray-600 font-medium">확인</button>
                     </div>
                   ))}
                 </div>
