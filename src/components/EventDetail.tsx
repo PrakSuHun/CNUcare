@@ -117,6 +117,7 @@ interface Attendee {
   opposite_sex: boolean | null;
   payment_status: string | null; // null=미입금, "입금", "환불"
   custom_data: Record<string, string> | null;
+  created_at: string | null;
 }
 
 // 현황 막대그래프 대상 필드 (학년·성별·신청폼 선택형)
@@ -145,7 +146,7 @@ interface Feedback {
 }
 
 type Tab = "attendance" | "detail" | "status" | "settings";
-type SortOption = "name" | "year" | "department";
+type SortOption = "name" | "year" | "recent";
 type GroupOption = string; // "default" | "team" | "manager" | "lifeOnly" | "attendance" | "friend" | "custom_xxx"
 
 export default function EventDetail({ eventId, basePath }: EventDetailProps) {
@@ -344,6 +345,16 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
           // 확정(번호까지 일치)을 위로
           .sort((a, b) => (a.matchType === "phone" ? 0 : 1) - (b.matchType === "phone" ? 0 : 1));
         setDupSuspects(shown);
+        // 원회원 행사: 서버가 '웹 가입' 메모를 겹친 행사명으로 덮어씀 → 로컬 명단에 즉시 반영
+        const memoUpdates = (d.memoUpdates || []) as { attendeeId: string; memo: string }[];
+        if (memoUpdates.length) {
+          setAttendees((prev) =>
+            prev.map((a) => {
+              const u = memoUpdates.find((x) => x.attendeeId === a.id);
+              return u ? { ...a, memo: u.memo } : a;
+            })
+          );
+        }
       })
       .catch(() => setDupSuspects([]));
     let loadedSessions = (loadedConfig.sessions as { number: number; date: string }[] | undefined) || [];
@@ -967,15 +978,16 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
       if (aNo !== bNo) return aNo - bNo;
       if (sortBy === "name") return a.name.localeCompare(b.name, "ko");
       if (sortBy === "year") return (a.year || 0) - (b.year || 0);
-      if (sortBy === "department") return (a.department || "").localeCompare(b.department || "", "ko");
+      if (sortBy === "recent") return (b.created_at || "").localeCompare(a.created_at || ""); // 최신 신청자 상단
       return 0;
     });
   };
 
   // --- Grouping ---
   const groupAttendees = (list: Attendee[]): { label: string; items: Attendee[] }[] => {
-    // 생명만 필터 적용
-    const filtered = lifeOnly ? list.filter((a) => !a.is_member) : list;
+    // 생명만 필터, 또는 원회원 행사(섭리회원은 명단에 포함 안 함)
+    const hideMembers = lifeOnly || event?.name === "원회원";
+    const filtered = hideMembers ? list.filter((a) => !a.is_member) : list;
     const sorted = sortAttendees(filtered);
 
     if (groupBy === "default") return [{ label: "", items: sorted }];
@@ -1361,11 +1373,14 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
         <button onClick={() => { if (window.history.length > 1) router.back(); else router.push(basePath); }} className="text-gray-500 mr-3">&larr;</button>
         <div className="flex items-center gap-2 min-w-0">
           <h1 className="text-lg font-bold truncate">{event.name}</h1>
-          <span className={`text-xs px-2 py-0.5 rounded-full font-medium shrink-0 ${
-            event.type === "club" ? "bg-green-100 text-green-700" : "bg-blue-100 text-blue-700"
-          }`}>
-            {event.type === "club" ? "동아리" : "일회성"}
-          </span>
+          {/* 원회원은 멤버십 행사 — 일회성/동아리 라벨 없음 */}
+          {event.name !== "원회원" && (
+            <span className={`text-xs px-2 py-0.5 rounded-full font-medium shrink-0 ${
+              event.type === "club" ? "bg-green-100 text-green-700" : "bg-blue-100 text-blue-700"
+            }`}>
+              {event.type === "club" ? "동아리" : "일회성"}
+            </span>
+          )}
         </div>
         {/* 새로고침: DB 다시 불러오기 (실시간 출석 반영용) — 오른쪽 상단 */}
         <button
@@ -1556,7 +1571,7 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
             {/* Sort + Group */}
             <div className="space-y-2">
               <div className="flex gap-1.5 flex-wrap items-center">
-                {([["name", "이름순"], ["year", "학년순"], ["department", "학과순"]] as [SortOption, string][]).map(([val, label]) => (
+                {([["name", "이름순"], ["year", "학년순"], ["recent", "최신순"]] as [SortOption, string][]).map(([val, label]) => (
                   <button
                     key={val}
                     onClick={() => setSortBy(val)}
@@ -1875,7 +1890,7 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
             {/* Sort + Group (same as attendance + friend) */}
             <div className="space-y-2">
               <div className="flex gap-1.5 flex-wrap">
-                {([["name", "이름순"], ["year", "학년순"], ["department", "학과순"]] as [SortOption, string][]).map(([val, label]) => (
+                {([["name", "이름순"], ["year", "학년순"], ["recent", "최신순"]] as [SortOption, string][]).map(([val, label]) => (
                   <button
                     key={val}
                     onClick={() => setSortBy(val)}

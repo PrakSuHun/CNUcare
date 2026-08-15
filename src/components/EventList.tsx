@@ -716,16 +716,18 @@ export default function EventList({ basePath, allEvents = false }: EventListProp
                 {event.event_date && <span className="ml-2 text-gray-400">· {fmtEventDate(event.event_date)}</span>}
               </p>
             </button>
-            {/* 라벨: ⋯ 왼쪽 + 세로 중앙 */}
-            <span
-              className={`text-xs px-2 py-1 rounded-full font-medium shrink-0 ${
-                event.type === "club"
-                  ? "bg-green-100 text-green-700"
-                  : "bg-blue-100 text-blue-700"
-              }`}
-            >
-              {event.type === "club" ? "동아리" : "일회성"}
-            </span>
+            {/* 라벨: ⋯ 왼쪽 + 세로 중앙 (원회원은 멤버십 — 라벨 없음) */}
+            {event.name !== "원회원" && (
+              <span
+                className={`text-xs px-2 py-1 rounded-full font-medium shrink-0 ${
+                  event.type === "club"
+                    ? "bg-green-100 text-green-700"
+                    : "bg-blue-100 text-blue-700"
+                }`}
+              >
+                {event.type === "club" ? "동아리" : "일회성"}
+              </span>
+            )}
             {!orderMode && (
               <button
                 onClick={(e) => { e.stopPropagation(); setMenuEventId(menuEventId === event.id ? null : event.id); }}

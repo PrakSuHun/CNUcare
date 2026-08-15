@@ -1,6 +1,7 @@
 // 채팅 교차조회(명단분석 이식): 사용자가 채팅에 올린 이름/명단을 CNU Care 행사·생명 +
 // 프로젠(별도 Supabase, progen-lookup 함수 경유)과 대조해 "중복 참여/생명 여부"를 알려준다.
-// 서버 전용 — service_role로 lives/event_* 를 직접 읽는다. (읽기만; 쓰기 없음)
+// 서버 전용 — service_role로 lives/event_* 를 직접 읽는다.
+// (예외: 원회원 행사 중복검사 시 event_attendees.memo 를 겹친 행사명으로 덮어쓴다)
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { randomBytes } from "crypto";
 
@@ -435,19 +436,30 @@ export interface EventDupSuspect {
   progenEvents: { event: string; kind: string; date: string | null }[];   // 프로젠 참여 이력
 }
 
-/** 이 행사(eventId)의 참여자들을 이름 기준으로 다른 CNU 행사·프로젠·생명과 대조해 중복 의심자만 반환. */
-export async function lookupEventDuplicates(eventId: string): Promise<EventDupSuspect[]> {
+// 원회원 행사: 다른 일회성 행사에서 유입돼 월명 사이트로 가입하면 원회원이 되는 "멤버십" 행사.
+// 유입이 정상 경로라 중복 배너를 띄우지 않고, 대신 '웹 가입' 메모를 겹친 행사명으로 덮어쓴다.
+const WON_MEMBER_EVENT_NAME = "원회원";
+
+/** 이 행사(eventId)의 참여자들을 이름 기준으로 다른 CNU 행사·프로젠·생명과 대조해 중복 의심자만 반환.
+ *  단, 원회원 행사는 배너 대신 '웹 가입' 메모를 겹친 행사명으로 DB에 영구 덮어쓴다(행사탭 한정). */
+export async function lookupEventDuplicates(
+  eventId: string,
+): Promise<{ suspects: EventDupSuspect[]; memoUpdates: { attendeeId: string; memo: string }[] }> {
   const s = db();
-  const [idx, pg, rows] = await Promise.all([
+  const [idx, pg, rows, evRow] = await Promise.all([
     loadIndex(),
     loadProgen(),
-    s.from("event_attendees").select("id, name, phone, is_member").eq("event_id", eventId),
+    s.from("event_attendees").select("id, name, phone, is_member, memo").eq("event_id", eventId),
+    s.from("events").select("name").eq("id", eventId).single(),
   ]);
-  const attendees = (rows.data ?? []) as { id: string; name: string; phone: string | null; is_member: boolean }[];
+  const attendees = (rows.data ?? []) as { id: string; name: string; phone: string | null; is_member: boolean; memo: string | null }[];
+  const isWonMember = (evRow.data as { name?: string } | null)?.name === WON_MEMBER_EVENT_NAME;
 
   const out: EventDupSuspect[] = [];
+  const memoUpdates: { attendeeId: string; memo: string }[] = [];
   for (const a of attendees) {
-    if (a.is_member) continue; // 섭리회원(관리자)은 원래 등록된 사람 — 중복 검사 대상 아님
+    // 원회원 행사는 섭리회원 유입자도 대조 대상. 그 외 행사는 섭리회원(관리자) 제외.
+    if (!isWonMember && a.is_member) continue; // 섭리회원(관리자)은 원래 등록된 사람 — 중복 검사 대상 아님
     const nk = normalizeName(a.name);
     if (!nk) continue;
     const myPhone = normalizePhone(a.phone);
@@ -485,6 +497,15 @@ export async function lookupEventDuplicates(eventId: string): Promise<EventDupSu
 
     if (cnuEvents.length === 0 && progenEvents.length === 0 && !life) continue;
 
+    // 원회원 행사: 배너 대신 '웹 가입' 메모를 겹친 CNU 행사명으로 덮어쓴다.
+    // (이미 덮어쓴 건은 '웹 가입'이 없으므로 재처리되지 않아 수렴한다)
+    if (isWonMember) {
+      if (cnuEvents.length && (a.memo ?? "").includes("웹 가입")) {
+        memoUpdates.push({ attendeeId: a.id, memo: cnuEvents.map((e) => e.eventName).join(", ") });
+      }
+      continue; // 원회원은 중복 배너 대상에서 제외
+    }
+
     const parts: string[] = [];
     if (life) parts.push(`이미 생명${lifeManager ? `(담당 ${lifeManager})` : ""}`);
     if (cnuEvents.length) parts.push(`행사 ${cnuEvents.slice(0, 2).map((e) => e.eventName).join(", ")}${cnuEvents.length > 2 ? ` 외 ${cnuEvents.length - 2}` : ""}`);
@@ -501,7 +522,13 @@ export async function lookupEventDuplicates(eventId: string): Promise<EventDupSu
       progenEvents,
     });
   }
-  return out;
+
+  // 원회원 행사 메모 덮어쓰기 (영구 저장)
+  for (const u of memoUpdates) {
+    await s.from("event_attendees").update({ memo: u.memo }).eq("id", u.attendeeId);
+  }
+
+  return { suspects: out, memoUpdates };
 }
 
 // ── 이름 배열 → 중복 의심자만 "이름 + 겹친 곳" 리스트 ──────
