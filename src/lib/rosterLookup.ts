@@ -523,9 +523,11 @@ export async function lookupEventDuplicates(
     });
   }
 
-  // 원회원 행사 메모 덮어쓰기 (영구 저장)
-  for (const u of memoUpdates) {
-    await s.from("event_attendees").update({ memo: u.memo }).eq("id", u.attendeeId);
+  // 원회원 행사 메모 덮어쓰기 (영구 저장) — 병렬 처리로 요청 취소 시 유실 최소화
+  if (memoUpdates.length) {
+    await Promise.all(
+      memoUpdates.map((u) => s.from("event_attendees").update({ memo: u.memo }).eq("id", u.attendeeId)),
+    );
   }
 
   return { suspects: out, memoUpdates };
