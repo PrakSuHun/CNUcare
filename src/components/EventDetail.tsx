@@ -291,7 +291,11 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
       supabase.from("event_attendance").select("*").eq("event_id", eventId),
       supabase.from("event_feedback").select("*").eq("event_id", eventId).order("created_at", { ascending: false }),
     ]);
-    if (eventRes.data) setEvent(eventRes.data);
+    if (eventRes.data) {
+      setEvent(eventRes.data);
+      // 원회원 행사는 신청 당일 확인이 목적 → 기본 정렬을 최신순(신청일별 구분선)으로
+      if (eventRes.data.name === "원회원") setSortBy("recent");
+    }
     if (attendeesRes.data) setAttendees(attendeesRes.data as Attendee[]);
     if (membersRes.data) {
       setMembers(
@@ -969,6 +973,9 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
     openRosterPreview("학교별명단", sections);
   };
 
+  // 원회원 행사: 100% 출석자만 가입하므로 출석체크 불필요, 명단은 전원 생명(섭리회원 제외)
+  const isWonMember = event?.name === "원회원";
+
   // --- Sorting ---
   const sortAttendees = (list: Attendee[]) => {
     return [...list].sort((a, b) => {
@@ -990,7 +997,31 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
     const filtered = hideMembers ? list.filter((a) => !a.is_member) : list;
     const sorted = sortAttendees(filtered);
 
-    if (groupBy === "default") return [{ label: "", items: sorted }];
+    if (groupBy === "default") {
+      // 최신순 정렬이면 신청 날짜별 구분선 — 신청 당일 누가 들어왔는지 바로 확인
+      if (sortBy === "recent") {
+        const dateKey = (a: Attendee) =>
+          a.created_at ? new Date(a.created_at).toLocaleDateString("sv-SE", { timeZone: "Asia/Seoul" }) : "";
+        const todayKey = new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Seoul" });
+        const byDate: Record<string, Attendee[]> = {};
+        const noDate: Attendee[] = [];
+        sorted.forEach((a) => {
+          const k = dateKey(a);
+          if (!k) noDate.push(a);
+          else (byDate[k] = byDate[k] || []).push(a);
+        });
+        const groups = Object.entries(byDate)
+          .sort(([a], [b]) => b.localeCompare(a)) // 최신 날짜 먼저
+          .map(([k, items]) => {
+            const d = new Date(k + "T00:00:00");
+            const label = `${d.getMonth() + 1}월 ${d.getDate()}일${k === todayKey ? " (오늘)" : ""} · ${items.length}명`;
+            return { label, items };
+          });
+        if (noDate.length) groups.push({ label: `날짜 미상 · ${noDate.length}명`, items: noDate });
+        return groups;
+      }
+      return [{ label: "", items: sorted }];
+    }
 
     if (groupBy === "attendance") {
       const present = sorted.filter((a) => isPresentForView(a.id));
@@ -1453,7 +1484,7 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
         {activeTab === "attendance" && (
           <div className="p-4 space-y-3">
             {/* Form generation buttons */}
-            <div className="grid grid-cols-2 gap-2">
+            <div className={`grid ${isWonMember ? "grid-cols-1" : "grid-cols-2"} gap-2`}>
               {regFormUrl ? (
                 <div className="bg-green-50 border border-green-200 rounded-lg p-2 overflow-hidden">
                   <p className="text-[10px] text-green-600 mb-1">신청폼</p>
@@ -1467,7 +1498,7 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
               ) : (
                 <button onClick={() => { if (regFields.length === 0) setRegFields([...defaultRegFields]); setShowRegGen(true); }} className="text-xs bg-green-600 text-white py-2.5 rounded-lg font-medium">신청폼 생성</button>
               )}
-              {checkinFormUrl ? (
+              {!isWonMember && (checkinFormUrl ? (
                 <div className="bg-orange-50 border border-orange-200 rounded-lg p-2 overflow-hidden">
                   <p className="text-[10px] text-orange-600 mb-1">출석체크</p>
                   <div className="flex gap-1">
@@ -1479,7 +1510,7 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                 </div>
               ) : (
                 <button onClick={() => setShowCheckinGen(true)} className="text-xs bg-orange-500 text-white py-2.5 rounded-lg font-medium">출석체크 생성</button>
-              )}
+              ))}
             </div>
 
             {/* Club weekly: 주차별 드롭다운 */}
@@ -1582,14 +1613,16 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                     {label}
                   </button>
                 ))}
-                <button
-                  onClick={() => setLifeOnly(!lifeOnly)}
-                  className={`text-xs px-2.5 py-1 rounded-full border transition-colors ml-auto ${
-                    lifeOnly ? "bg-green-600 text-white border-green-600" : "bg-white text-gray-600 border-gray-200"
-                  }`}
-                >
-                  생명만
-                </button>
+                {!isWonMember && (
+                  <button
+                    onClick={() => setLifeOnly(!lifeOnly)}
+                    className={`text-xs px-2.5 py-1 rounded-full border transition-colors ml-auto ${
+                      lifeOnly ? "bg-green-600 text-white border-green-600" : "bg-white text-gray-600 border-gray-200"
+                    }`}
+                  >
+                    생명만
+                  </button>
+                )}
               </div>
               <div className="flex gap-1.5 flex-wrap">
                 {([
@@ -1901,14 +1934,16 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                     {label}
                   </button>
                 ))}
-                <button
-                  onClick={() => setLifeOnly(!lifeOnly)}
-                  className={`text-xs px-2.5 py-1 rounded-full border transition-colors ml-auto ${
-                    lifeOnly ? "bg-green-600 text-white border-green-600" : "bg-white text-gray-600 border-gray-200"
-                  }`}
-                >
-                  생명만
-                </button>
+                {!isWonMember && (
+                  <button
+                    onClick={() => setLifeOnly(!lifeOnly)}
+                    className={`text-xs px-2.5 py-1 rounded-full border transition-colors ml-auto ${
+                      lifeOnly ? "bg-green-600 text-white border-green-600" : "bg-white text-gray-600 border-gray-200"
+                    }`}
+                  >
+                    생명만
+                  </button>
+                )}
               </div>
               <div className="flex gap-1.5 flex-wrap">
                 {([
