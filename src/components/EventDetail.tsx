@@ -998,8 +998,8 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
     const sorted = sortAttendees(filtered);
 
     if (groupBy === "default") {
-      // 최신순 정렬이면 신청 날짜별 구분선 — 신청 당일 누가 들어왔는지 바로 확인
-      if (sortBy === "recent") {
+      // 원회원 행사에서 최신순 정렬이면 신청 날짜별 구분선 — 신청 당일 누가 들어왔는지 바로 확인
+      if (isWonMember && sortBy === "recent") {
         const dateKey = (a: Attendee) =>
           a.created_at ? new Date(a.created_at).toLocaleDateString("sv-SE", { timeZone: "Asia/Seoul" }) : "";
         const todayKey = new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Seoul" });
