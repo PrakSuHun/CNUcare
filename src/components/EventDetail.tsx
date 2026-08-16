@@ -1483,8 +1483,9 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
         {/* ===== 출석 Tab ===== */}
         {activeTab === "attendance" && (
           <div className="p-4 space-y-3">
-            {/* Form generation buttons */}
-            <div className={`grid ${isWonMember ? "grid-cols-1" : "grid-cols-2"} gap-2`}>
+            {/* Form generation buttons — 원회원은 사이트에서 직접 신청받으므로 폼 생성 불필요 */}
+            {!isWonMember && (
+            <div className="grid grid-cols-2 gap-2">
               {regFormUrl ? (
                 <div className="bg-green-50 border border-green-200 rounded-lg p-2 overflow-hidden">
                   <p className="text-[10px] text-green-600 mb-1">신청폼</p>
@@ -1498,7 +1499,7 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
               ) : (
                 <button onClick={() => { if (regFields.length === 0) setRegFields([...defaultRegFields]); setShowRegGen(true); }} className="text-xs bg-green-600 text-white py-2.5 rounded-lg font-medium">신청폼 생성</button>
               )}
-              {!isWonMember && (checkinFormUrl ? (
+              {checkinFormUrl ? (
                 <div className="bg-orange-50 border border-orange-200 rounded-lg p-2 overflow-hidden">
                   <p className="text-[10px] text-orange-600 mb-1">출석체크</p>
                   <div className="flex gap-1">
@@ -1510,8 +1511,9 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                 </div>
               ) : (
                 <button onClick={() => setShowCheckinGen(true)} className="text-xs bg-orange-500 text-white py-2.5 rounded-lg font-medium">출석체크 생성</button>
-              ))}
+              )}
             </div>
+            )}
 
             {/* Club weekly: 주차별 드롭다운 */}
             {event.type === "club" && event.club_unit === "weekly" && (
@@ -1721,8 +1723,8 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                     const noShow = isNoShow(a.id, selectedDate);
                     return (
                     <div key={a.id} className={`flex items-center px-3 py-2.5 ${noShow ? "opacity-40" : ""}`}>
-                      {/* 주차별 보기일 때는 체크 비활성, 출석 횟수 표시 */}
-                      {selectedSession.startsWith("week_") ? (
+                      {/* 원회원은 100% 출석자만 가입 → 노쇼 없음, 출석체크 박스 숨김 */}
+                      {!isWonMember && (selectedSession.startsWith("week_") ? (
                         <div className={`w-6 h-6 rounded border-2 flex items-center justify-center mr-3 shrink-0 text-xs font-bold ${
                           isPresentForView(a.id) ? "bg-blue-600 border-blue-600 text-white" : "border-gray-300 text-gray-300"
                         }`}>
@@ -1748,7 +1750,7 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                       >
                         {isPresent(a.id, selectedDate) ? "✓" : noShow ? "✕" : "✓"}
                       </button>
-                      )}
+                      ))}
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-1.5">
                           <span className={`text-sm font-medium shrink-0 whitespace-nowrap ${noShow ? "line-through text-gray-400" : ""}`}>{a.name}</span>
