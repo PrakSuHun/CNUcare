@@ -1397,6 +1397,135 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
     );
   })();
 
+  // 원회원 명단: 사람 클릭 시 펼쳐지는 상세 카드(상세 탭과 동일한 정보/편집 — 팀·담당·결제 등 행사용 항목 제외)
+  const renderWonExpanded = (a: Attendee) => {
+    const isEditing = editingAttendee === a.id;
+    return (
+      <div className="mt-2 pt-2 border-t border-gray-100 space-y-2">
+        <div className="flex justify-end">
+          {isEditing ? (
+            <button onClick={(e) => { e.stopPropagation(); setEditingAttendee(null); }}
+              className="text-[11px] bg-blue-600 text-white px-2.5 py-1 rounded-full">완료</button>
+          ) : (
+            <button onClick={(e) => { e.stopPropagation(); setEditingAttendee(a.id); }}
+              className="text-[11px] text-blue-600 border border-blue-300 px-2.5 py-1 rounded-full hover:bg-blue-50">수정</button>
+          )}
+        </div>
+        {isEditing ? (
+          <div className="space-y-1.5">
+            <div className="grid grid-cols-2 gap-1.5">
+              <div>
+                <span className="text-[10px] text-gray-400">학교</span>
+                <input type="text" value={a.school || ""} onChange={(e) => updateAttendeeField(a.id, "school", e.target.value || null)}
+                  placeholder="학교" className="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:border-blue-400" />
+              </div>
+              <div>
+                <span className="text-[10px] text-gray-400">학과</span>
+                <input type="text" value={a.department || ""} onChange={(e) => updateAttendeeField(a.id, "department", e.target.value || null)}
+                  placeholder="학과" className="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:border-blue-400" />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-1.5">
+              <div>
+                <span className="text-[10px] text-gray-400">연락처</span>
+                <input type="tel" value={a.phone || ""} onChange={(e) => updateAttendeeField(a.id, "phone", e.target.value || null)}
+                  placeholder="연락처" className="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:border-blue-400" />
+              </div>
+              <div></div>
+            </div>
+            <div className="grid grid-cols-2 gap-1.5">
+              <div>
+                <span className="text-[10px] text-gray-400">성별</span>
+                <select value={a.gender || ""} onChange={(e) => updateAttendeeField(a.id, "gender", e.target.value || null)}
+                  className="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:border-blue-400">
+                  <option value="">미선택</option>
+                  <option value="남">남</option>
+                  <option value="여">여</option>
+                </select>
+              </div>
+              <div>
+                <span className="text-[10px] text-gray-400">학년</span>
+                <select value={a.year?.toString() || ""} onChange={(e) => updateAttendeeField(a.id, "year", e.target.value ? parseInt(e.target.value) : null)}
+                  className="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:border-blue-400">
+                  <option value="">미선택</option>
+                  <option value="1">1학년</option>
+                  <option value="2">2학년</option>
+                  <option value="3">3학년</option>
+                  <option value="4">4학년</option>
+                  <option value="0">졸업유예</option>
+                </select>
+              </div>
+            </div>
+            <div>
+              <span className="text-[10px] text-gray-400">친구</span>
+              <InlineInput value={a.friend_group || ""} onCommit={(v) => updateAttendeeField(a.id, "friend_group", v || null)}
+                placeholder="함께 신청한 친구" className="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:border-blue-400" />
+            </div>
+            {a.custom_data && Object.entries(a.custom_data).map(([key]) => {
+              const labelFromForm = regFields.find((f) => f.id === key)?.label;
+              const displayLabel = labelFromForm || key;
+              return (
+                <div key={key}>
+                  <span className="text-[10px] text-gray-400">{displayLabel}</span>
+                  <InlineInput value={a.custom_data?.[key] || ""} onCommit={(v) => {
+                    const updated = { ...(a.custom_data || {}), [key]: v };
+                    updateAttendeeField(a.id, "custom_data", updated);
+                  }} placeholder={displayLabel} className="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:border-blue-400" />
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs">
+            {a.phone && (<div><span className="text-gray-400 text-[10px]">연락처</span><p>{a.phone}</p></div>)}
+            {a.school && (<div><span className="text-gray-400 text-[10px]">학교</span><p>{a.school}</p></div>)}
+            {a.department && (<div><span className="text-gray-400 text-[10px]">학과</span><p>{a.department}</p></div>)}
+            {a.gender && (<div><span className="text-gray-400 text-[10px]">성별</span><p>{a.gender}</p></div>)}
+            {a.year != null && (<div><span className="text-gray-400 text-[10px]">학년</span><p>{formatYear(a.year)}</p></div>)}
+            {a.friend_group && (<div className="col-span-2"><span className="text-gray-400 text-[10px]">친구</span><p>{a.friend_group}</p></div>)}
+            {a.custom_data && Object.entries(a.custom_data).filter(([, v]) => v).map(([key, val]) => {
+              const labelFromForm = regFields.find((f) => f.id === key)?.label;
+              return (
+                <div key={key} className="col-span-2"><span className="text-gray-400 text-[10px]">{labelFromForm || key}</span><p className="whitespace-pre-wrap">{val}</p></div>
+              );
+            })}
+            {!a.phone && !a.school && !a.department && !a.gender && a.year == null && !a.friend_group && !(a.custom_data && Object.keys(a.custom_data).length > 0) && (
+              <p className="col-span-2 text-gray-400">입력된 정보 없음</p>
+            )}
+          </div>
+        )}
+        {!isEditing && (
+          <div className="space-y-2">
+            <div>
+              <span className="text-[10px] text-gray-400">메모</span>
+              <InlineTextarea value={a.memo || ""} onCommit={(v) => updateAttendeeField(a.id, "memo", v || null)}
+                placeholder="메모" rows={2}
+                className="w-full text-xs border border-gray-200 rounded px-2 py-1.5 resize-none focus:outline-none focus:border-blue-400" />
+            </div>
+            <div>
+              <span className="text-[10px] text-gray-400">파악내용</span>
+              <InlineTextarea value={a.assessment || ""} onCommit={(v) => updateAttendeeField(a.id, "assessment", v || null)}
+                placeholder="특이사항·MBTI·본가·연애 여부 등" rows={3}
+                className="w-full text-xs border border-gray-200 rounded px-2 py-1.5 resize-none focus:outline-none focus:border-blue-400" />
+            </div>
+          </div>
+        )}
+        <button
+          onClick={async (e) => {
+            e.stopPropagation();
+            if (!confirm(`"${a.name}" 참가자를 삭제하시겠습니까?`)) return;
+            await supabase.from("event_attendance").delete().eq("attendee_id", a.id);
+            await supabase.from("event_attendees").delete().eq("id", a.id);
+            setAttendees(attendees.filter((x) => x.id !== a.id));
+          }}
+          className="text-xs text-red-400 hover:text-red-600"
+        >
+          참가자 삭제
+        </button>
+      </div>
+    );
+  };
+
   return (
     <div className="h-full flex flex-col bg-gray-50">
       {/* Header */}
@@ -1465,7 +1594,12 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
 
       {/* Tabs */}
       <div className="flex border-b border-gray-200 bg-white shrink-0">
-        {([["attendance", "출석"], ["detail", "상세"], ["status", "현황"], ["settings", "설정"]] as [Tab, string][]).map(([key, label]) => (
+        {(([
+          ["attendance", isWonMember ? "명단" : "출석"],
+          ...(isWonMember ? [] : [["detail", "상세"]]),
+          ["status", "현황"],
+          ["settings", "설정"],
+        ] as [Tab, string][])).map(([key, label]) => (
           <button
             key={key}
             onClick={() => setActiveTab(key)}
@@ -1710,9 +1844,26 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
               );
             })()}
 
+            {/* 원회원 명단 검색 */}
+            {isWonMember && (
+              <div className="relative">
+                <input
+                  type="text"
+                  value={detailSearch}
+                  onChange={(e) => setDetailSearch(e.target.value)}
+                  placeholder="이름·연락처·학과 검색"
+                  className="w-full border border-gray-200 rounded-lg pl-8 pr-8 py-2 text-sm focus:outline-none focus:border-blue-400"
+                />
+                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-300 text-sm">🔍</span>
+                {detailSearch && (
+                  <button onClick={() => setDetailSearch("")} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm">✕</button>
+                )}
+              </div>
+            )}
+
             {/* Attendee list (기본 뷰) */}
             {!(event?.type === "club" && event?.club_unit === "weekly" && selectedSession !== "all" && selectedSession.startsWith("week_")) &&
-            groupAttendees(attendees).map((group, gi) => (
+            groupAttendees(isWonMember ? detailShown : attendees).map((group, gi) => (
               <div key={gi}>
                 {group.label && <p className="text-xs font-semibold text-gray-500 mt-3 mb-1">{group.label}</p>}
                 <div className="bg-white rounded-lg border border-gray-200 divide-y divide-gray-100">
@@ -1721,6 +1872,34 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                   )}
                   {group.items.map((a) => {
                     const noShow = isNoShow(a.id, selectedDate);
+                    // 원회원: 출석체크 없이 이름 클릭 → 상세정보 펼침(상세 탭과 동일)
+                    if (isWonMember) {
+                      const isExpanded = expandedAttendee === a.id;
+                      return (
+                        <div key={a.id} className="px-3 py-2.5">
+                          <button onClick={() => setExpandedAttendee(isExpanded ? null : a.id)} className="w-full text-left">
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-sm font-medium shrink-0">{a.name}</span>
+                              {a.gender && (
+                                <span className={`text-[10px] px-1.5 py-0.5 rounded-full shrink-0 ${
+                                  a.gender === "남" ? "bg-blue-100 text-blue-700" : "bg-pink-100 text-pink-700"
+                                }`}>{a.gender}</span>
+                              )}
+                              {a.memo && (
+                                <span className="text-[11px] text-gray-400 truncate min-w-0" title={a.memo}>{a.memo}</span>
+                              )}
+                              <span className="ml-auto text-gray-300 text-xs shrink-0">{isExpanded ? "▲" : "▼"}</span>
+                            </div>
+                            <div className="flex items-center gap-2 text-xs text-gray-400 mt-0.5">
+                              {a.year && <span>{formatYear(a.year)}</span>}
+                              {a.school && <span>{a.school}</span>}
+                              {a.department && <span>{a.department}</span>}
+                            </div>
+                          </button>
+                          {isExpanded && renderWonExpanded(a)}
+                        </div>
+                      );
+                    }
                     return (
                     <div key={a.id} className={`flex items-center px-3 py-2.5 ${noShow ? "opacity-40" : ""}`}>
                       {/* 원회원은 100% 출석자만 가입 → 노쇼 없음, 출석체크 박스 숨김 */}
