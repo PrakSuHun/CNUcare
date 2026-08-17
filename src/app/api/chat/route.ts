@@ -145,7 +145,12 @@ ${sheetBlock}${lookupBlock}${media.length ? "\n[첨부 이미지/PDF] 첨부 파
 
     let reply: string;
     let used: string;
-    if (media.length > 0) { reply = await callGemini(context, media); used = "gemini-vision"; }
+    if (media.length > 0) {
+      // 이미지/PDF 첨부: 구독 Claude 비전 우선(무료 정액) → 실패 시 Gemini 비전 폴백
+      const c = await tryClaude(context, media);
+      reply = c ?? (await callGemini(context, media));
+      used = c ? "claude-vision" : "gemini-vision";
+    }
     else if (engine === "gemini") { reply = await callGemini(context); used = "gemini"; }
     else { const c = await tryClaude(context); reply = c ?? (await callGemini(context)); used = c ? "claude" : "gemini"; }
 
@@ -217,7 +222,7 @@ export async function POST(req: NextRequest) {
 
     // 사용자 메시지 + pending 답변 삽입
     await sb.from("chat_messages").insert({ conversation_id: convId, role: "user", content: message, files: fileNames.length ? fileNames : null, status: "done" });
-    const { data: am } = await sb.from("chat_messages").insert({ conversation_id: convId, role: "assistant", content: "", status: "pending", engine: media.length ? "gemini" : engine }).select("id").single();
+    const { data: am } = await sb.from("chat_messages").insert({ conversation_id: convId, role: "assistant", content: "", status: "pending", engine }).select("id").single();
 
     // 백그라운드 생성 — 응답은 즉시, 답변은 앱을 나가도 완료됨
     after(async () => { await generate(sb, convId, am!.id, engine, cnuUserId, message, sheets, media, history); });

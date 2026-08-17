@@ -89,6 +89,7 @@ function rosterTable(attendees: Attendee[], excluded: string[], dup: CreateState
 // 사용자 답을 구조화(제외 이름·행사명·확인·취소·무관)
 async function parseReply(message: string, names: string[], curName: string | null): Promise<{ excludeNames: string[]; eventName: string; confirm: boolean; cancel: boolean; unrelated: boolean }> {
   const empty = { excludeNames: [], eventName: "", confirm: false, cancel: false, unrelated: false };
+  // 인터랙티브 채팅 경로(매 답변마다 호출) — 지연 최소화 위해 Gemini 전용 유지(Claude 브릿지 콜드스타트 회피).
   const keys = (process.env.GEMINI_API_KEY || "").split(",").map((k) => k.trim()).filter(Boolean);
   if (!keys.length) return empty;
   const prompt = `사용자가 아래 명단으로 행사를 만들려 한다. 참석자 목록과 사용자 메시지를 보고 의도를 JSON으로만 답하라.
@@ -189,6 +190,7 @@ const isCancel = (m: string) => /(취소|그만|중단|안할|안 할|안해|안
 // 배정 요청 자연어 파싱 (행사·참가자·담당)
 async function parseAssignRequest(message: string): Promise<{ eventQuery: string; managerForAll: string; attendees: { name: string; manager: string }[] }> {
   const empty = { eventQuery: "", managerForAll: "", attendees: [] as { name: string; manager: string }[] };
+  // 인터랙티브 채팅 경로 — 지연 최소화 위해 Gemini 전용 유지.
   const keys = (process.env.GEMINI_API_KEY || "").split(",").map((k) => k.trim()).filter(Boolean);
   if (!keys.length) return empty;
   const prompt = `사용자가 어떤 행사의 참가자에게 담당(관리자)을 지정하려 한다. 메시지에서 정보를 JSON으로만 뽑아라.

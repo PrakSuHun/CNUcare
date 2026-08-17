@@ -847,7 +847,7 @@ export default function AnalysisPage() {
                 </div>
                 <div className="flex items-center gap-2">
                   <select value={chatEngine} onChange={(e) => setChatEngine(e.target.value as "claude" | "gemini")}
-                    title="답변 모델 (이미지·PDF는 자동 Gemini)"
+                    title="답변 모델 (이미지·PDF도 Claude 우선, 실패 시 Gemini 자동 폴백)"
                     className="rounded-lg text-xs text-gray-600 bg-transparent px-1 py-1 focus:outline-none cursor-pointer">
                     <option value="claude">Claude</option>
                     <option value="gemini">Gemini</option>
