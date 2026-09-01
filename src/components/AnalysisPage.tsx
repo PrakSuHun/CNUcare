@@ -70,7 +70,7 @@ export default function AnalysisPage() {
   const [chatLoading, setChatLoading] = useState(false);
   const [chatImages, setChatImages] = useState<ParsedImage[]>([]);
   const [chatSheets, setChatSheets] = useState<ParsedSheet[]>([]);
-  const [chatEngine, setChatEngine] = useState<"claude" | "gemini">("claude");
+  const [chatEngine, setChatEngine] = useState<"codex" | "gemini">("codex");
   const [parsingFiles, setParsingFiles] = useState(false);
   const [chatConvId, setChatConvId] = useState<string | null>(null);
   const [conversations, setConversations] = useState<{ id: string; title: string; updated_at: string }[]>([]);
@@ -173,7 +173,7 @@ export default function AnalysisPage() {
       const { images, sheets, skipped } = await parseFiles(files);
       setChatImages((p) => [...p, ...images].slice(0, 6));
       setChatSheets((p) => [...p, ...sheets].slice(0, 6));
-      if (skipped.length) alert(`지원하지 않는 파일은 제외됐어요: ${skipped.join(", ")}\n(이미지·엑셀·CSV만 가능)`);
+      if (skipped.length) alert(`처리할 수 없는 파일은 제외됐어요: ${skipped.join(", ")}`);
     } catch {
       alert("파일을 읽지 못했습니다.");
     } finally {
@@ -557,7 +557,7 @@ export default function AnalysisPage() {
                       )}
                     </div>
                     {isPending && (
-                      <p className="text-xs text-blue-500 mt-1 italic">Claude가 분석 중입니다...</p>
+                      <p className="text-xs text-blue-500 mt-1 italic">GPT가 분석 중입니다...</p>
                     )}
                     {!isPending && !isFailed && (
                       <p className="text-xs text-gray-500 mt-1 line-clamp-1">
@@ -846,10 +846,10 @@ export default function AnalysisPage() {
                     className="w-8 h-8 flex items-center justify-center rounded-full text-gray-500 hover:bg-gray-100 text-lg">+</button>
                 </div>
                 <div className="flex items-center gap-2">
-                  <select value={chatEngine} onChange={(e) => setChatEngine(e.target.value as "claude" | "gemini")}
-                    title="답변 모델 (이미지·PDF도 Claude 우선, 실패 시 Gemini 자동 폴백)"
+                  <select value={chatEngine} onChange={(e) => setChatEngine(e.target.value as "codex" | "gemini")}
+                    title="답변 모델 (GPT는 서버의 Codex CLI로 실행되며, PDF·실패 시 Gemini로 자동 전환)"
                     className="rounded-lg text-xs text-gray-600 bg-transparent px-1 py-1 focus:outline-none cursor-pointer">
-                    <option value="claude">Claude</option>
+                    <option value="codex">GPT</option>
                     <option value="gemini">Gemini</option>
                   </select>
                   <button type="button" onClick={handleChat}

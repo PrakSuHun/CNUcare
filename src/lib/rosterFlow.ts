@@ -89,7 +89,7 @@ function rosterTable(attendees: Attendee[], excluded: string[], dup: CreateState
 // 사용자 답을 구조화(제외 이름·행사명·확인·취소·무관)
 async function parseReply(message: string, names: string[], curName: string | null): Promise<{ excludeNames: string[]; eventName: string; confirm: boolean; cancel: boolean; unrelated: boolean }> {
   const empty = { excludeNames: [], eventName: "", confirm: false, cancel: false, unrelated: false };
-  // 인터랙티브 채팅 경로(매 답변마다 호출) — 지연 최소화 위해 Gemini 전용 유지(Claude 브릿지 콜드스타트 회피).
+  // 인터랙티브 채팅 경로(매 답변마다 호출) — 이 단계는 지연 최소화를 위해 Gemini 전용 유지.
   const keys = (process.env.GEMINI_API_KEY || "").split(",").map((k) => k.trim()).filter(Boolean);
   if (!keys.length) return empty;
   const prompt = `사용자가 아래 명단으로 행사를 만들려 한다. 참석자 목록과 사용자 메시지를 보고 의도를 JSON으로만 답하라.

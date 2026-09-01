@@ -1,7 +1,8 @@
-// 명단 파일에서 참석자 추출 (서버 공용). 엑셀 rows → 컬럼 매칭, 이미지/PDF → Gemini 비전.
+// 명단 파일에서 참석자 추출 (서버 공용). 엑셀 rows → 컬럼 매칭,
+// 지원 이미지 → Codex 우선, PDF/실패 → Gemini 비전.
 // 기본 항목(이름·성별·학과·학년·연락처·학교·친구·메모)에 매칭하고, 없는 컬럼은 custom(항목 생성)으로 보존.
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import { tryClaude } from "./claudeBridge";
+import { tryCodex } from "./codexBridge";
 
 export type Attendee = {
   name: string;
@@ -121,21 +122,18 @@ async function extractOneMedia(m: MediaPart, keys: string[]): Promise<Attendee[]
 }
 
 // 이미지·PDF → 명단 추출.
-// 구독 Claude 비전(무료 정액) 우선 — 브릿지가 stream-json 이미지 블록으로 처리. 실패/빈결과면 Gemini 폴백.
-// CLAUDE_VISION=0 으로 끌 수 있음. Gemini 는 한 장씩 개별 호출(정확도↑, 용량·타임아웃↓) 후 합침.
+// Codex가 지원하는 이미지는 브릿지에 실제 첨부한다. PDF/미지원 형식/실패/빈 결과는 Gemini로 폴백한다.
+// CODEX_VISION=0 으로 끌 수 있음(이전 CLAUDE_VISION도 호환). Gemini는 파일별 호출 후 합친다.
 export async function extractFromMedia(media: MediaPart[]): Promise<Attendee[]> {
   if (media.length === 0) return [];
 
-  // Claude 비전 우선 (기본 on, CLAUDE_VISION=0 이면 건너뜀)
-  if (process.env.CLAUDE_VISION !== "0") {
-    try {
-      const ans = await tryClaude(MEDIA_PROMPT, media.map((m) => ({ mime: m.mime, data: m.data })));
-      if (ans) {
-        const parsed = parseAttendeeJson(ans);
-        if (parsed.length) return parsed; // 유효 결과면 사용, 아니면 Gemini 폴백
-      }
-    } catch { /* Gemini 폴백 */ }
-  }
+  try {
+    const answer = await tryCodex(MEDIA_PROMPT, media);
+    if (answer) {
+      const parsed = parseAttendeeJson(answer);
+      if (parsed.length) return parsed; // 유효 결과만 사용, 아니면 Gemini 폴백
+    }
+  } catch { /* Gemini 폴백 */ }
 
   const keys = (process.env.GEMINI_API_KEY || "").split(",").map((k) => k.trim()).filter(Boolean);
   if (keys.length === 0) return [];

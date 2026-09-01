@@ -190,10 +190,12 @@ interface ProgenIndex {
   byPhone: Map<string, ProgenRow[]>;
   byName: Map<string, ProgenRow[]>;
   podoByEventTeam: Map<string, string[]>; // key: `${event}||${normTeam(team)}` — 팀 단위 포도
+  rowCount: number;
 }
 let progenIdx: ProgenIndex | null = null;
 let progenTried = false;
 let progenAt = 0;
+let progenLastError: string | null = null;
 
 async function loadProgen(): Promise<ProgenIndex | null> {
   if (progenIdx && Date.now() - progenAt < TTL) return progenIdx;
@@ -201,7 +203,11 @@ async function loadProgen(): Promise<ProgenIndex | null> {
   progenTried = true; progenAt = Date.now();
   try {
     const { data, error } = await db().functions.invoke("progen-lookup", { body: {} });
-    if (error || data?.error || !Array.isArray(data?.rows)) return null;
+    if (error || data?.error || !Array.isArray(data?.rows)) {
+      progenLastError = error?.message || String(data?.error || "프로젠 응답 형식 오류");
+      progenIdx = null;
+      return null;
+    }
     const byPhone = new Map<string, ProgenRow[]>();
     const byName = new Map<string, ProgenRow[]>();
     const podoByEventTeam = new Map<string, string[]>();
@@ -217,11 +223,19 @@ async function loadProgen(): Promise<ProgenIndex | null> {
         podoByEventTeam.set(key, l);
       }
     }
-    progenIdx = { byPhone, byName, podoByEventTeam };
+    progenLastError = null;
+    progenIdx = { byPhone, byName, podoByEventTeam, rowCount: data.rows.length };
     return progenIdx;
-  } catch {
+  } catch (error) {
+    progenLastError = error instanceof Error ? error.message : String(error);
+    progenIdx = null;
     return null;
   }
+}
+
+function progenLookupStatus(pg: ProgenIndex | null): string {
+  if (pg) return `프로젠 조회 정상 완료 — 전체 ${pg.rowCount}건과 대조함.`;
+  return `프로젠 조회 실패${progenLastError ? ` (${progenLastError})` : ""} — 프로젠 참여 여부는 확인되지 않은 상태이므로 없다고 단정하지 말 것.`;
 }
 
 // ── 결과 포맷 ───────────────────────────────────────────
@@ -563,19 +577,45 @@ export async function lookupNamesForDuplicates(names: string[]): Promise<{ suspe
 
 async function tokenLookupContext(message: string): Promise<string | null> {
   const [idx, pg] = await Promise.all([loadIndex(), loadProgen()]);
-  const raw = message.match(/[가-힣]{2,4}/g) ?? [];
-  const PARTICLES = "을를이가은는님씨도만의와과랑";
-  const cands = new Set<string>();
-  for (const t of raw) {
-    cands.add(t);
-    if (t.length >= 3 && PARTICLES.includes(t[t.length - 1])) cands.add(t.slice(0, -1));
+  const compactMessage = normalizeName(message);
+  const wantsLookup = /조회|찾아|검색|알아|확인|있어|있는|왔|겹치|중복|참여/.test(message);
+  const lookupMode = wantsLookup || /^[가-힣]{2,4}[?？.!！]?$/.test(message.trim());
+
+  // 사용자가 "현빈"처럼 성을 생략해도 실제 인덱스의 "이현빈"과 연결한다.
+  // 먼저 전체 이름을 찾고, 전체 이름이 없을 때만 성을 뺀 이름을 후보로 사용한다.
+  // 후보가 여러 명이면 모두 근거에 포함해 AI가 임의로 한 사람을 고르지 않게 한다.
+  const personLabels = new Map<string, string>();
+  for (const [key, life] of idx.livesByName) personLabels.set(key, life.name);
+  for (const attendee of idx.attendees) if (attendee.nameKey) personLabels.set(attendee.nameKey, attendee.name);
+  for (const [key, rows] of pg?.byName ?? []) {
+    const label = rows.find((row) => row.name)?.name;
+    if (label) personLabels.set(key, label);
+  }
+
+  const exactKeys = [...personLabels.keys()].filter((key) => key && compactMessage.includes(key));
+  const personKeys = new Set(exactKeys);
+  if (personKeys.size === 0 && lookupMode) {
+    for (const key of personLabels.keys()) {
+      const givenName = key.length >= 3 ? key.slice(1) : "";
+      if (givenName.length >= 2 && compactMessage.includes(givenName)) personKeys.add(key);
+    }
+  }
+
+  const managerKeys = new Set<string>();
+  for (const user of idx.usersList) {
+    const key = normalizeName(user.display_name);
+    const givenName = key.length >= 3 ? key.slice(1) : "";
+    if (key && compactMessage.includes(key)) managerKeys.add(key);
+    else if (lookupMode && givenName.length >= 2 && compactMessage.includes(givenName)) managerKeys.add(key);
   }
 
   const hits: PersonHit[] = [];
   const managerNames: string[] = [];
-  for (const name of cands) {
-    const nk = normalizeName(name);
-    if (idx.userNames.has(nk)) managerNames.push(name);
+  for (const user of idx.usersList) {
+    if (managerKeys.has(normalizeName(user.display_name))) managerNames.push(user.display_name);
+  }
+  for (const nk of personKeys) {
+    const name = personLabels.get(nk) || nk;
     const life = idx.livesByName.get(nk) ?? null;
     const matched = idx.attendees.filter((a) => a.nameKey === nk);
     const progen = pg?.byName.get(nk) ?? [];
@@ -589,18 +629,25 @@ async function tokenLookupContext(message: string): Promise<string | null> {
     hits.push({ name, phone: progen[0]?.phone ?? "", life, events, progen });
   }
 
-  const wantsLookup = /조회|찾아|검색|알아|있어|있는|왔|겹치|중복/.test(message);
   if (hits.length === 0 && managerNames.length === 0) {
-    if (!wantsLookup) return null;
-    return "[인물 조회] 질문에 언급된 이름은 우리 생명 명단·CNU Care 행사·프로젠 어디에서도 찾지 못했다. 데이터에 없는 신규 인물이라고 명확히 답할 것.";
+    if (!lookupMode) return null;
+    if (!pg) {
+      return `[인물 조회] 질문에 언급된 이름은 CNU Care 생명·행사 기록에서는 찾지 못했다. ${progenLookupStatus(pg)}`;
+    }
+    return `[인물 조회] CNU Care 생명·행사와 프로젠 ${pg.rowCount}건을 실제 조회했지만 질문에 언급된 이름을 찾지 못했다. 데이터에 없는 신규 인물이라고 명확히 답할 것.`;
   }
   const lines = [
     `[인물 조회: CNU Care + 프로젠] 메시지에 등장한 이름 중 우리 시스템에 있는 사람들의 기록이다 (이름 기준 — 동명이인 가능).`,
+    `[조회 상태] CNU Care 생명·행사 조회 정상. ${progenLookupStatus(pg)}`,
+    "매우 중요: 위 데이터 조회는 이 요청에서 이미 완료됐다. 행사 명단이나 프로젠 데이터가 제공되지 않았다고 답하지 마라.",
     "주의: 메시지의 형식·의도(누가 참여자이고 누가 담당자인지 등)가 불명확하면 추측으로 단정하지 말고 사용자에게 먼저 확인 질문을 하라.",
     "관리자를 물으면 ①생명 담당 전도자 ②그 행사에서 '같은 팀 포도'만 답하라. 아래에 '관리자 미배정/안 붙음'이라 돼 있으면 그대로 '이 행사에선 관리자가 안 붙었다'고 말하고, 절대 다른 팀 관리자·포도를 끌어와 붙이지 마라. 노쇼면 참여 안 한 것이니 관리자도 안 붙은 것으로 간주하라.",
     "역할(게스트/섭리회원)은 사용자가 묻지 않는 한 굳이 앞세우지 마라.",
     "",
   ];
+  if (personKeys.size > 1) {
+    lines.push(`■ 성을 생략한 이름과 일치하는 후보가 ${personKeys.size}명이다: ${[...personKeys].map((key) => personLabels.get(key) || key).join(", ")} — 동명이름 후보를 모두 보여주고 누구인지 확인할 것.`, "");
+  }
   if (managerNames.length)
     lines.push(`■ 우리 관리자(포도)로 등록된 이름: ${managerNames.join(", ")} — 이들은 담당자일 가능성이 높음 (참여자로 단정하지 말 것).`, "");
   for (const h of hits) lines.push(...hitLines(h, idx, pg));

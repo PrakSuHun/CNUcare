@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { createClient } from "@supabase/supabase-js";
 import { callGateway } from "@/lib/gateway";
-import { tryClaude } from "@/lib/claudeBridge";
+import { tryCodex } from "@/lib/codexBridge";
 
 export const maxDuration = 300;
 
@@ -60,11 +60,11 @@ function getFreeKeys(): string[] {
 
 let keyIdx = 0;
 
-// 0순위: 구독 Claude 브릿지 → 1순위: 충남대 Gateway Gemini Pro → 2순위: 유료 Gemini 키 → 3순위: 무료 키
-async function callGemini(prompt: string): Promise<string> {
-  // 0순위: Claude (구독 브릿지). 켜져 있으면 우선, 꺼짐/실패면 null → Gemini 폴백
-  const claude = await tryClaude(prompt);
-  if (claude) return claude;
+// 0순위: Codex 브릿지 → 1순위: 충남대 Gateway Gemini Pro → 2순위: 유료 Gemini 키 → 3순위: 무료 키
+async function callAnalysisModel(prompt: string): Promise<string> {
+  // 0순위: Codex. 브릿지/인증/요청 실패 시 null을 받아 아래 Gemini 계층으로 폴백한다.
+  const codex = await tryCodex(prompt);
+  if (codex) return codex;
 
   // 1순위: 충남대 Gateway
   try {
@@ -128,8 +128,8 @@ export async function GET(req: NextRequest) {
       const prompt = report.request_data?.prompt;
       if (!prompt) throw new Error("No prompt in request_data");
 
-      // Claude 우선 → Gemini 폴백
-      const content = await callGemini(prompt);
+      // Codex 우선 → Gemini 폴백
+      const content = await callAnalysisModel(prompt);
 
       await sb.from("reports").update({
         status: "completed",
@@ -148,12 +148,12 @@ export async function GET(req: NextRequest) {
           console.log("Token limit exceeded, summarizing data first...");
           const originalPrompt = report.request_data?.prompt || "";
           // Gemini Flash로 데이터 요약
-          const summary = await callGemini(
+          const summary = await callAnalysisModel(
             "아래 텍스트를 핵심 내용만 남겨 한국어로 3000자 이내로 요약해주세요. 사람 이름, 단계, 주요 반응, 특이사항은 유지하세요.\n\n" + originalPrompt.slice(0, 50000)
           );
           // 요약본으로 다시 분석
           const retryPrompt = originalPrompt.split("다음 항목을 분석")[0] + "\n[요약된 데이터]\n" + summary + "\n\n" + "다음 항목을 분석" + originalPrompt.split("다음 항목을 분석").slice(1).join("다음 항목을 분석");
-          const content = await callGemini(retryPrompt);
+          const content = await callAnalysisModel(retryPrompt);
           await sb.from("reports").update({ status: "completed", content }).eq("id", report.id);
           await notifyReportDone(report);
           processed++;

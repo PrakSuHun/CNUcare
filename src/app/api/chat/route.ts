@@ -3,7 +3,7 @@ import { after } from "next/server";
 import { randomBytes } from "crypto";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import { tryClaude } from "@/lib/claudeBridge";
+import { tryCodex } from "@/lib/codexBridge";
 import { personLookupContext } from "@/lib/rosterLookup";
 import { runRosterFlow } from "@/lib/rosterFlow";
 import { STAGE_LABELS } from "@/lib/stages";
@@ -32,6 +32,27 @@ const CHAT_MODELS = ["gemini-2.5-flash", "gemini-2.0-flash"];
 
 type Media = { mime: string; data: string };
 type Sheet = { name: string; text?: string; rows?: Record<string, string>[]; headers?: string[] };
+const MAX_MEDIA_BASE64_CHARS = 3_500_000;
+
+function readMedia(value: unknown): { media: Media[]; error?: string } {
+  if (value == null) return { media: [] };
+  if (!Array.isArray(value)) return { media: [], error: "첨부 형식이 올바르지 않습니다." };
+  if (value.length > 6) return { media: [], error: "첨부 파일은 최대 6개까지 가능합니다." };
+  let total = 0;
+  const media: Media[] = [];
+  for (const raw of value) {
+    const item = raw as { mime?: unknown; data?: unknown };
+    const mime = String(item?.mime ?? "").toLowerCase().trim();
+    const data = String(item?.data ?? "").trim();
+    if (!(mime === "application/pdf" || mime.startsWith("image/")) || !data) {
+      return { media: [], error: "지원하지 않는 첨부 형식입니다." };
+    }
+    total += data.length;
+    if (total > MAX_MEDIA_BASE64_CHARS) return { media: [], error: "첨부 파일의 전체 용량이 너무 큽니다." };
+    media.push({ mime, data });
+  }
+  return { media };
+}
 
 async function callGemini(prompt: string, media: Media[] = []): Promise<string> {
   const keys = getFreeKeys();
@@ -116,8 +137,17 @@ async function generate(
     active.forEach((l) => { stages[l.stage] = (stages[l.stage] || 0) + 1; });
 
     let lookup: string | null = null;
-    try { lookup = await personLookupContext(`${message}\n${sheetText}`); } catch { lookup = null; }
-    const lookupBlock = lookup ? `\n\n[명단 교차조회 결과 — 앱이 계산한 근거. 그대로 신뢰]\n${lookup}\n` : "";
+    let lookupError: string | null = null;
+    try {
+      lookup = await personLookupContext(`${message}\n${sheetText}`);
+    } catch (error) {
+      lookupError = error instanceof Error ? error.message : String(error);
+    }
+    const lookupBlock = lookup
+      ? `\n\n[실시간 DB 교차조회 결과 — CNU Care 행사와 프로젠을 앱이 직접 조회한 확정 근거]\n${lookup}\n[응답 규칙] 이 조회 결과를 최우선으로 사용하고, 행사·프로젠 데이터가 제공되지 않았거나 조회할 수 없다고 답하지 마세요.\n`
+      : lookupError
+        ? `\n\n[실시간 DB 교차조회 오류]\n${lookupError}\n행사·프로젠 조회가 실패했으므로 해당 참여 여부를 없다고 단정하지 말고, 현재 조회 오류라고 정확히 알려주세요.\n`
+        : "";
     const sheetBlock = sheetText ? `\n\n[첨부 표 데이터]\n${sheetText}\n` : "";
     const histBlock = history.length
       ? `\n[이전 대화]\n${history.slice(-12).map((m) => `${m.role === "user" ? "사용자" : "AI"}: ${m.content}`).join("\n")}\n`
@@ -146,13 +176,14 @@ ${sheetBlock}${lookupBlock}${media.length ? "\n[첨부 이미지/PDF] 첨부 파
     let reply: string;
     let used: string;
     if (media.length > 0) {
-      // 이미지/PDF 첨부: 구독 Claude 비전 우선(무료 정액) → 실패 시 Gemini 비전 폴백
-      const c = await tryClaude(context, media);
-      reply = c ?? (await callGemini(context, media));
-      used = c ? "claude-vision" : "gemini-vision";
+      // 지원 이미지는 Codex에 실제 첨부한다. PDF/미지원 형식 또는 Codex 실패는
+      // 원본 첨부를 그대로 Gemini에 넘겨 파일 내용이 조용히 누락되지 않게 한다.
+      const codex = engine === "codex" ? await tryCodex(context, media) : null;
+      reply = codex ?? (await callGemini(context, media));
+      used = codex ? "codex-vision" : "gemini-vision";
     }
     else if (engine === "gemini") { reply = await callGemini(context); used = "gemini"; }
-    else { const c = await tryClaude(context); reply = c ?? (await callGemini(context)); used = c ? "claude" : "gemini"; }
+    else { const codex = await tryCodex(context); reply = codex ?? (await callGemini(context)); used = codex ? "codex" : "gemini"; }
 
     await sb.from("chat_messages").update({ content: reply, status: "done", engine: used }).eq("id", assistantId);
   } catch (e: any) {
@@ -200,8 +231,11 @@ export async function POST(req: NextRequest) {
 
     const message = String(b.message || "");
     const cnuUserId = String(b.cnu_user_id || ""); // CNU users.id — 행사 생성 시 created_by
-    const engine = b.engine === "gemini" ? "gemini" : "claude";
-    const media: Media[] = Array.isArray(b.media) ? b.media.slice(0, 6) : (Array.isArray(b.images) ? b.images.slice(0, 6) : []);
+    // 구버전 클라이언트의 claude 값도 배포 전환 동안 Codex 요청으로 취급한다.
+    const engine = b.engine === "gemini" ? "gemini" : "codex";
+    const parsedMedia = readMedia(b.media ?? b.images);
+    if (parsedMedia.error) return NextResponse.json({ error: parsedMedia.error }, { status: 413 });
+    const media = parsedMedia.media;
     const sheets: Sheet[] = Array.isArray(b.sheets) ? b.sheets.slice(0, 6) : [];
     const fileNames: string[] = Array.isArray(b.fileNames) ? b.fileNames : [];
     if (!message && media.length === 0 && sheets.length === 0)

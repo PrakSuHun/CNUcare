@@ -70,7 +70,7 @@ export default function EventList({ basePath, allEvents = false }: EventListProp
       const { images, sheets, skipped } = await parseFiles(files);
       setRosterImages((p) => [...p, ...images].slice(0, 6));
       setRosterSheets((p) => [...p, ...sheets].slice(0, 6));
-      if (skipped.length) alert(`지원하지 않는 파일 제외: ${skipped.join(", ")} (이미지·엑셀·CSV만)`);
+      if (skipped.length) alert(`처리할 수 없는 파일 제외: ${skipped.join(", ")}`);
     } catch {
       alert("파일을 읽지 못했습니다.");
     } finally {

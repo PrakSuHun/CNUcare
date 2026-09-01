@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import { tryClaude } from "@/lib/claudeBridge";
+import { tryCodex } from "@/lib/codexBridge";
 
 function getKeys(): string[] {
   const free = (process.env.GEMINI_API_KEY || "").split(",").map((k) => k.trim()).filter(Boolean);
@@ -14,9 +14,9 @@ export async function POST(req: NextRequest) {
 
   const prompt = `아래는 선교 강의 후 생명(선교 대상자)의 반응 기록입니다. 핵심 내용을 2~3줄로 요약해주세요. 마크다운 없이 일반 텍스트로만 작성하세요.\n\n${text}`;
 
-  // 1순위: 구독 Claude 브릿지(무료 정액). 꺼짐/실패면 아래 Gemini 로 폴백.
-  const claude = await tryClaude(prompt);
-  if (claude) return NextResponse.json({ summary: claude.trim() });
+  // 1순위: 로그인된 Codex CLI 브릿지. 꺼짐/실패면 아래 Gemini로 폴백.
+  const codex = await tryCodex(prompt);
+  if (codex) return NextResponse.json({ summary: codex.trim() });
 
   // 폴백: Gemini(무료키 → 유료키)
   const keys = getKeys();

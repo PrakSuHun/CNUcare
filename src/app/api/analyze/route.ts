@@ -12,7 +12,7 @@ function getSb() {
 
 const PENDING_HTML = "<div style=\"padding:24px;text-align:center;color:#6b7280\"><p>분석 중입니다...</p></div>";
 
-// 서버에서 process-reports 를 fire-and-forget 로 깨운다 (실제 생성은 거기서 Claude 우선→Gemini)
+// 서버에서 process-reports 를 fire-and-forget 로 깨운다 (실제 생성은 거기서 Codex 우선→Gemini)
 function triggerProcess(req: NextRequest) {
   const host = req.headers.get("host") || "localhost:3000";
   const protocol = host.includes("localhost") ? "http" : "https";
