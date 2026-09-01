@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, type ChangeEvent } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { getUser } from "@/lib/auth";
@@ -153,6 +153,37 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
   const router = useRouter();
   const [event, setEvent] = useState<Event | null>(null);
   const [posterUploading, setPosterUploading] = useState(false);
+
+  const handlePosterUpload = async (e: ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0]; if (!f || !event) return;
+    setPosterUploading(true);
+    try {
+      const blob = await resizeImage(f);
+      const path = `${eventId}/${Date.now()}.jpg`;
+      const { error: upErr } = await supabase.storage.from("event-posters").upload(path, blob, { contentType: "image/jpeg", upsert: true });
+      if (upErr) throw upErr;
+      const publicUrl = supabase.storage.from("event-posters").getPublicUrl(path).data.publicUrl;
+      const oldPath = event.poster_url?.split("/event-posters/")[1];
+      if (oldPath && oldPath !== path) await supabase.storage.from("event-posters").remove([oldPath]).catch(() => {});
+      const { error: dbErr } = await supabase.from("events").update({ poster_url: publicUrl }).eq("id", eventId);
+      if (dbErr) throw dbErr;
+      setEvent({ ...event, poster_url: publicUrl });
+    } catch (err: any) {
+      alert("업로드 실패: " + (err?.message || "알 수 없는 오류"));
+    } finally {
+      setPosterUploading(false);
+      e.target.value = "";
+    }
+  };
+
+  const handlePosterDelete = async () => {
+    if (!event?.poster_url) return;
+    if (!confirm("포스터를 삭제할까요?")) return;
+    const path = event.poster_url.split("/event-posters/")[1];
+    if (path) await supabase.storage.from("event-posters").remove([path]).catch(() => {});
+    await supabase.from("events").update({ poster_url: null }).eq("id", eventId);
+    setEvent({ ...event, poster_url: null });
+  };
   const [attendees, setAttendees] = useState<Attendee[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
   const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([]);
@@ -268,6 +299,10 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
   const [dupSuspects, setDupSuspects] = useState<DupSuspect[]>([]);
   const [dupConfirming, setDupConfirming] = useState<string | null>(null);
   const [dupDetail, setDupDetail] = useState<DupSuspect | null>(null); // 상세 팝업 대상
+
+  // 연결된 담당자 관리 (event_members에 CNUcare 사용자 추가)
+  const [showConnectSearch, setShowConnectSearch] = useState(false);
+  const [connectSearch, setConnectSearch] = useState("");
 
   // 학교별 명단 공유 + 전체 명단 공유
   const [schoolShares, setSchoolShares] = useState<{ id: string; school: string }[]>([]);
@@ -570,13 +605,29 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
     if (data) setAllUsers(data as { id: string; display_name: string }[]);
   };
 
+  // CNUcare 사용자를 이 행사에 연결(event_members 추가) — 연결되면 그 사람 행사 목록에 뜨고 신청 알림을 받는다.
+  const connectMember = async (userId: string, displayName: string) => {
+    if (members.some((m) => m.user_id === userId)) {
+      alert(`${displayName}님은 이미 연결되어 있습니다.`);
+      return;
+    }
+    const { data, error } = await supabase
+      .from("event_members")
+      .insert({ event_id: eventId, user_id: userId })
+      .select("id")
+      .single();
+    if (error || !data) { alert("연결에 실패했어요: " + (error?.message || "")); return; }
+    setMembers((prev) => [...prev, { id: data.id, user_id: userId, display_name: displayName }]);
+    setConnectSearch("");
+  };
+
   // 이미지·엑셀 파일 → 참석자 일괄 추가 (행사 생성 때와 동일한 추출 흐름)
   const handleRosterUpload = async (files: FileList | null) => {
     if (!files || files.length === 0 || rosterUploading) return;
     setRosterUploading(true);
     try {
       const { images, sheets, skipped } = await parseFiles(files);
-      if (skipped.length) alert(`지원하지 않는 파일 제외: ${skipped.join(", ")} (이미지·엑셀·CSV만)`);
+      if (skipped.length) alert(`처리할 수 없는 파일 제외: ${skipped.join(", ")}`);
       if (images.length === 0 && sheets.length === 0) return;
 
       const res = await fetch("/api/extract-roster", {
@@ -2717,76 +2768,63 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
               </div>
             </div>
 
-            {/* 포스터 */}
+            {/* 연결된 담당자 */}
             <div className="bg-white rounded-lg border border-gray-200 p-4">
-              <p className="text-sm font-medium text-gray-700 mb-1">포스터</p>
-              <p className="text-xs text-gray-500 mb-3">신청 페이지 상단에 표시됩니다.</p>
-              {event?.poster_url ? (
-                <div className="space-y-2">
-                  <img src={event.poster_url} alt="행사 포스터" className="w-full rounded-lg border border-gray-200" />
-                  <div className="flex gap-2">
-                    <label className={`flex-1 cursor-pointer border border-gray-300 text-gray-700 rounded-lg py-2 text-sm text-center hover:bg-gray-50 ${posterUploading ? "opacity-50 pointer-events-none" : ""}`}>
-                      {posterUploading ? "업로드 중..." : "교체"}
-                      <input type="file" accept="image/*" className="hidden" disabled={posterUploading}
-                        onChange={async (e) => {
-                          const f = e.target.files?.[0]; if (!f || !event) return;
-                          setPosterUploading(true);
-                          try {
-                            const blob = await resizeImage(f);
-                            const path = `${eventId}/${Date.now()}.jpg`;
-                            const { error: upErr } = await supabase.storage.from("event-posters").upload(path, blob, { contentType: "image/jpeg", upsert: true });
-                            if (upErr) throw upErr;
-                            const publicUrl = supabase.storage.from("event-posters").getPublicUrl(path).data.publicUrl;
-                            const oldPath = event.poster_url?.split("/event-posters/")[1];
-                            if (oldPath && oldPath !== path) await supabase.storage.from("event-posters").remove([oldPath]).catch(() => {});
-                            const { error: dbErr } = await supabase.from("events").update({ poster_url: publicUrl }).eq("id", eventId);
-                            if (dbErr) throw dbErr;
-                            setEvent({ ...event, poster_url: publicUrl });
-                          } catch (err: any) {
-                            alert("업로드 실패: " + (err?.message || "알 수 없는 오류"));
-                          } finally {
-                            setPosterUploading(false);
-                            e.target.value = "";
-                          }
-                        }} />
-                    </label>
-                    <button disabled={posterUploading}
-                      onClick={async () => {
-                        if (!event?.poster_url) return;
-                        if (!confirm("포스터를 삭제할까요?")) return;
-                        const path = event.poster_url.split("/event-posters/")[1];
-                        if (path) await supabase.storage.from("event-posters").remove([path]).catch(() => {});
-                        await supabase.from("events").update({ poster_url: null }).eq("id", eventId);
-                        setEvent({ ...event, poster_url: null });
-                      }}
-                      className="flex-1 bg-red-50 text-red-600 rounded-lg py-2 text-sm disabled:opacity-50">삭제</button>
-                  </div>
+              <p className="text-sm font-medium text-gray-700 mb-1">연결된 담당자</p>
+              <p className="text-xs text-gray-500 mb-3">연결된 사람은 자기 행사 목록에 이 행사가 보이고, 신청 알림을 받습니다.</p>
+              {members.length > 0 ? (
+                <div className="flex flex-wrap gap-1.5 mb-3">
+                  {members.map((m) => (
+                    <span key={m.id} className="text-xs bg-gray-100 text-gray-700 px-2.5 py-1 rounded-full">{m.display_name}</span>
+                  ))}
                 </div>
               ) : (
-                <label className={`block w-full border-2 border-dashed border-gray-300 rounded-lg py-8 text-center text-sm cursor-pointer hover:border-blue-400 hover:text-blue-500 ${posterUploading ? "text-gray-400 pointer-events-none" : "text-gray-500"}`}>
-                  {posterUploading ? "업로드 중..." : "+ 이미지 선택"}
-                  <input type="file" accept="image/*" className="hidden" disabled={posterUploading}
-                    onChange={async (e) => {
-                      const f = e.target.files?.[0]; if (!f || !event) return;
-                      setPosterUploading(true);
-                      try {
-                        const blob = await resizeImage(f);
-                        const path = `${eventId}/${Date.now()}.jpg`;
-                        const { error: upErr } = await supabase.storage.from("event-posters").upload(path, blob, { contentType: "image/jpeg", upsert: true });
-                        if (upErr) throw upErr;
-                        const publicUrl = supabase.storage.from("event-posters").getPublicUrl(path).data.publicUrl;
-                        const { error: dbErr } = await supabase.from("events").update({ poster_url: publicUrl }).eq("id", eventId);
-                        if (dbErr) throw dbErr;
-                        setEvent({ ...event, poster_url: publicUrl });
-                      } catch (err: any) {
-                        alert("업로드 실패: " + (err?.message || "알 수 없는 오류"));
-                      } finally {
-                        setPosterUploading(false);
-                        e.target.value = "";
-                      }
-                    }} />
-                </label>
+                <p className="text-xs text-gray-400 mb-3">아직 연결된 사람이 없습니다.</p>
               )}
+              {showConnectSearch && (
+                <div className="space-y-1 mb-2">
+                  <input autoFocus value={connectSearch} onChange={(e) => setConnectSearch(e.target.value)}
+                    placeholder="씨엔유 케어 사용자 이름 검색"
+                    className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:border-blue-400" />
+                  {connectSearch.trim() && (() => {
+                    const kw = connectSearch.trim();
+                    const found = allUsers
+                      .filter((u) => u.display_name.includes(kw) && !members.some((m) => m.user_id === u.id))
+                      .slice(0, 20);
+                    return found.length > 0 ? (
+                      <div className="max-h-40 overflow-y-auto border border-gray-200 rounded-lg divide-y divide-gray-100">
+                        {found.map((u) => (
+                          <button key={u.id} onClick={() => connectMember(u.id, u.display_name)}
+                            className="block w-full text-left px-3 py-2 text-sm hover:bg-blue-50">
+                            {u.display_name} <span className="text-xs text-blue-500">연결</span>
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-gray-400 px-1">검색 결과가 없어요. (이미 연결됐거나 가입 전일 수 있어요)</p>
+                    );
+                  })()}
+                </div>
+              )}
+              <div className="flex gap-2">
+                <button
+                  onClick={async () => {
+                    if (!showConnectSearch) await loadAllUsers();
+                    setShowConnectSearch(!showConnectSearch);
+                    setConnectSearch("");
+                  }}
+                  className={`flex-1 rounded-lg py-2 text-sm font-medium ${showConnectSearch ? "border border-gray-300 text-gray-500" : "bg-blue-600 text-white"}`}>
+                  {showConnectSearch ? "검색 닫기" : "+ 담당자 연결"}
+                </button>
+                <button
+                  onClick={async () => {
+                    const nm = event?.name || "행사";
+                    const msg = `[씨엔유 케어] '${nm}' 행사에 참가해 주세요!\n${publicBase()}\n로그인 후 [+ 행사 추가 → 기존 행사 참가]에서 "${nm}" 입력하면 연결됩니다.`;
+                    await navigator.clipboard.writeText(msg);
+                    alert("참가 안내가 복사되었습니다. 담당자에게 붙여넣어 보내세요.");
+                  }}
+                  className="flex-1 border border-gray-300 text-gray-700 rounded-lg py-2 text-sm">참가 안내 복사</button>
+              </div>
             </div>
 
             {/* 학교별 명단 공유 */}
@@ -2996,6 +3034,9 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
             {regPreview ? (
               /* 미리보기 */
               <div className="space-y-3 border border-gray-200 rounded-lg p-4 bg-gray-50">
+                {event?.poster_url && (
+                  <img src={event.poster_url} alt="행사 포스터" className="w-full rounded-lg border border-gray-200" />
+                )}
                 {regDescription.trim() && (
                   <p className="text-sm text-gray-700 whitespace-pre-wrap border-b border-gray-200 pb-3">{regDescription}</p>
                 )}
@@ -3028,6 +3069,29 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
             ) : (
               /* 편집 */
               <div className="space-y-3">
+                {/* 포스터 */}
+                <div className="bg-gray-50 rounded-lg p-3 space-y-1">
+                  <label className="text-xs text-gray-500 font-medium">포스터 (선택)</label>
+                  <p className="text-[10px] text-gray-400">신청 페이지 맨 위에 표시되는 이미지입니다.</p>
+                  {event?.poster_url ? (
+                    <div className="space-y-2">
+                      <img src={event.poster_url} alt="행사 포스터" className="w-full rounded-lg border border-gray-200" />
+                      <div className="flex gap-2">
+                        <label className={`flex-1 cursor-pointer border border-gray-300 text-gray-700 rounded-lg py-2 text-sm text-center bg-white hover:bg-gray-100 ${posterUploading ? "opacity-50 pointer-events-none" : ""}`}>
+                          {posterUploading ? "업로드 중..." : "교체"}
+                          <input type="file" accept="image/*" className="hidden" disabled={posterUploading} onChange={handlePosterUpload} />
+                        </label>
+                        <button disabled={posterUploading} onClick={handlePosterDelete}
+                          className="flex-1 bg-red-50 text-red-600 rounded-lg py-2 text-sm disabled:opacity-50">삭제</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <label className={`block w-full border-2 border-dashed border-gray-300 rounded-lg py-6 text-center text-sm cursor-pointer bg-white hover:border-blue-400 hover:text-blue-500 ${posterUploading ? "text-gray-400 pointer-events-none" : "text-gray-500"}`}>
+                      {posterUploading ? "업로드 중..." : "+ 이미지 선택"}
+                      <input type="file" accept="image/*" className="hidden" disabled={posterUploading} onChange={handlePosterUpload} />
+                    </label>
+                  )}
+                </div>
                 {/* 폼 설명 (소개글) */}
                 <div className="bg-gray-50 rounded-lg p-3 space-y-1">
                   <label className="text-xs text-gray-500 font-medium">폼 설명 (선택)</label>
