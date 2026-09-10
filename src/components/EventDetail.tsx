@@ -293,8 +293,19 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
   type DupSuspect = {
     attendeeId: string; name: string; summary: string; isLife: boolean; lifeManager: string | null;
     matchType?: "phone" | "name"; // phone=이름+번호 일치(확정 중복,빨강) / name=이름만(의심,주황)
-    cnuEvents: { eventName: string; how: string; status: string | null }[];
-    progenEvents: { event: string; kind: string; date: string | null }[];
+    // 이 행사 신청 정보 + 겹친 쪽 신청 당시 정보 — 상세 팝업에서 동일인 비교용
+    self?: { phone: string | null; school: string | null; department: string | null; year: number | null };
+    lifePhone?: string | null;
+    cnuEvents: {
+      eventName: string; how: string; status: string | null;
+      school?: string | null; department?: string | null; year?: number | null;
+      phone?: string | null; phoneMatch?: boolean;
+    }[];
+    progenEvents: {
+      event: string; kind: string; date: string | null;
+      school?: string | null; major?: string | null; grade?: string | number | null;
+      phone?: string | null; phoneMatch?: boolean;
+    }[];
   };
   const [dupSuspects, setDupSuspects] = useState<DupSuspect[]>([]);
   const [dupConfirming, setDupConfirming] = useState<string | null>(null);
@@ -3868,6 +3879,11 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                   : <span className="ml-1.5 text-[11px] font-bold text-amber-600">의심</span>}
                 {dupDetail.isLife && <span className="ml-1.5 text-[11px] font-bold text-rose-600">생명</span>}
                 <p className="text-xs text-gray-400">{dupDetail.matchType === "phone" ? "이름+번호까지 일치 — 같은 사람" : "이름만 일치 — 동명이인일 수 있음"}</p>
+                {(() => {
+                  const s = dupDetail.self;
+                  const info = s ? [s.school, s.department, s.year ? `${s.year}학년` : null, s.phone].filter(Boolean).join(" · ") : "";
+                  return info ? <p className="text-[11px] text-gray-600 mt-0.5">이 행사 신청: {info}</p> : null;
+                })()}
               </div>
               <button onClick={() => setDupDetail(null)} className="text-gray-400 text-xl leading-none px-1">&times;</button>
             </div>
@@ -3876,7 +3892,7 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
               {dupDetail.isLife && (
                 <div className="rounded-lg bg-rose-50 border border-rose-100 px-3 py-2">
                   <p className="text-sm font-semibold text-rose-700">이미 우리 생명</p>
-                  <p className="text-xs text-rose-500 mt-0.5">말씀을 전하거나 듣고 있는 사람{dupDetail.lifeManager ? ` · 담당 전도자 ${dupDetail.lifeManager}` : ""}</p>
+                  <p className="text-xs text-rose-500 mt-0.5">말씀을 전하거나 듣고 있는 사람{dupDetail.lifeManager ? ` · 담당 전도자 ${dupDetail.lifeManager}` : ""}{dupDetail.lifePhone ? ` · ${dupDetail.lifePhone}` : ""}</p>
                 </div>
               )}
 
@@ -3886,12 +3902,27 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                   <p className="text-xs text-gray-400">없음</p>
                 ) : (
                   <div className="space-y-1.5">
-                    {dupDetail.cnuEvents.map((e, i) => (
-                      <div key={i} className="flex items-center justify-between gap-2 rounded-lg border border-gray-150 bg-gray-50 px-3 py-2">
-                        <span className="text-sm font-medium text-gray-800 min-w-0 truncate">{e.eventName}</span>
-                        <span className="shrink-0 text-[11px] text-gray-500">{e.how}{e.status ? ` · ${e.status}` : ""}</span>
-                      </div>
-                    ))}
+                    {dupDetail.cnuEvents.map((e, i) => {
+                      const info = [e.school, e.department, e.year ? `${e.year}학년` : null].filter(Boolean).join(" · ");
+                      return (
+                        <div key={i} className="rounded-lg border border-gray-150 bg-gray-50 px-3 py-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-sm font-medium text-gray-800 min-w-0 truncate">{e.eventName}</span>
+                            <span className="shrink-0 text-[11px] text-gray-500">{e.how}{e.status ? ` · ${e.status}` : ""}</span>
+                          </div>
+                          <div className="mt-0.5 flex items-center justify-between gap-2">
+                            <span className="text-[11px] text-gray-600 min-w-0 truncate">{[info, e.phone].filter(Boolean).join(" · ") || "신청 정보 없음"}</span>
+                            {e.phone ? (
+                              e.phoneMatch
+                                ? <span className="shrink-0 text-[10px] font-bold text-red-600">번호 일치</span>
+                                : dupDetail.self?.phone
+                                  ? <span className="shrink-0 text-[10px] font-medium text-gray-400">번호 다름</span>
+                                  : null
+                            ) : <span className="shrink-0 text-[10px] text-gray-400">번호 없음</span>}
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -3902,12 +3933,28 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                   <p className="text-xs text-gray-400">없음</p>
                 ) : (
                   <div className="space-y-1.5">
-                    {dupDetail.progenEvents.map((e, i) => (
-                      <div key={i} className="flex items-center justify-between gap-2 rounded-lg border border-gray-150 bg-gray-50 px-3 py-2">
-                        <span className="text-sm font-medium text-gray-800 min-w-0 truncate">{e.event}</span>
-                        <span className="shrink-0 text-[11px] text-gray-500">{e.kind}{e.date ? ` · ${e.date}` : ""}</span>
-                      </div>
-                    ))}
+                    {dupDetail.progenEvents.map((e, i) => {
+                      const grade = e.grade ? (String(e.grade).includes("학년") ? String(e.grade) : `${e.grade}학년`) : null;
+                      const info = [e.school, e.major, grade].filter(Boolean).join(" · ");
+                      return (
+                        <div key={i} className="rounded-lg border border-gray-150 bg-gray-50 px-3 py-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-sm font-medium text-gray-800 min-w-0 truncate">{e.event}</span>
+                            <span className="shrink-0 text-[11px] text-gray-500">{e.kind}{e.date ? ` · ${e.date}` : ""}</span>
+                          </div>
+                          <div className="mt-0.5 flex items-center justify-between gap-2">
+                            <span className="text-[11px] text-gray-600 min-w-0 truncate">{[info, e.phone].filter(Boolean).join(" · ") || "신청 정보 없음"}</span>
+                            {e.phone ? (
+                              e.phoneMatch
+                                ? <span className="shrink-0 text-[10px] font-bold text-red-600">번호 일치</span>
+                                : dupDetail.self?.phone
+                                  ? <span className="shrink-0 text-[10px] font-medium text-gray-400">번호 다름</span>
+                                  : null
+                            ) : <span className="shrink-0 text-[10px] text-gray-400">번호 없음</span>}
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>

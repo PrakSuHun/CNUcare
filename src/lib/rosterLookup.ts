@@ -36,10 +36,11 @@ interface AttendeeRec {
   eventId: string; eventName: string; name: string; nameKey: string; phoneKey: string;
   isMember: boolean; team: string | null; status: string | null;
   managerId: string | null; lifeId: string | null;
+  phone: string | null; school: string | null; department: string | null; year: number | null;
 }
 // 팀 문자열 정규화 (공백 제거)
 const normTeam = (t: string | null | undefined) => String(t ?? "").replace(/\s+/g, "");
-interface LifeRec { name: string; managerId: string | null; }
+interface LifeRec { name: string; managerId: string | null; phone: string | null; }
 interface CnuIndex {
   attendees: AttendeeRec[];
   managersByEvent: Map<string, string[]>;
@@ -59,7 +60,7 @@ async function loadIndex(): Promise<CnuIndex> {
   if (cache && Date.now() - cacheAt < TTL) return cache;
   const s = db();
   const [ea, em, us, lv] = await Promise.all([
-    s.from("event_attendees").select("name,phone,is_member,team,status,manager_id,life_id,event_id,events(name)"),
+    s.from("event_attendees").select("name,phone,is_member,team,status,manager_id,life_id,event_id,school,department,year,events(name)"),
     s.from("event_members").select("event_id, users(display_name, role)"),
     s.from("users").select("id, display_name"),
     s.from("lives").select("name, phone, primary_user_id"),
@@ -106,12 +107,16 @@ async function loadIndex(): Promise<CnuIndex> {
     status: (r.status as string) || null,
     managerId: (r.manager_id as string) || null,
     lifeId: (r.life_id as string) || null,
+    phone: (r.phone as string) || null,
+    school: (r.school as string) || null,
+    department: (r.department as string) || null,
+    year: typeof r.year === "number" ? r.year : null,
   }));
 
   const livesByPhone = new Map<string, LifeRec>();
   const livesByName = new Map<string, LifeRec>();
   for (const p of (lv.data ?? []) as Record<string, unknown>[]) {
-    const rec: LifeRec = { name: String(p.name ?? ""), managerId: (p.primary_user_id as string) || null };
+    const rec: LifeRec = { name: String(p.name ?? ""), managerId: (p.primary_user_id as string) || null, phone: (p.phone as string) || null };
     const pk = normalizePhone(p.phone);
     const nk = normalizeName(p.name);
     if (isUsablePhone(pk)) livesByPhone.set(pk, rec);
@@ -185,6 +190,7 @@ interface ProgenRow {
   name: string; phone: string; kind: string; role: string | null;
   event: string; event_date: string | null; team: string | null;
   status: string | null; registered_at: string | null;
+  school: string | null; major: string | null; grade: string | number | null;
 }
 interface ProgenIndex {
   byPhone: Map<string, ProgenRow[]>;
@@ -439,15 +445,28 @@ export async function lookupOnePerson(
 }
 
 // ── 행사탭용: 이 행사 참여자 중 중복 의심자 목록 ──────────
+// 겹친 쪽 신청 당시의 학교·학과·번호를 함께 내려서, 의심(이름만 일치) 건도
+// 상세 팝업에서 바로 동일인 여부를 판단할 수 있게 한다.
 export interface EventDupSuspect {
   attendeeId: string;
   name: string;
   summary: string;            // "빵끗 · 프로젠 템플스테이(크루)" 형태 (배너 한 줄용)
+  // 이 행사에 신청한 본인 정보 (비교 기준)
+  self: { phone: string | null; school: string | null; department: string | null; year: number | null };
   isLife: boolean;
   lifeManager: string | null; // 생명이면 담당 전도자
+  lifePhone: string | null;   // 생명 명단의 전화 (비교용)
   matchType: "phone" | "name"; // phone=이름+번호 일치(확정 중복) / name=이름만 일치(동명이인 의심)
-  cnuEvents: { eventName: string; how: string; status: string | null }[]; // 겹친 다른 CNU 행사
-  progenEvents: { event: string; kind: string; date: string | null }[];   // 프로젠 참여 이력
+  cnuEvents: {                // 겹친 다른 CNU 행사 — 그 행사 신청 당시 정보 포함
+    eventName: string; how: string; status: string | null;
+    school: string | null; department: string | null; year: number | null;
+    phone: string | null; phoneMatch: boolean;
+  }[];
+  progenEvents: {             // 프로젠 참여 이력 — 프로젠 기록의 정보 포함
+    event: string; kind: string; date: string | null;
+    school: string | null; major: string | null; grade: string | number | null;
+    phone: string | null; phoneMatch: boolean;
+  }[];
 }
 
 // 원회원 행사: 다른 일회성 행사에서 유입돼 월명 사이트로 가입하면 원회원이 되는 "멤버십" 행사.
@@ -463,10 +482,10 @@ export async function lookupEventDuplicates(
   const [idx, pg, rows, evRow] = await Promise.all([
     loadIndex(),
     loadProgen(),
-    s.from("event_attendees").select("id, name, phone, is_member, memo").eq("event_id", eventId),
+    s.from("event_attendees").select("id, name, phone, is_member, memo, school, department, year").eq("event_id", eventId),
     s.from("events").select("name").eq("id", eventId).single(),
   ]);
-  const attendees = (rows.data ?? []) as { id: string; name: string; phone: string | null; is_member: boolean; memo: string | null }[];
+  const attendees = (rows.data ?? []) as { id: string; name: string; phone: string | null; is_member: boolean; memo: string | null; school: string | null; department: string | null; year: number | null }[];
   const isWonMember = (evRow.data as { name?: string } | null)?.name === WON_MEMBER_EVENT_NAME;
 
   const out: EventDupSuspect[] = [];
@@ -481,23 +500,36 @@ export async function lookupEventDuplicates(
     // 이름이 겹친 상대 중 "번호까지 같은" 사람이 하나라도 있으면 확정 중복(phone).
     let phoneMatch = false;
 
-    // 다른 CNU 행사 (이 행사 제외, 행사명 중복 제거 — 대표 상태 하나 유지)
-    const cnuMap = new Map<string, { eventName: string; how: string; status: string | null }>();
+    // 다른 CNU 행사 (이 행사 제외, 행사명 중복 제거 — 번호 일치 기록을 우선 유지)
+    const cnuMap = new Map<string, EventDupSuspect["cnuEvents"][number]>();
     for (const at of idx.attendees) {
       if (at.eventId === eventId) continue;
       if (at.nameKey !== nk) continue;
-      if (hasPhone && at.phoneKey === myPhone) phoneMatch = true;
-      if (!cnuMap.has(at.eventName))
-        cnuMap.set(at.eventName, { eventName: at.eventName, how: at.isMember ? "섭리회원" : "게스트", status: at.status });
+      const rowMatch = hasPhone && at.phoneKey === myPhone;
+      if (rowMatch) phoneMatch = true;
+      const prev = cnuMap.get(at.eventName);
+      if (!prev || (rowMatch && !prev.phoneMatch))
+        cnuMap.set(at.eventName, {
+          eventName: at.eventName, how: at.isMember ? "섭리회원" : "게스트", status: at.status,
+          school: at.school, department: at.department, year: at.year,
+          phone: at.phone, phoneMatch: rowMatch,
+        });
     }
     const cnuEvents = [...cnuMap.values()];
-    // 프로젠 (행사명 중복 제거)
+    // 프로젠 (행사명 중복 제거 — 번호 일치 기록을 우선 유지)
     const progenRows = pg ? (pg.byName.get(nk) ?? []) : [];
-    const pgMap = new Map<string, { event: string; kind: string; date: string | null }>();
+    const pgMap = new Map<string, EventDupSuspect["progenEvents"][number]>();
     for (const r of progenRows) {
-      if (hasPhone && normalizePhone(r.phone) === myPhone) phoneMatch = true;
-      if (!r.event || pgMap.has(r.event)) continue;
-      pgMap.set(r.event, { event: r.event, kind: r.kind, date: r.event_date ? String(r.event_date).slice(0, 10) : null });
+      const rowMatch = hasPhone && normalizePhone(r.phone) === myPhone;
+      if (rowMatch) phoneMatch = true;
+      if (!r.event) continue;
+      const prev = pgMap.get(r.event);
+      if (!prev || (rowMatch && !prev.phoneMatch))
+        pgMap.set(r.event, {
+          event: r.event, kind: r.kind, date: r.event_date ? String(r.event_date).slice(0, 10) : null,
+          school: r.school ?? null, major: r.major ?? null, grade: r.grade ?? null,
+          phone: r.phone || null, phoneMatch: rowMatch,
+        });
     }
     const progenEvents = [...pgMap.values()];
     // 생명
@@ -529,8 +561,10 @@ export async function lookupEventDuplicates(
       attendeeId: a.id,
       name: a.name,
       summary: parts.join(" · "),
+      self: { phone: a.phone, school: a.school, department: a.department, year: a.year },
       isLife: !!life,
       lifeManager,
+      lifePhone: life?.phone ?? null,
       matchType: phoneMatch ? "phone" : "name",
       cnuEvents,
       progenEvents,
