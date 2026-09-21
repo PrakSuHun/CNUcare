@@ -3,6 +3,7 @@
 // 기본 항목(이름·성별·학과·학년·연락처·학교·친구·메모)에 매칭하고, 없는 컬럼은 custom(항목 생성)으로 보존.
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { tryCodex } from "./codexBridge";
+import { formatPhoneIfNumeric } from "./phone";
 
 export type Attendee = {
   name: string;
@@ -90,7 +91,7 @@ function parseAttendeeJson(txt: string): Attendee[] {
   return arr.filter((x) => x && String(x.name || "").trim()).map((x) => {
     const { name, note } = splitNameNote(x.name); // 이름 옆 괄호/기호 → 메모
     const a: Attendee = { name };
-    if (x.phone) a.phone = String(x.phone).trim();
+    if (x.phone) a.phone = formatPhoneIfNumeric(String(x.phone));
     if (x.gender) a.gender = String(x.gender).trim();
     if (x.department) a.department = String(x.department).trim();
     if (x.school) a.school = String(x.school).trim();

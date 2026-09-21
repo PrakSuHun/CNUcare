@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { getUser } from "@/lib/auth";
 import { parseFiles } from "@/lib/parseUpload";
-import { formatPhone } from "@/lib/phone";
+import { formatPhone, formatPhoneIfNumeric } from "@/lib/phone";
 import { convertAttendeeToLife } from "@/lib/convertLife";
 import * as XLSX from "xlsx";
 
@@ -39,14 +39,14 @@ function InlineTextarea({ value, onCommit, className, placeholder, rows }: {
       onBlur={() => { focused.current = false; if (local !== value) onCommit(local); }} />
   );
 }
-function InlineInput({ value, onCommit, className, placeholder }: {
-  value: string; onCommit: (v: string) => void; className?: string; placeholder?: string;
+function InlineInput({ value, onCommit, className, placeholder, type }: {
+  value: string; onCommit: (v: string) => void; className?: string; placeholder?: string; type?: string;
 }) {
   const [local, setLocal] = useState(value);
   const focused = useRef(false);
   useEffect(() => { if (!focused.current) setLocal(value); }, [value]);
   return (
-    <input type="text" value={local} placeholder={placeholder} className={className}
+    <input type={type || "text"} value={local} placeholder={placeholder} className={className}
       onFocus={() => { focused.current = true; }}
       onChange={(e) => setLocal(e.target.value)}
       onBlur={() => { focused.current = false; if (local !== value) onCommit(local); }} />
@@ -1478,19 +1478,19 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
             <div className="grid grid-cols-2 gap-1.5">
               <div>
                 <span className="text-[10px] text-gray-400">학교</span>
-                <input type="text" value={a.school || ""} onChange={(e) => updateAttendeeField(a.id, "school", e.target.value || null)}
+                <InlineInput value={a.school || ""} onCommit={(v) => updateAttendeeField(a.id, "school", v || null)}
                   placeholder="학교" className="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:border-blue-400" />
               </div>
               <div>
                 <span className="text-[10px] text-gray-400">학과</span>
-                <input type="text" value={a.department || ""} onChange={(e) => updateAttendeeField(a.id, "department", e.target.value || null)}
+                <InlineInput value={a.department || ""} onCommit={(v) => updateAttendeeField(a.id, "department", v || null)}
                   placeholder="학과" className="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:border-blue-400" />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-1.5">
               <div>
                 <span className="text-[10px] text-gray-400">연락처</span>
-                <input type="tel" value={a.phone || ""} onChange={(e) => updateAttendeeField(a.id, "phone", e.target.value || null)}
+                <InlineInput type="tel" value={a.phone || ""} onCommit={(v) => updateAttendeeField(a.id, "phone", formatPhoneIfNumeric(v) || null)}
                   placeholder="연락처" className="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:border-blue-400" />
               </div>
               <div></div>
@@ -2299,19 +2299,19 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                                 <div className="grid grid-cols-2 gap-1.5">
                                   <div>
                                     <span className="text-[10px] text-gray-400">학교</span>
-                                    <input type="text" value={a.school || ""} onChange={(e) => updateAttendeeField(a.id, "school", e.target.value || null)}
+                                    <InlineInput value={a.school || ""} onCommit={(v) => updateAttendeeField(a.id, "school", v || null)}
                                       placeholder="학교" className="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:border-blue-400" />
                                   </div>
                                   <div>
                                     <span className="text-[10px] text-gray-400">학과</span>
-                                    <input type="text" value={a.department || ""} onChange={(e) => updateAttendeeField(a.id, "department", e.target.value || null)}
+                                    <InlineInput value={a.department || ""} onCommit={(v) => updateAttendeeField(a.id, "department", v || null)}
                                       placeholder="학과" className="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:border-blue-400" />
                                   </div>
                                 </div>
                                 <div className="grid grid-cols-2 gap-1.5">
                                   <div>
                                     <span className="text-[10px] text-gray-400">연락처</span>
-                                    <input type="tel" value={a.phone || ""} onChange={(e) => updateAttendeeField(a.id, "phone", e.target.value || null)}
+                                    <InlineInput type="tel" value={a.phone || ""} onCommit={(v) => updateAttendeeField(a.id, "phone", formatPhoneIfNumeric(v) || null)}
                                       placeholder="연락처" className="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:border-blue-400" />
                                   </div>
                                   <div></div>
@@ -3526,7 +3526,7 @@ export default function EventDetail({ eventId, basePath }: EventDetailProps) {
                   placeholder="학교" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400" />
                 <input type="text" value={newAttendeeDept} onChange={(e) => setNewAttendeeDept(e.target.value)}
                   placeholder="학과" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400" />
-                <input type="tel" value={newAttendeePhone} onChange={(e) => setNewAttendeePhone(e.target.value)}
+                <input type="tel" value={newAttendeePhone} onChange={(e) => setNewAttendeePhone(formatPhoneIfNumeric(e.target.value))}
                   placeholder="연락처" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400" />
                 <input type="text" value={newAttendeeFriend} onChange={(e) => setNewAttendeeFriend(e.target.value)}
                   placeholder="함께 신청한 친구 (쉼표로 구분)" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400" />

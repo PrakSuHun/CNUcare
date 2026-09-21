@@ -20,3 +20,11 @@ export function formatPhone(raw: string): string {
   if (d.length <= 10) return `${d.slice(0, 3)}-${d.slice(3, 6)}-${d.slice(6)}`;
   return `${d.slice(0, 3)}-${d.slice(3, 7)}-${d.slice(7, 11)}`;
 }
+
+// 숫자(공백·하이픈 포함)로만 된 값일 때만 포맷한다.
+// 연락처 칸에 인스타 아이디·메모("? " 등)를 적는 경우가 있어 그런 값은 그대로 둔다.
+export function formatPhoneIfNumeric(raw: string): string {
+  const t = (raw || "").trim();
+  if (!t || !/^[\d\s-]+$/.test(t)) return t;
+  return formatPhone(t);
+}

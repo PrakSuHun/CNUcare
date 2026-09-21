@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
+import { formatPhoneIfNumeric } from "@/lib/phone";
 import { useParams } from "next/navigation";
 
 interface FormField {
@@ -208,7 +209,7 @@ export default function RegisterPage() {
             {f.type === "text" && (
               <input type={f.id === "phone" ? "tel" : "text"}
                 value={answers[f.id] || ""}
-                onChange={(e) => setAnswers((prev) => ({ ...prev, [f.id]: e.target.value }))}
+                onChange={(e) => setAnswers((prev) => ({ ...prev, [f.id]: f.id === "phone" ? formatPhoneIfNumeric(e.target.value) : e.target.value }))}
                 placeholder={f.label}
                 className="w-full rounded-lg border border-gray-300 px-4 py-3 text-base" />
             )}
