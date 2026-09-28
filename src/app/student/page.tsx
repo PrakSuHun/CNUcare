@@ -51,7 +51,8 @@ export default function StudentPage() {
     const linkedIds = (uls || []).map((u: any) => u.life_id);
     let query = supabase
       .from("lives")
-      .select("id, name, stage, is_failed, updated_at, memo");
+      .select("id, name, stage, is_failed, updated_at, memo")
+      .eq("is_hidden", false);
     if (linkedIds.length > 0) {
       query = query.or(`primary_user_id.eq.${userId},id.in.(${linkedIds.join(",")})`);
     } else {

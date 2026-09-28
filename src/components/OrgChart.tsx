@@ -133,7 +133,8 @@ export default function OrgChart({ userRole, userId, basePath, editMode: externa
       supabase.from("users").select("id, display_name, manager_id").eq("role", "student").eq("is_placeholder", false).order("display_name"),
       supabase
         .from("lives")
-        .select("id, name, age, department, stage, is_failed, last_met_at, memo, primary_user_id, created_at"),
+        .select("id, name, age, department, stage, is_failed, last_met_at, memo, primary_user_id, created_at")
+        .eq("is_hidden", false),
     ]);
     const managers = managersRes.data;
     const students = studentsRes.data;

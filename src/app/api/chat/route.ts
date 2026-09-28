@@ -122,7 +122,7 @@ async function generate(
 
     // 일반 채팅: 데이터 요약 + 명단 교차조회 + 대화 맥락
     const [livesRes, usersRes, journalsRes] = await Promise.all([
-      sb.from("lives").select("id, name, stage, is_failed, last_met_at, department, age, mbti").limit(200),
+      sb.from("lives").select("id, name, stage, is_failed, last_met_at, department, age, mbti").eq("is_hidden", false).limit(200),
       sb.from("users").select("id, display_name, role, manager_id").limit(100),
       sb.from("journals").select("life_id, met_date, location, response, purpose").is("deleted_at", null).order("met_date", { ascending: false }).limit(100),
     ]);

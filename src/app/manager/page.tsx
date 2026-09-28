@@ -48,9 +48,10 @@ export default function ManagerPage() {
     if (!user) return;
     const fetchAlerts = async () => {
       // 관리자가 연결된 생명 조회
-      const { data: uls } = await supabase.from("user_lives").select("life_id, lives(id, name, is_failed)").eq("user_id", user.id);
+      const { data: uls } = await supabase.from("user_lives").select("life_id, lives(id, name, is_failed, is_hidden)").eq("user_id", user.id);
       if (!uls) return;
-      const lifeIds = uls.map((ul: any) => ul.life_id);
+      const visible = uls.filter((ul: any) => ul.lives && !ul.lives.is_hidden);
+      const lifeIds = visible.map((ul: any) => ul.life_id);
       const lifeMap = new Map(uls.map((ul: any) => [ul.life_id, ul.lives]));
       if (lifeIds.length === 0) return;
 

@@ -72,7 +72,7 @@ export default function Dashboard() {
 
   const fetchAll = async () => {
     // 모든 생명
-    const { data: lives } = await supabase.from("lives").select("id, name, stage, is_failed, last_met_at, updated_at, primary_user_id");
+    const { data: lives } = await supabase.from("lives").select("id, name, stage, is_failed, last_met_at, updated_at, primary_user_id").eq("is_hidden", false);
 
     if (!lives) { setLoading(false); return; }
 

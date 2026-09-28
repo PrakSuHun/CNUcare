@@ -194,7 +194,7 @@ export default function AnalysisPage() {
     const [jRes, cRes, lRes] = await Promise.all([
       supabase.from("journals").select("life_id").eq("purpose", "lecture").is("deleted_at", null),
       supabase.from("lesson_checks").select("life_id"),
-      supabase.from("lives").select("id, name, stage").eq("is_failed", false).order("name"),
+      supabase.from("lives").select("id, name, stage").eq("is_failed", false).eq("is_hidden", false).order("name"),
     ]);
     const tookLecture = new Set<string>();
     (jRes.data || []).forEach((j: any) => { if (j.life_id) tookLecture.add(j.life_id); });
@@ -240,7 +240,7 @@ export default function AnalysisPage() {
 
   const fetchTargets = async () => {
     if (selectedType === "life") {
-      const { data } = await supabase.from("lives").select("id, name").eq("is_failed", false).order("name");
+      const { data } = await supabase.from("lives").select("id, name").eq("is_failed", false).eq("is_hidden", false).order("name");
       setTargets((data || []).map((l: any) => ({ id: l.id, name: l.name })));
     } else if (selectedType === "student") {
       const { data } = await supabase.from("users").select("id, display_name").eq("role", "student").order("display_name");

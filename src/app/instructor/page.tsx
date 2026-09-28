@@ -20,23 +20,12 @@ interface Life {
   age: number | null;
 }
 
-interface SimilarLife {
-  id: string;
-  name: string;
-  age: number | null;
-  department: string | null;
-}
-
 export default function InstructorPage() {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
   const [lives, setLives] = useState<Life[]>([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<"lives" | "calendar" | "analysis">("lives");
-  const [showAdd, setShowAdd] = useState(false);
-  const [searchName, setSearchName] = useState("");
-  const [searchResults, setSearchResults] = useState<SimilarLife[]>([]);
-  const [searching, setSearching] = useState(false);
 
   useEffect(() => {
     const u = getUser();
@@ -53,11 +42,11 @@ export default function InstructorPage() {
   const fetchLives = async (userId: string) => {
     const { data } = await supabase
       .from("user_lives")
-      .select("life_id, lives(id, name, stage, is_failed, updated_at, department, age)")
+      .select("life_id, lives(id, name, stage, is_failed, is_hidden, updated_at, department, age)")
       .eq("user_id", userId);
 
     if (data) {
-      setLives(data.map((ul: any) => ul.lives as Life).filter(Boolean));
+      setLives(data.map((ul: any) => ul.lives as Life).filter((l: any) => l && !l.is_hidden));
     }
     setLoading(false);
   };
@@ -66,31 +55,6 @@ export default function InstructorPage() {
     if (!user) return;
     if (!confirm("이 생명과의 연결을 해제하시겠습니까?")) return;
     await supabase.from("user_lives").delete().eq("user_id", user.id).eq("life_id", lifeId);
-    fetchLives(user.id);
-  };
-
-  const handleSearch = async () => {
-    if (!searchName.trim()) return;
-    setSearching(true);
-    const { data } = await supabase
-      .from("lives")
-      .select("id, name, age, department")
-      .ilike("name", `%${searchName.trim()}%`)
-      .limit(20);
-    setSearchResults(data || []);
-    setSearching(false);
-  };
-
-  const handleLink = async (lifeId: string) => {
-    if (!user) return;
-    await supabase.from("user_lives").upsert({
-      user_id: user.id,
-      life_id: lifeId,
-      role_in_life: "instructor",
-    }, { onConflict: "user_id,life_id" });
-    setShowAdd(false);
-    setSearchName("");
-    setSearchResults([]);
     fetchLives(user.id);
   };
 
@@ -148,52 +112,15 @@ export default function InstructorPage() {
         <div className="flex items-center justify-between">
           <p className="text-sm font-medium text-gray-700">내 강의 생명 ({activeLives.length})</p>
           <button
-            onClick={() => setShowAdd(!showAdd)}
-            className="text-xs text-blue-500 border border-blue-300 rounded-full px-3 py-1"
+            onClick={() => router.push("/instructor/life/new")}
+            className="text-xs text-white bg-blue-600 rounded-full px-3 py-1"
           >
-            {showAdd ? "취소" : "+ 생명 연결"}
+            + 생명 추가
           </button>
         </div>
 
-        {/* 생명 검색/연결 */}
-        {showAdd && (
-          <div className="bg-white rounded-lg border border-gray-200 p-3 space-y-2">
-            <div className="flex gap-2">
-              <input
-                type="text"
-                placeholder="생명 이름 검색"
-                value={searchName}
-                onChange={(e) => setSearchName(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-                className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
-              />
-              <button
-                onClick={handleSearch}
-                disabled={searching}
-                className="text-sm bg-blue-600 text-white px-4 py-2 rounded-lg disabled:opacity-50"
-              >
-                검색
-              </button>
-            </div>
-            {searchResults.map((life) => (
-              <button
-                key={life.id}
-                onClick={() => handleLink(life.id)}
-                className="w-full text-left bg-gray-50 rounded-lg border border-gray-200 p-3 hover:border-blue-300"
-              >
-                <span className="text-sm font-medium">{life.name}</span>
-                {life.age && <span className="text-xs text-gray-400 ml-2">{life.age}세</span>}
-                {life.department && <span className="text-xs text-gray-400 ml-2">{life.department}</span>}
-              </button>
-            ))}
-            {searchResults.length === 0 && searchName && !searching && (
-              <p className="text-xs text-gray-400 text-center py-2">검색 결과가 없습니다</p>
-            )}
-          </div>
-        )}
-
         {/* 활성 생명 목록 */}
-        {activeLives.length === 0 && !showAdd && (
+        {activeLives.length === 0 && (
           <p className="text-center text-sm text-gray-400 py-8">
             연결된 생명이 없습니다.<br />
             <span className="text-xs">팀원/단장단이 일지에 강의자 이름을 입력하면 자동 연결됩니다.</span>

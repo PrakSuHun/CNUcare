@@ -81,7 +81,7 @@ async function getLifeContext(lifeId: string) {
 async function getStudentContext(studentId: string) {
   const [student, livesRes] = await Promise.all([
     getSb().from("users").select("*").eq("id", studentId).single(),
-    getSb().from("lives").select("*").eq("primary_user_id", studentId),
+    getSb().from("lives").select("*").eq("primary_user_id", studentId).eq("is_hidden", false),
   ]);
   const lives = livesRes.data || [];
   const lifeIds = lives.map((l: any) => l.id);
@@ -97,7 +97,7 @@ async function getManagerContext(managerId: string) {
   ]);
   const studentIds = (students.data || []).map((s: any) => s.id);
   const [livesRes, allJournals] = await Promise.all([
-    getSb().from("lives").select("*").in("primary_user_id", studentIds.length ? studentIds : ["_"]),
+    getSb().from("lives").select("*").in("primary_user_id", studentIds.length ? studentIds : ["_"]).eq("is_hidden", false),
     getSb().from("journals").select("life_id, met_date, response, author_id").is("deleted_at", null).order("met_date", { ascending: false }).limit(200),
   ]);
   const lives = livesRes.data || [];
@@ -115,7 +115,7 @@ async function getManagerContext(managerId: string) {
 // 전체 분석 데이터 수집
 async function getOverallContext() {
   const [lives, users, journals, checks] = await Promise.all([
-    getSb().from("lives").select("id, name, stage, is_failed, last_met_at, created_at"),
+    getSb().from("lives").select("id, name, stage, is_failed, last_met_at, created_at").eq("is_hidden", false),
     getSb().from("users").select("id, display_name, role, manager_id"),
     getSb().from("journals").select("life_id, met_date, purpose").is("deleted_at", null).order("met_date", { ascending: false }).limit(500),
     getSb().from("lesson_checks").select("life_id, lesson_id, is_passed"),
